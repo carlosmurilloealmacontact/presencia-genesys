@@ -1,0 +1,7 @@
+# Dependencias adicionales SOLO para correr la extraccion/backfill en la
+# maquina local (no se instalan en Streamlit Cloud, que solo corre viewer.py).
+-r requirements.txt
+requests
+gspread
+google-auth-oauthlib
+google-auth
