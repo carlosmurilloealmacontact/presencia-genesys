@@ -9,7 +9,7 @@ escribe, y lo cierra - no hay nada que "levantar" como con Postgres/MySQL.
 import sqlite3
 from pathlib import Path
 
-from config import DB_PATH, RETENTION_DIAS
+from config import MASTER_DB_PATH, RETENTION_DIAS
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS segments (
@@ -31,7 +31,8 @@ CREATE INDEX IF NOT EXISTS idx_segments_agente ON segments(agente_id, fecha);
 
 
 def get_connection() -> sqlite3.Connection:
-    db_path = Path(__file__).parent / DB_PATH
+    """Conecta a la base MAESTRA local (extraccion/backfill escriben aqui, no en el export)."""
+    db_path = Path(__file__).parent / MASTER_DB_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)

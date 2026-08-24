@@ -12,18 +12,15 @@ LOCATION_IDS = [
     "4d1a1f46-b39a-4b22-ab9b-ac8f0bb2f9e5",  # AMC - Sede Medellín - Colombia
 ]
 
-import os
-
-# Base maestra local: historial completo (60 dias), nunca se sube a GitHub.
+# Base maestra local: historial completo (60 dias). NUNCA se sube a GitHub
+# (ver .gitignore) - solo la usan extract_presencia.py y backfill_presencia.py.
 MASTER_DB_PATH = "../data/presencia_master.db"
-
-# La extraccion y el backfill siempre escriben en la maestra. El visor lee
-# DB_PATH, que por defecto ES la maestra (uso local) pero en Streamlit Cloud
-# se sobreescribe con la variable de entorno PRESENCIA_DB_PATH para apuntar a
-# la copia recortada (ver export_cloud.py) que si viaja en el repo publico.
-DB_PATH = os.environ.get("PRESENCIA_DB_PATH", MASTER_DB_PATH)
 RETENTION_DIAS = 60
 
-# Copia recortada que se sube al repo de GitHub / Streamlit Cloud.
-CLOUD_EXPORT_PATH = "../data/presencia.db"
+# Copia recortada (ultimos CLOUD_RETENTION_DIAS dias) que SI viaja en el repo
+# de GitHub. El visor (viewer.py) siempre lee este archivo - tanto en tu
+# maquina como en Streamlit Cloud - asi ambos se comportan igual sin
+# necesitar configurar nada aparte en la nube.
+DB_PATH = "../data/presencia.db"
+CLOUD_EXPORT_PATH = DB_PATH
 CLOUD_RETENTION_DIAS = 35
