@@ -1,0 +1,11 @@
+requests
+streamlit
+plotly
+pandas
+playwright
+opencv-python
+pytesseract
+python-dotenv
+gspread
+google-auth-oauthlib
+google-auth
