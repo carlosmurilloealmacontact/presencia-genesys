@@ -27,6 +27,14 @@ CREATE TABLE IF NOT EXISTS segments (
 );
 CREATE INDEX IF NOT EXISTS idx_segments_fecha ON segments(fecha);
 CREATE INDEX IF NOT EXISTS idx_segments_agente ON segments(agente_id, fecha);
+
+CREATE TABLE IF NOT EXISTS turnos (
+    bp TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    hora_inicio TEXT NOT NULL,
+    hora_fin TEXT NOT NULL,
+    PRIMARY KEY (bp, fecha)
+);
 """
 
 
@@ -68,6 +76,26 @@ def replace_range(conn: sqlite3.Connection, fecha_min: str, fecha_max: str, rows
     """Reemplaza todos los tramos dentro de [fecha_min, fecha_max] (permite re-correr sin duplicar)."""
     conn.execute("DELETE FROM segments WHERE fecha BETWEEN ? AND ?", (fecha_min, fecha_max))
     conn.executemany(_INSERT_SQL, rows)
+    conn.commit()
+
+
+def guardar_turnos(conn: sqlite3.Connection, rows: list[dict]) -> None:
+    """
+    Upsert de turnos por (bp, fecha). El archivo fuente solo muestra el mes en
+    curso (se actualiza a mano y no retiene historico), asi que NUNCA se borra
+    lo que ya tenemos - cada corrida solo agrega/reemplaza lo que el archivo
+    trae en ese momento, preservando turnos de meses anteriores ya capturados.
+    """
+    conn.executemany(
+        """
+        INSERT INTO turnos (bp, fecha, hora_inicio, hora_fin)
+        VALUES (:bp, :fecha, :hora_inicio, :hora_fin)
+        ON CONFLICT(bp, fecha) DO UPDATE SET
+            hora_inicio = excluded.hora_inicio,
+            hora_fin = excluded.hora_fin
+        """,
+        rows,
+    )
     conn.commit()
 
 

@@ -43,13 +43,18 @@ def run():
 
     placeholders = ", ".join("?" for _ in columnas)
     export_conn.executemany(f"INSERT INTO segments ({', '.join(columnas)}) VALUES ({placeholders})", filas)
+
+    # Turnos (para Adherencia Horario) - mismo recorte de fecha
+    turnos = master_conn.execute("SELECT * FROM turnos WHERE fecha >= ?", (corte,)).fetchall()
+    export_conn.executemany("INSERT INTO turnos (bp, fecha, hora_inicio, hora_fin) VALUES (?, ?, ?, ?)", turnos)
+
     export_conn.commit()
     export_conn.execute("VACUUM")
     export_conn.close()
     master_conn.close()
 
     tamano_mb = export_path.stat().st_size / (1024 * 1024)
-    print(f"{len(filas)} tramos exportados. Archivo: {tamano_mb:.1f} MB")
+    print(f"{len(filas)} tramos y {len(turnos)} turnos exportados. Archivo: {tamano_mb:.1f} MB")
     if tamano_mb > 95:
         print("AVISO: se está acercando al límite de 100MB de GitHub — considera bajar CLOUD_RETENTION_DIAS.")
 

@@ -52,6 +52,26 @@ def load_jerarquia() -> dict:
     return lookup
 
 
+def load_cedula_a_bp() -> dict:
+    """
+    Mapa cedula -> BP (usuario_gestor_1). El archivo de Sistema de Punto
+    identifica a las personas por cedula, no por BP, asi que este puente
+    permite cruzarlo con nuestros datos de Genesys (que usan BP).
+    """
+    creds = get_google_creds()
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(BASE_SPREADSHEET_ID).worksheet(BASE_SHEET_NAME)
+    rows = sheet.get_all_records()
+
+    lookup = {}
+    for row in rows:
+        cedula = str(row.get("cedula", "")).strip()
+        bp = str(row.get("usuario_gestor_1", "")).strip()
+        if cedula and bp:
+            lookup[cedula] = bp
+    return lookup
+
+
 def numero_agente(agente_nombre: str) -> str:
     """'4853818 - Garcia Rendon Salome' -> '4853818'"""
     return agente_nombre.split(" - ")[0].strip() if " - " in agente_nombre else agente_nombre.strip()
