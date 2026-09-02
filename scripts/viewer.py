@@ -30,7 +30,7 @@ PALETA_ESTADOS = px.colors.qualitative.Alphabet + px.colors.qualitative.Dark24
 CARDS = [
     {"key": "descanso",  "label": "Descanso",             "presence": ["Break"],                                    "meta": 30, "unidad": "dia",    "tipo": "graduada"},
     {"key": "pre_pausa", "label": "Ocupado: Pre Pausa",    "presence": ["Pre Pausa"],                                "meta": 60, "unidad": "dia",    "tipo": "graduada"},
-    {"key": "bano",      "label": "Ausente: Baño",        "presence": ["Baño"],                                     "meta": 20, "unidad": "dia",    "tipo": "graduada"},
+    {"key": "bano",      "label": "Ausente: Baño",        "presence": ["Baño"],                                     "meta": 5,  "unidad": "dia",    "tipo": "graduada"},
     {"key": "dialogo",   "label": "Reunión: Diálogo",     "presence": ["PCA- Diálogo", "Diálogo Diario / 4DX"],     "meta": 15, "unidad": "dia",    "tipo": "graduada"},
     {"key": "lunch",     "label": "Comida: Lunch",         "presence": ["Lunch"],                                    "meta": None, "unidad": "dia",  "tipo": "conteo"},
     {"key": "cdr",       "label": "Reunión: CDR",          "presence": ["CDR"],                                      "meta": 30, "unidad": "semana", "tipo": "graduada"},
@@ -50,6 +50,23 @@ def color_pct(pct: float) -> str:
     if pct < 90:
         return "#eda100"
     return "#1baf7a"
+
+
+def color_uso_turno(pct: float) -> str:
+    """Semáforo estricto para aprovechamiento de turno: <85% rojo, 85-95% amarillo, >=95% verde."""
+    if pct < 85:
+        return "#e24b4a"
+    if pct < 95:
+        return "#eda100"
+    return "#1baf7a"
+
+
+def servicio_tiene_prepausa(servicio: str) -> bool:
+    """Pre Pausa aplica a canales WPP/Chat/RRSS, excepto CHAT AGENCIAS ESP."""
+    s = (servicio or "").upper()
+    if "CHAT AGENCIAS ESP" in s:
+        return False
+    return any(k in s for k in ("WPP", "CHAT", "RRSS"))
 
 
 def sumar_presencias(pivot: pd.DataFrame, presence_list: list[str]) -> pd.Series:
@@ -255,6 +272,114 @@ def calcular_adherencia_horario(vista: pd.DataFrame, turnos: pd.DataFrame) -> pd
     return pd.DataFrame(filas).set_index("agente_id")
 
 
+def calcular_uso_turno(
+    vista: pd.DataFrame, turnos: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, float], dict[tuple[str, str], float]]:
+    """
+    Calcula el % de Uso de Turno (aprovechamiento descontando excesos de pausas).
+    Devuelve:
+      - DataFrame indexado por agente_id con columnas ['uso_turno', 'exceso_prom_min']
+      - dict con metricas globales: {'uso_turno': float, 'exceso_prom_min': float}
+      - dict (agente_id, fecha) -> uso_dia para el detalle diario
+    """
+    columnas_vacias = ["uso_turno", "exceso_prom_min"]
+    if vista.empty:
+        return (
+            pd.DataFrame(columns=["agente_id"] + columnas_vacias).set_index("agente_id"),
+            {"uso_turno": 0.0, "exceso_prom_min": 0.0},
+            {},
+        )
+
+    # 1. Mapa de turnos por (bp, fecha) -> duracion en minutos
+    mapa_turnos = {}
+    if not turnos.empty:
+        for row in turnos.itertuples(index=False):
+            fecha_dt = pd.Timestamp(row.fecha)
+            ini = fecha_dt + pd.to_timedelta(row.hora_inicio)
+            fin = fecha_dt + pd.to_timedelta(row.hora_fin)
+            if fin <= ini:
+                fin += pd.Timedelta(days=1)
+            dur = (fin - ini).total_seconds() / 60.0
+            if dur > 0:
+                mapa_turnos[(str(row.bp).strip(), str(row.fecha))] = dur
+
+    # 2. Agrupacion diaria de pausas y tiempo conectado
+    vista_temp = vista.copy()
+    vista_temp["bp"] = vista_temp["agente"].str.split(" - ").str[0].str.strip()
+
+    conectados = (
+        vista_temp[vista_temp["presence_label"] != "Offline"]
+        .groupby(["agente_id", "fecha"])["duracion_min"]
+        .sum()
+        .to_dict()
+    )
+
+    diario = (
+        vista_temp.groupby(["agente_id", "bp", "servicio", "fecha", "presence_label"])["duracion_min"]
+        .sum()
+        .unstack(fill_value=0.0)
+    )
+
+    filas_dias = []
+    mapa_diario = {}
+
+    for (agente_id, bp, servicio, fecha), row in diario.iterrows():
+        duracion_turno = mapa_turnos.get((bp, fecha))
+        if not duracion_turno or duracion_turno <= 0:
+            duracion_turno = conectados.get((agente_id, fecha), 0.0)
+        if duracion_turno <= 0:
+            duracion_turno = 480.0
+
+        bano = row.get("Baño", 0.0)
+        exceso_bano = max(0.0, bano - 5.0)
+
+        descanso = row.get("Break", 0.0)
+        exceso_break = max(0.0, descanso - 30.0)
+
+        dialogo = row.get("Diálogo Diario / 4DX", 0.0) + row.get("PCA- Diálogo", 0.0)
+        exceso_dialogo = max(0.0, dialogo - 15.0)
+
+        lunch = row.get("Lunch", 0.0)
+        exceso_lunch = lunch  # No autorizada
+
+        pre_pausa = row.get("Pre Pausa", 0.0)
+        meta_pre = 60.0 if servicio_tiene_prepausa(servicio) else 0.0
+        exceso_pre = max(0.0, pre_pausa - meta_pre)
+
+        total_exceso = exceso_bano + exceso_break + exceso_dialogo + exceso_lunch + exceso_pre
+        uso_dia = max(0.0, min(100.0, 100.0 - (100.0 * total_exceso / duracion_turno)))
+
+        mapa_diario[(agente_id, fecha)] = round(float(uso_dia), 1)
+        filas_dias.append({
+            "agente_id": agente_id,
+            "fecha": fecha,
+            "uso_dia": uso_dia,
+            "total_exceso": total_exceso,
+        })
+
+    df_dias = pd.DataFrame(filas_dias)
+    if df_dias.empty:
+        return (
+            pd.DataFrame(columns=["agente_id"] + columnas_vacias).set_index("agente_id"),
+            {"uso_turno": 0.0, "exceso_prom_min": 0.0},
+            {},
+        )
+
+    resumen_agente = df_dias.groupby("agente_id").agg(
+        uso_turno=("uso_dia", "mean"),
+        exceso_prom_min=("total_exceso", "mean")
+    )
+    resumen_agente["uso_turno"] = resumen_agente["uso_turno"].round(1)
+    resumen_agente["exceso_prom_min"] = resumen_agente["exceso_prom_min"].round(1)
+
+    global_kpi = {
+        "uso_turno": round(float(df_dias["uso_dia"].mean()), 1),
+        "exceso_prom_min": round(float(df_dias["total_exceso"].mean()), 1),
+    }
+
+    return resumen_agente, global_kpi, mapa_diario
+
+
 # ── Vista de detalle (linea de tiempo de un agente) ─────────────────────
 
 def render_timeline(df_agente: pd.DataFrame, color_map: dict[str, str]):
@@ -372,6 +497,7 @@ if vista.empty:
 
 turnos_rango = cargar_turnos(fecha_desde, fecha_hasta)
 adherencia_horario = calcular_adherencia_horario(vista, turnos_rango)
+resumen_uso, global_uso, mapa_uso_diario = calcular_uso_turno(vista, turnos_rango)
 
 # ── Tarjetas KPI ─────────────────────────────────────────────────────────
 
@@ -398,13 +524,28 @@ with kpi_cols[0]:
         unsafe_allow_html=True,
     )
 
+with kpi_cols[1]:
+    pct_uso = global_uso["uso_turno"]
+    min_exceso = global_uso["exceso_prom_min"]
+    color_uso = color_uso_turno(pct_uso)
+    st.markdown(
+        f"""
+        <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
+            <p style="color:gray; font-size:13px; margin:0;">Uso de Turno</p>
+            <p style="color:{color_uso}; font-size:28px; font-weight:700; margin:2px 0;">{pct_uso:.1f}%</p>
+            <p style="color:gray; font-size:12px; margin:0;">Fuga prom: {min_exceso:.1f} min/día</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 for i, card in enumerate(CARDS):
     valor = globales[card["key"]]
     if card["tipo"] == "conteo":
         valor_txt, color_valor = f"{valor}", "#378ADD"
     else:
         valor_txt, color_valor = f"{valor}%", color_pct(valor)
-    with kpi_cols[(i + 1) % 4]:
+    with kpi_cols[(i + 2) % 4]:
         st.markdown(
             f"""
             <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
@@ -418,14 +559,19 @@ for i, card in enumerate(CARDS):
 
 # ── Tabla por agente ───────────────────────────────────────────────────
 
-tabla = calcular_cumplimiento(vista).join(adherencia_horario[["horario", "dias_con_turno"]])
+tabla = (
+    calcular_cumplimiento(vista)
+    .join(adherencia_horario[["horario", "dias_con_turno"]])
+    .join(resumen_uso[["uso_turno", "exceso_prom_min"]])
+)
 n_agentes = len(tabla)
 st.caption(f"{n_agentes} agentes · clic en una fila para ver el detalle y la comparación contra su servicio")
 
-columnas_mostrar = ["agente", "servicio", "jefe_inmediato", "horario"] + [c["key"] for c in CARDS]
+columnas_mostrar = ["agente", "servicio", "jefe_inmediato", "horario", "uso_turno"] + [c["key"] for c in CARDS]
 tabla_mostrar = tabla.reset_index()[["agente_id"] + columnas_mostrar].rename(
     columns={
-        "agente": "Agente", "servicio": "Servicio", "jefe_inmediato": "Supervisor", "horario": "Horario",
+        "agente": "Agente", "servicio": "Servicio", "jefe_inmediato": "Supervisor",
+        "horario": "Horario", "uso_turno": "Uso Turno",
         **{c["key"]: c["label"] for c in CARDS},
     }
 )
@@ -440,12 +586,22 @@ def estilo_pct(val):
     return f"background-color: {color_pct(val)}22; color: {color_pct(val)}; font-weight: 600;"
 
 
-styler = tabla_mostrar.drop(columns=["agente_id"]).style.map(estilo_pct, subset=pct_cols)
+def estilo_uso(val):
+    if pd.isna(val):
+        return ""
+    return f"background-color: {color_uso_turno(val)}22; color: {color_uso_turno(val)}; font-weight: 600;"
+
+
+styler = (
+    tabla_mostrar.drop(columns=["agente_id"])
+    .style.map(estilo_pct, subset=pct_cols)
+    .map(estilo_uso, subset=["Uso Turno"])
+)
 
 # st.dataframe en modo interactivo (on_select) ignora Styler.format() para el
 # valor mostrado - solo respeta el color via Styler.map(). El formato real de
 # los numeros se controla aparte con column_config.
-column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols}
+column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols + ["Uso Turno"]}
 column_config.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols})
 
 evento = st.dataframe(
@@ -478,10 +634,10 @@ with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
     # Excel muestra los floats con toda su precision binaria (ej. 71.79999999999999)
     # si no se fija un formato de celda explicito - el .round(1) de pandas no alcanza.
     ws = writer.sheets["Radar Genesys"]
-    for nombre_col in pct_cols + conteo_cols:
+    for nombre_col in pct_cols + ["Uso Turno"] + conteo_cols:
         idx = hoja_radar.columns.get_loc(nombre_col) + 1
         letra = get_column_letter(idx)
-        formato = '0.0"%"' if nombre_col in pct_cols else "0"
+        formato = '0.0"%"' if nombre_col in (pct_cols + ["Uso Turno"]) else "0"
         for celda in ws[f"{letra}2:{letra}{ws.max_row}"]:
             celda[0].number_format = formato
 st.download_button(
@@ -612,8 +768,9 @@ if filas_sel:
         turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == fecha)]
         adh_dia = calcular_adherencia_horario(df_dia, turnos_dia)
         horario_dia = adh_dia["horario"].iloc[0] if not adh_dia.empty else float("nan")
+        uso_dia = mapa_uso_diario.get((agente_id_sel, fecha), float("nan"))
 
-        fila = {"Fecha": fecha, "Novedad": "—", "Horario": horario_dia}
+        fila = {"Fecha": fecha, "Novedad": "—", "Horario": horario_dia, "Uso Turno": uso_dia}
         fila_valores = pivot_agente_dia.loc[[fecha]]
         for c in CARDS:
             usado_dia = sumar_presencias(fila_valores, c["presence"]).iloc[0]
@@ -626,10 +783,14 @@ if filas_sel:
     tabla_diaria = pd.DataFrame(filas_diarias)
     pct_cols_diario = ["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
     conteo_cols_diario = [c["label"] for c in CARDS if c["tipo"] == "conteo"]
-    col_config_diario = {c: st.column_config.NumberColumn(c, format="%.0f%%") for c in pct_cols_diario}
+    styler_diario = (
+        tabla_diaria.style.map(estilo_pct, subset=pct_cols_diario)
+        .map(estilo_uso, subset=["Uso Turno"])
+    )
+    col_config_diario = {c: st.column_config.NumberColumn(c, format="%.0f%%") for c in pct_cols_diario + ["Uso Turno"]}
     col_config_diario.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols_diario})
     st.dataframe(
-        tabla_diaria.style.map(estilo_pct, subset=pct_cols_diario),
+        styler_diario,
         use_container_width=True,
         hide_index=True,
         column_config=col_config_diario,
