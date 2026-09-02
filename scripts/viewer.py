@@ -425,7 +425,7 @@ if "desde" not in st.session_state:
     st.session_state["desde"] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=13))
     st.session_state["hasta"] = fecha_max_disp_d
 
-col_desde, col_hasta, col_servicio, col_superv, col_agente = st.columns(5)
+col_desde, col_hasta, col_coord, col_servicio, col_superv, col_agente = st.columns(6)
 with col_desde:
     st.date_input("Desde", key="desde", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
 with col_hasta:
@@ -464,6 +464,7 @@ if df.empty:
     st.stop()
 
 FILTROS = [
+    ("coord_sel", "coordinador", "Coordinador", col_coord),
     ("servicio_sel", "servicio", "Servicio", col_servicio),
     ("superv_sel", "jefe_inmediato", "Supervisor", col_superv),
     ("agentes_sel", "agente", "Agente", col_agente),
@@ -567,16 +568,20 @@ tabla = (
 n_agentes = len(tabla)
 st.caption(f"{n_agentes} agentes · clic en una fila para ver el detalle y la comparación contra su servicio")
 
-columnas_mostrar = ["agente", "servicio", "jefe_inmediato", "horario", "uso_turno"] + [c["key"] for c in CARDS]
-tabla_mostrar = tabla.reset_index()[["agente_id"] + columnas_mostrar].rename(
-    columns={
-        "agente": "Agente", "servicio": "Servicio", "jefe_inmediato": "Supervisor",
-        "horario": "Horario", "uso_turno": "Uso Turno",
-        **{c["key"]: c["label"] for c in CARDS},
-    }
+columnas_mostrar = ["agente", "coordinador", "servicio", "jefe_inmediato", "uso_turno", "horario"] + [c["key"] for c in CARDS]
+tabla_mostrar = (
+    tabla.reset_index()[["agente_id"] + columnas_mostrar]
+    .rename(
+        columns={
+            "agente": "Agente", "coordinador": "Coordinador", "servicio": "Servicio",
+            "jefe_inmediato": "Supervisor", "uso_turno": "Uso Turno", "horario": "Horario",
+            **{c["key"]: c["label"] for c in CARDS},
+        }
+    )
+    .sort_values(by="Uso Turno", ascending=True)
 )
 
-pct_cols = ["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
+pct_cols = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
 conteo_cols = [c["label"] for c in CARDS if c["tipo"] == "conteo"]
 
 
@@ -594,14 +599,14 @@ def estilo_uso(val):
 
 styler = (
     tabla_mostrar.drop(columns=["agente_id"])
-    .style.map(estilo_pct, subset=pct_cols)
+    .style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
     .map(estilo_uso, subset=["Uso Turno"])
 )
 
 # st.dataframe en modo interactivo (on_select) ignora Styler.format() para el
 # valor mostrado - solo respeta el color via Styler.map(). El formato real de
 # los numeros se controla aparte con column_config.
-column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols + ["Uso Turno"]}
+column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols}
 column_config.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols})
 
 evento = st.dataframe(
@@ -634,10 +639,10 @@ with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
     # Excel muestra los floats con toda su precision binaria (ej. 71.79999999999999)
     # si no se fija un formato de celda explicito - el .round(1) de pandas no alcanza.
     ws = writer.sheets["Radar Genesys"]
-    for nombre_col in pct_cols + ["Uso Turno"] + conteo_cols:
+    for nombre_col in pct_cols + conteo_cols:
         idx = hoja_radar.columns.get_loc(nombre_col) + 1
         letra = get_column_letter(idx)
-        formato = '0.0"%"' if nombre_col in (pct_cols + ["Uso Turno"]) else "0"
+        formato = '0.0"%"' if nombre_col in pct_cols else "0"
         for celda in ws[f"{letra}2:{letra}{ws.max_row}"]:
             celda[0].number_format = formato
 st.download_button(
@@ -768,6 +773,14 @@ if filas_sel:
             })
 
     tabla_unificada = pd.DataFrame(filas_unificadas)
+    if not tabla_unificada.empty:
+        df_meta = tabla_unificada[tabla_unificada["Categoría"] == "Pausa Reglamentaria"].sort_values(
+            by="Adherencia", ascending=True
+        )
+        df_gestion = tabla_unificada[tabla_unificada["Categoría"] == "Gestión Operativa"].sort_values(
+            by="Dif. vs Referencia", ascending=False
+        )
+        tabla_unificada = pd.concat([df_meta, df_gestion], ignore_index=True)
 
     def estilo_dif(val):
         if pd.isna(val):
@@ -817,7 +830,7 @@ if filas_sel:
         horario_dia = adh_dia["horario"].iloc[0] if not adh_dia.empty else float("nan")
         uso_dia = mapa_uso_diario.get((agente_id_sel, fecha), float("nan"))
 
-        fila = {"Fecha": fecha, "Novedad": "—", "Horario": horario_dia, "Uso Turno": uso_dia}
+        fila = {"Fecha": fecha, "Novedad": "—", "Uso Turno": uso_dia, "Horario": horario_dia}
         fila_valores = pivot_agente_dia.loc[[fecha]]
         for c in CARDS:
             usado_dia = sumar_presencias(fila_valores, c["presence"]).iloc[0]
@@ -827,11 +840,11 @@ if filas_sel:
                 fila[c["label"]] = score_graduado(pd.Series([usado_dia]), c["meta"]).iloc[0]
         filas_diarias.append(fila)
 
-    tabla_diaria = pd.DataFrame(filas_diarias)
-    pct_cols_diario = ["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
+    tabla_diaria = pd.DataFrame(filas_diarias).sort_values(by="Uso Turno", ascending=True)
+    pct_cols_diario = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
     conteo_cols_diario = [c["label"] for c in CARDS if c["tipo"] == "conteo"]
     styler_diario = (
-        tabla_diaria.style.map(estilo_pct, subset=pct_cols_diario)
+        tabla_diaria.style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
         .map(estilo_uso, subset=["Uso Turno"])
     )
     col_config_diario = {c: st.column_config.NumberColumn(c, format="%.0f%%") for c in pct_cols_diario + ["Uso Turno"]}
