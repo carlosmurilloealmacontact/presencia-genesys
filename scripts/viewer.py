@@ -667,44 +667,76 @@ if filas_sel:
     diario_agente = df_agente.groupby(["fecha", "presence_label"])["duracion_min"].sum().reset_index()
     pivot_agente_dia = diario_agente.pivot_table(index="fecha", columns="presence_label", values="duracion_min", fill_value=0)
 
-    # ── Pausas con meta ──────────────────────────────────────────────
-    st.markdown("**Pausas con meta — promedio del período**")
-    filas_meta = []
+    # ── Tabla Maestra Unificada de Pausas y Gestiones ─────────────────
+    st.markdown(f"**Uso de Pausas y Gestiones — vs. Metas y Mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes en el servicio)")
+
+    # Duración promedio de turno del agente
+    fechas_agente = sorted(pivot_agente_dia.index)
+    duraciones_turno = []
+    for f in fechas_agente:
+        turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == f)]
+        if not turnos_dia.empty:
+            r = turnos_dia.iloc[0]
+            f_dt = pd.Timestamp(r["fecha"])
+            ini = f_dt + pd.to_timedelta(r["hora_inicio"])
+            fin = f_dt + pd.to_timedelta(r["hora_fin"])
+            if fin <= ini:
+                fin += pd.Timedelta(days=1)
+            dur = (fin - ini).total_seconds() / 60.0
+            if dur > 0:
+                duraciones_turno.append(dur)
+    if not duraciones_turno:
+        conectado_dia = df_agente[df_agente["presence_label"] != "Offline"].groupby("fecha")["duracion_min"].sum()
+        promedio_turno_agente = conectado_dia.mean() if not conectado_dia.empty and conectado_dia.mean() > 0 else 480.0
+    else:
+        promedio_turno_agente = sum(duraciones_turno) / len(duraciones_turno)
+
+    filas_unificadas = []
+    tiene_prepausa_serv = servicio_tiene_prepausa(fila_sel["servicio"])
+
+    # 1. Pausas reglamentarias con meta
     for c in CARDS:
-        if c["tipo"] == "conteo":
-            continue
-        if c["unidad"] == "dia":
-            usado_serie = sumar_presencias(pivot_agente_dia, c["presence"])
-            promedio_txt = f"{usado_serie.mean():.1f}" if len(usado_serie) else "0.0"
-            meta_txt = f"{c['meta']} min"
-        else:
-            promedio_txt = "meta semanal, no diaria"
-            meta_txt = f"{c['meta']} min/semana"
         veces = int(sum(conteo_por_estado.get(p, 0) for p in c["presence"]))
-        filas_meta.append({
-            "Pausa": c["label"],
+        usado_serie = sumar_presencias(pivot_agente_dia, c["presence"])
+        prom_min = float(usado_serie.mean()) if len(usado_serie) else 0.0
+        pct_turno = (prom_min / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
+
+        if c["unidad"] == "dia":
+            if c["key"] == "lunch":
+                meta_txt = "0 min (No aut.)"
+                dif_min = prom_min
+                adh = 100.0 if prom_min == 0 else max(0.0, 100.0 - (prom_min / promedio_turno_agente * 100.0))
+            elif c["key"] == "pre_pausa":
+                meta_val = 60 if tiene_prepausa_serv else 0
+                meta_txt = f"{meta_val} min" if tiene_prepausa_serv else "0 min (No aut.)"
+                dif_min = prom_min - meta_val
+                adh = 100.0 if prom_min <= meta_val else (round(100.0 * meta_val / prom_min, 1) if meta_val > 0 else 0.0)
+            elif c["key"] == "bano":
+                meta_txt = f"{c['meta']} min"
+                dif_min = prom_min - c["meta"]
+                adh = 100.0 if prom_min <= c["meta"] else round(100.0 * c["meta"] / prom_min, 1)
+            else:
+                meta_txt = f"{c['meta']} min"
+                dif_min = prom_min - c["meta"]
+                adh = fila_sel[c["key"]]
+        else:
+            # CDR semanal
+            meta_txt = f"{c['meta']} min/sem"
+            dif_min = prom_min - (c["meta"] / 5.0)
+            adh = 100.0 if prom_min == 0 else fila_sel[c["key"]]
+
+        filas_unificadas.append({
+            "Categoría": "Pausa Reglamentaria",
+            "Pausa / Estado": c["label"],
             "Veces": veces,
-            "Min. promedio/día": promedio_txt,
-            "Meta": meta_txt,
-            "Adherencia": fila_sel[c["key"]],
+            "Min. promedio/día": round(prom_min, 1),
+            "% del Turno": round(pct_turno, 1),
+            "Meta / Referencia": meta_txt,
+            "Dif. vs Referencia": round(dif_min, 1),
+            "Adherencia": round(float(adh), 1) if not pd.isna(adh) else float("nan"),
         })
-    tabla_meta = pd.DataFrame(filas_meta)
-    st.dataframe(
-        tabla_meta.style.map(estilo_pct, subset=["Adherencia"]),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Veces": st.column_config.NumberColumn("Veces", format="%d"),
-            "Adherencia": st.column_config.NumberColumn("Adherencia", format="%.1f%%"),
-        },
-    )
 
-    lunch_card = next(c for c in CARDS if c["tipo"] == "conteo")
-    veces_lunch = int(sum(conteo_por_estado.get(p, 0) for p in lunch_card["presence"]))
-    st.caption(f"🍽️ {lunch_card['label']}: usado {veces_lunch} {'vez' if veces_lunch == 1 else 'veces'} en el rango — sin meta, no cuenta para adherencia.")
-
-    # ── Pausas sin meta y gestiones, vs. mediana del servicio ───────
-    st.markdown(f"**Pausas sin meta y gestiones — vs. mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes en el servicio)")
+    # 2. Gestiones operativas sin meta (comparadas contra la mediana del servicio)
     ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
     presencias_con_meta = {p for c in CARDS for p in c["presence"]}
     otras_presencias = sorted(
@@ -712,74 +744,63 @@ if filas_sel:
     )
 
     if otras_presencias and not vista_servicio.empty:
-        fechas_agente = sorted(pivot_agente_dia.index)
-        duraciones_turno = []
-        for f in fechas_agente:
-            turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == f)]
-            if not turnos_dia.empty:
-                r = turnos_dia.iloc[0]
-                f_dt = pd.Timestamp(r["fecha"])
-                ini = f_dt + pd.to_timedelta(r["hora_inicio"])
-                fin = f_dt + pd.to_timedelta(r["hora_fin"])
-                if fin <= ini:
-                    fin += pd.Timedelta(days=1)
-                dur = (fin - ini).total_seconds() / 60.0
-                if dur > 0:
-                    duraciones_turno.append(dur)
-        if not duraciones_turno:
-            conectado_dia = df_agente[df_agente["presence_label"] != "Offline"].groupby("fecha")["duracion_min"].sum()
-            promedio_turno_agente = conectado_dia.mean() if not conectado_dia.empty and conectado_dia.mean() > 0 else 480.0
-        else:
-            promedio_turno_agente = sum(duraciones_turno) / len(duraciones_turno)
-
         diario_servicio = vista_servicio.groupby(["agente_id", "fecha", "presence_label"])["duracion_min"].sum().reset_index()
         pivot_servicio = diario_servicio.pivot_table(index=["agente_id", "fecha"], columns="presence_label", values="duracion_min", fill_value=0)
         promedio_por_agente = pivot_servicio.groupby("agente_id").mean()
 
-        filas_sin_meta = []
         for label in otras_presencias:
             if label not in promedio_por_agente.columns:
                 continue
-            promedio_agente = promedio_por_agente.loc[agente_id_sel, label] if agente_id_sel in promedio_por_agente.index else 0.0
-            mediana_servicio = promedio_por_agente[label].median()
-            pct_turno = (promedio_agente / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
-            dif_equipo = promedio_agente - mediana_servicio
+            prom_agente = float(promedio_por_agente.loc[agente_id_sel, label]) if agente_id_sel in promedio_por_agente.index else 0.0
+            mediana_servicio = float(promedio_por_agente[label].median())
+            pct_turno = (prom_agente / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
+            dif_equipo = prom_agente - mediana_servicio
 
-            filas_sin_meta.append({
-                "Pausa": label,
+            filas_unificadas.append({
+                "Categoría": "Gestión Operativa",
+                "Pausa / Estado": label,
                 "Veces": int(conteo_por_estado.get(label, 0)),
-                "Min. promedio agente": round(promedio_agente, 1),
+                "Min. promedio/día": round(prom_agente, 1),
                 "% del Turno": round(pct_turno, 1),
-                "Mediana servicio": round(mediana_servicio, 1),
-                "Dif. vs Equipo": round(dif_equipo, 1),
+                "Meta / Referencia": f"Mediana: {mediana_servicio:.1f} min",
+                "Dif. vs Referencia": round(dif_equipo, 1),
+                "Adherencia": float("nan"),
             })
-        tabla_sin_meta = pd.DataFrame(filas_sin_meta).sort_values("Min. promedio agente", ascending=False)
 
-        def estilo_dif(val):
-            if pd.isna(val):
-                return ""
-            if val > 15:
-                color = "#e24b4a"
-            elif val > 5:
-                color = "#eda100"
-            else:
-                color = "#1baf7a"
-            return f"background-color: {color}22; color: {color}; font-weight: 600;"
+    tabla_unificada = pd.DataFrame(filas_unificadas)
 
-        st.dataframe(
-            tabla_sin_meta.style.map(estilo_dif, subset=["Dif. vs Equipo"]),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Veces": st.column_config.NumberColumn("Veces", format="%d"),
-                "Min. promedio agente": st.column_config.NumberColumn("Min. promedio agente", format="%.1f min"),
-                "% del Turno": st.column_config.NumberColumn("% del Turno", format="%.1f%%"),
-                "Mediana servicio": st.column_config.NumberColumn("Mediana servicio", format="%.1f min"),
-                "Dif. vs Equipo": st.column_config.NumberColumn("Dif. vs Equipo", format="%+.1f min"),
-            },
-        )
-    else:
-        st.caption("Sin otros estados registrados para este servicio en el rango.")
+    def estilo_dif(val):
+        if pd.isna(val):
+            return ""
+        if val > 15:
+            color = "#e24b4a"
+        elif val > 5:
+            color = "#eda100"
+        else:
+            color = "#1baf7a"
+        return f"background-color: {color}22; color: {color}; font-weight: 600;"
+
+    styler_unificado = (
+        tabla_unificada.style
+        .map(estilo_dif, subset=["Dif. vs Referencia"])
+        .map(estilo_pct, subset=["Adherencia"])
+    )
+
+    st.dataframe(
+        styler_unificado,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Categoría": st.column_config.TextColumn("Categoría"),
+            "Pausa / Estado": st.column_config.TextColumn("Pausa / Estado"),
+            "Veces": st.column_config.NumberColumn("Veces", format="%d"),
+            "Min. promedio/día": st.column_config.NumberColumn("Min. promedio/día", format="%.1f min"),
+            "% del Turno": st.column_config.NumberColumn("% del Turno", format="%.1f%%"),
+            "Meta / Referencia": st.column_config.TextColumn("Meta / Referencia"),
+            "Dif. vs Referencia": st.column_config.NumberColumn("Dif. vs Referencia", format="%+.1f min"),
+            "Adherencia": st.column_config.NumberColumn("Adherencia", format="%.1f%%"),
+        },
+    )
 
     color_map = cargar_color_map()
     render_timeline(df_agente, color_map)
