@@ -703,12 +703,35 @@ if filas_sel:
     veces_lunch = int(sum(conteo_por_estado.get(p, 0) for p in lunch_card["presence"]))
     st.caption(f"🍽️ {lunch_card['label']}: usado {veces_lunch} {'vez' if veces_lunch == 1 else 'veces'} en el rango — sin meta, no cuenta para adherencia.")
 
-    # ── Pausas sin meta, vs. mediana del servicio ───────────────────
-    st.markdown(f"**Pausas sin meta — vs. mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes en el servicio)")
+    # ── Pausas sin meta y gestiones, vs. mediana del servicio ───────
+    st.markdown(f"**Pausas sin meta y gestiones — vs. mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes en el servicio)")
+    ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
     presencias_con_meta = {p for c in CARDS for p in c["presence"]}
-    otras_presencias = sorted(set(vista_servicio["presence_label"].unique()) - presencias_con_meta)
+    otras_presencias = sorted(
+        set(vista_servicio["presence_label"].unique()) - presencias_con_meta - ESTADOS_SISTEMA
+    )
 
     if otras_presencias and not vista_servicio.empty:
+        fechas_agente = sorted(pivot_agente_dia.index)
+        duraciones_turno = []
+        for f in fechas_agente:
+            turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == f)]
+            if not turnos_dia.empty:
+                r = turnos_dia.iloc[0]
+                f_dt = pd.Timestamp(r["fecha"])
+                ini = f_dt + pd.to_timedelta(r["hora_inicio"])
+                fin = f_dt + pd.to_timedelta(r["hora_fin"])
+                if fin <= ini:
+                    fin += pd.Timedelta(days=1)
+                dur = (fin - ini).total_seconds() / 60.0
+                if dur > 0:
+                    duraciones_turno.append(dur)
+        if not duraciones_turno:
+            conectado_dia = df_agente[df_agente["presence_label"] != "Offline"].groupby("fecha")["duracion_min"].sum()
+            promedio_turno_agente = conectado_dia.mean() if not conectado_dia.empty and conectado_dia.mean() > 0 else 480.0
+        else:
+            promedio_turno_agente = sum(duraciones_turno) / len(duraciones_turno)
+
         diario_servicio = vista_servicio.groupby(["agente_id", "fecha", "presence_label"])["duracion_min"].sum().reset_index()
         pivot_servicio = diario_servicio.pivot_table(index=["agente_id", "fecha"], columns="presence_label", values="duracion_min", fill_value=0)
         promedio_por_agente = pivot_servicio.groupby("agente_id").mean()
@@ -719,37 +742,40 @@ if filas_sel:
                 continue
             promedio_agente = promedio_por_agente.loc[agente_id_sel, label] if agente_id_sel in promedio_por_agente.index else 0.0
             mediana_servicio = promedio_por_agente[label].median()
-            if mediana_servicio > 0:
-                ratio = promedio_agente / mediana_servicio
-            else:
-                ratio = 999.0 if promedio_agente > 0 else 0.0
+            pct_turno = (promedio_agente / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
+            dif_equipo = promedio_agente - mediana_servicio
+
             filas_sin_meta.append({
                 "Pausa": label,
                 "Veces": int(conteo_por_estado.get(label, 0)),
                 "Min. promedio agente": round(promedio_agente, 1),
+                "% del Turno": round(pct_turno, 1),
                 "Mediana servicio": round(mediana_servicio, 1),
-                "Ratio": round(ratio, 1),
+                "Dif. vs Equipo": round(dif_equipo, 1),
             })
         tabla_sin_meta = pd.DataFrame(filas_sin_meta).sort_values("Min. promedio agente", ascending=False)
 
-        def estilo_ratio(val):
-            if val == 0 or 0.5 <= val <= 1.5:
-                color = "#1baf7a"
-            elif val <= 3:
+        def estilo_dif(val):
+            if pd.isna(val):
+                return ""
+            if val > 15:
+                color = "#e24b4a"
+            elif val > 5:
                 color = "#eda100"
             else:
-                color = "#e24b4a"
+                color = "#1baf7a"
             return f"background-color: {color}22; color: {color}; font-weight: 600;"
 
         st.dataframe(
-            tabla_sin_meta.style.map(estilo_ratio, subset=["Ratio"]),
+            tabla_sin_meta.style.map(estilo_dif, subset=["Dif. vs Equipo"]),
             use_container_width=True,
             hide_index=True,
             column_config={
                 "Veces": st.column_config.NumberColumn("Veces", format="%d"),
-                "Ratio": st.column_config.NumberColumn("Ratio", format="%.1f×"),
-                "Min. promedio agente": st.column_config.NumberColumn("Min. promedio agente", format="%.1f"),
-                "Mediana servicio": st.column_config.NumberColumn("Mediana servicio", format="%.1f"),
+                "Min. promedio agente": st.column_config.NumberColumn("Min. promedio agente", format="%.1f min"),
+                "% del Turno": st.column_config.NumberColumn("% del Turno", format="%.1f%%"),
+                "Mediana servicio": st.column_config.NumberColumn("Mediana servicio", format="%.1f min"),
+                "Dif. vs Equipo": st.column_config.NumberColumn("Dif. vs Equipo", format="%+.1f min"),
             },
         )
     else:
