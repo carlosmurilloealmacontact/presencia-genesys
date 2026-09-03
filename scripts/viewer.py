@@ -122,6 +122,8 @@ def cargar_rango(fecha_min: str, fecha_max: str) -> pd.DataFrame:
         df = pd.read_sql_query(
             "SELECT * FROM segments WHERE fecha BETWEEN ? AND ?", conn, params=(fecha_min, fecha_max)
         )
+    if "cargo" in df.columns:
+        df = df[df["cargo"].str.upper().str.contains("ASESOR", na=False)]
     return df
 
 
@@ -437,9 +439,11 @@ def cargar_agentes_map_base():
         return {}
     conn = sqlite3.connect(real_db_path)
     agentes_db = pd.read_sql(
-        "SELECT distinct agente_id, agente, servicio, jefe_inmediato, coordinador FROM segments", conn
+        "SELECT distinct agente_id, agente, cargo, servicio, jefe_inmediato, coordinador FROM segments", conn
     )
     conn.close()
+    if "cargo" in agentes_db.columns:
+        agentes_db = agentes_db[agentes_db["cargo"].str.upper().str.contains("ASESOR", na=False)]
     agentes_db = agentes_db.drop_duplicates("agente_id", keep="last")
     return agentes_db.set_index("agente_id").to_dict(orient="index")
 

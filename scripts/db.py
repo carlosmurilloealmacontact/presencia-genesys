@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS segments (
     fecha TEXT NOT NULL,
     agente_id TEXT NOT NULL,
     agente TEXT NOT NULL,
+    cargo TEXT NOT NULL DEFAULT '',
     servicio TEXT NOT NULL DEFAULT '',
     jefe_inmediato TEXT NOT NULL DEFAULT '',
     coordinador TEXT NOT NULL DEFAULT '',
@@ -46,7 +47,7 @@ def get_connection() -> sqlite3.Connection:
     conn.executescript(SCHEMA)
 
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(segments)")}
-    for col in ("servicio", "jefe_inmediato", "coordinador"):
+    for col in ("cargo", "servicio", "jefe_inmediato", "coordinador"):
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE segments ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
     conn.commit()
@@ -55,11 +56,11 @@ def get_connection() -> sqlite3.Connection:
 
 _INSERT_SQL = """
     INSERT INTO segments (
-        fecha, agente_id, agente, servicio, jefe_inmediato, coordinador,
+        fecha, agente_id, agente, cargo, servicio, jefe_inmediato, coordinador,
         presence_label, system_presence, inicio, fin, duracion_min
     )
     VALUES (
-        :fecha, :agente_id, :agente, :servicio, :jefe_inmediato, :coordinador,
+        :fecha, :agente_id, :agente, :cargo, :servicio, :jefe_inmediato, :coordinador,
         :presence_label, :system_presence, :inicio, :fin, :duracion_min
     )
 """
