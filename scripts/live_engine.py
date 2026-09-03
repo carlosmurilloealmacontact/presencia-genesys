@@ -25,22 +25,8 @@ ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
 
 
 def obtener_token_genesys() -> str | None:
-    """Busca el token en st.secrets, variable de entorno o archivo local."""
-    # 1. Streamlit Secrets
-    try:
-        if "GENESYS_TOKEN" in st.secrets:
-            t = str(st.secrets["GENESYS_TOKEN"]).strip()
-            if t:
-                return t
-    except Exception:
-        pass
-
-    # 2. Variable de entorno
-    env_token = os.environ.get("GENESYS_TOKEN", "").strip()
-    if env_token:
-        return env_token
-
-    # 3. Archivo local de renovación automática
+    """Busca el token en archivo local, st.secrets o base de datos Neon Postgres."""
+    # 1. Archivo local de renovación automática (entorno local)
     if os.path.exists(TOKEN_PATH_DEFAULT):
         try:
             with open(TOKEN_PATH_DEFAULT, "r", encoding="utf-8") as f:
@@ -49,6 +35,44 @@ def obtener_token_genesys() -> str | None:
                     return t
         except Exception:
             pass
+
+    # 2. Variable directa st.secrets["GENESYS_TOKEN"]
+    try:
+        if "GENESYS_TOKEN" in st.secrets:
+            t = str(st.secrets["GENESYS_TOKEN"]).strip()
+            if t:
+                return t
+    except Exception:
+        pass
+
+    # 3. Variable de entorno directa
+    env_token = os.environ.get("GENESYS_TOKEN", "").strip()
+    if env_token:
+        return env_token
+
+    # 4. Sincronización automática vía Neon Postgres (nube)
+    neon_url = None
+    try:
+        if "NEON_DB_URL" in st.secrets:
+            neon_url = str(st.secrets["NEON_DB_URL"]).strip()
+    except Exception:
+        pass
+    if not neon_url:
+        neon_url = os.environ.get("NEON_DB_URL")
+
+    if neon_url:
+        try:
+            import psycopg2
+            conn = psycopg2.connect(neon_url)
+            cur = conn.cursor()
+            cur.execute("SELECT value FROM genesys_config WHERE key = 'GENESYS_TOKEN' LIMIT 1;")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row[0]:
+                return str(row[0]).strip()
+        except Exception as err:
+            print(f"Error consultando token en Neon: {err}")
 
     return None
 
