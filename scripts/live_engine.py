@@ -169,6 +169,7 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                     )
                     mod_date_str = pres.get("modifiedDate")
                     routing = u.get("routingStatus", {}).get("status", "OFF_QUEUE")
+                    routing_start = u.get("routingStatus", {}).get("startTime")
 
                     dur_seg = 0
                     hora_inicio_str = "—"
@@ -178,7 +179,7 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                         dt_col = dt_mod.astimezone(COLOMBIA_TZ)
                         hora_inicio_str = dt_col.strftime("%H:%M:%S")
 
-                    # Cronómetro formateado
+                    # Cronómetro formateado de presencia
                     h = dur_seg // 3600
                     m = (dur_seg % 3600) // 60
                     s = dur_seg % 60
@@ -188,13 +189,32 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                     sys_pres = p_info["systemPresence"]
                     min_dur = dur_seg / 60.0
 
-                    # Alertas en tiempo real
+                    # Duración y cronómetro de llamada activa en curso
+                    dur_llamada_seg = 0
+                    dur_llamada_min = 0.0
+                    cronometro_llamada = "—"
+                    if routing == "INTERACTING" and sys_pres != "Offline" and routing_start:
+                        try:
+                            dt_rs = datetime.fromisoformat(routing_start.replace("Z", "+00:00"))
+                            dur_llamada_seg = max(0, int((now_utc - dt_rs).total_seconds()))
+                            dur_llamada_min = dur_llamada_seg / 60.0
+                            hl = dur_llamada_seg // 3600
+                            ml = (dur_llamada_seg % 3600) // 60
+                            sl = dur_llamada_seg % 60
+                            cronometro_llamada = f"{hl:02d}:{ml:02d}:{sl:02d}" if hl > 0 else f"{ml:02d}:{sl:02d}"
+                        except Exception:
+                            pass
+
+                    # Alertas en tiempo real (Pausas y Llamadas)
                     alerta = "Normal"
                     nivel_alerta = "ok"
 
                     if sys_pres == "Offline":
                         alerta = "Desconectado"
                         nivel_alerta = "offline"
+                    elif routing == "INTERACTING" and dur_llamada_min >= 15.0:
+                        alerta = f"📞 Llamada prolongada ({cronometro_llamada})"
+                        nivel_alerta = "danger" if dur_llamada_min >= 20.0 else "warning"
                     elif label == "Baño" and min_dur > 5.0:
                         alerta = f"🚨 Baño excedido (+{min_dur - 5.0:.1f} min)"
                         nivel_alerta = "danger"
@@ -210,6 +230,9 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                     elif label == "Pre Pausa" and min_dur > 60.0:
                         alerta = f"🚨 Pre Pausa excedida (+{min_dur - 60.0:.1f} min)"
                         nivel_alerta = "danger"
+                    elif routing == "INTERACTING":
+                        alerta = f"En llamada ({cronometro_llamada})"
+                        nivel_alerta = "ok"
 
                     filas.append({
                         "agente": meta_agente["agente"],
@@ -223,6 +246,9 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                         "cronometro": cronometro,
                         "dur_min": round(min_dur, 1),
                         "dur_seg": dur_seg,
+                        "dur_llamada_min": round(dur_llamada_min, 1),
+                        "dur_llamada_seg": dur_llamada_seg,
+                        "cronometro_llamada": cronometro_llamada,
                         "alerta": alerta,
                         "nivel_alerta": nivel_alerta,
                     })
@@ -272,15 +298,70 @@ def render_tab_en_vivo(agentes_map: dict):
         unsafe_allow_html=True,
     )
 
-    conectados = df_live[df_live["sys_pres"] != "Offline"]
-    en_llamada = df_live[df_live["routing"] == "INTERACTING"]
-    disponibles = df_live[(df_live["estado"].isin(["Available", "On Queue"])) & (df_live["routing"] == "IDLE")]
-    en_pausas_regla = df_live[df_live["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"])]
-    en_gestion = df_live[
-        (~df_live["estado"].isin(ESTADOS_SISTEMA))
-        & (~df_live["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
+    # ── 1. Filtros de Piso (Afectan a las tarjetas, al cuadro de alertas y a la tabla) ──
+    st.markdown("##### Filtros de Piso")
+    f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns([1.2, 1.2, 1.2, 1.3, 1.1])
+
+    coords_disp = sorted([c for c in df_live["coordinador"].unique() if c and pd.notna(c)])
+    with f_col1:
+        coord_sel = st.multiselect("Coordinador", options=coords_disp, placeholder="Todos", key="live_coord_sel")
+
+    df_filtrado = df_live.copy()
+    if coord_sel:
+        df_filtrado = df_filtrado[df_filtrado["coordinador"].isin(coord_sel)]
+
+    servicios_disp = sorted([s for s in df_filtrado["servicio"].unique() if s and pd.notna(s)])
+    with f_col2:
+        serv_sel = st.multiselect("Servicio", options=servicios_disp, placeholder="Todos", key="live_serv_sel")
+
+    if serv_sel:
+        df_filtrado = df_filtrado[df_filtrado["servicio"].isin(serv_sel)]
+
+    supervs_disp = sorted([sp for sp in df_filtrado["supervisor"].unique() if sp and pd.notna(sp)])
+    with f_col3:
+        superv_sel = st.multiselect("Supervisor", options=supervs_disp, placeholder="Todos", key="live_superv_sel")
+
+    if superv_sel:
+        df_filtrado = df_filtrado[df_filtrado["supervisor"].isin(superv_sel)]
+
+    with f_col4:
+        buscar_agente = st.text_input("Buscar por Asesor o BP", placeholder="Ej: 4512348...", key="live_buscar_agente")
+
+    if buscar_agente:
+        df_filtrado = df_filtrado[df_filtrado["agente"].str.contains(buscar_agente, case=False, na=False)]
+
+    with f_col5:
+        umbral_llamada = st.number_input(
+            "Alerta Llamada >",
+            min_value=5,
+            max_value=120,
+            value=15,
+            step=5,
+            key="live_umbral_llamada",
+            help="Marca como llamada prolongada las llamadas en curso que superen estos minutos.",
+        )
+
+    # Actualizar alertas de llamada según el umbral configurado por el usuario
+    for idx, r in df_filtrado.iterrows():
+        if r["routing"] == "INTERACTING" and r["sys_pres"] != "Offline":
+            if r["dur_llamada_min"] >= umbral_llamada:
+                df_filtrado.at[idx, "alerta"] = f"📞 Llamada prolongada ({r['cronometro_llamada']})"
+                df_filtrado.at[idx, "nivel_alerta"] = "danger" if r["dur_llamada_min"] >= (umbral_llamada + 5) else "warning"
+            elif r["nivel_alerta"] in ("danger", "warning") and "Llamada" in str(r["alerta"]):
+                df_filtrado.at[idx, "alerta"] = f"En llamada ({r['cronometro_llamada']})"
+                df_filtrado.at[idx, "nivel_alerta"] = "ok"
+
+    # ── 2. Métricas y KPIs de Piso (Filtrados) ───────────────────────────
+    conectados = df_filtrado[df_filtrado["sys_pres"] != "Offline"]
+    en_llamada = df_filtrado[(df_filtrado["sys_pres"] != "Offline") & (df_filtrado["routing"] == "INTERACTING")]
+    llamadas_largas = en_llamada[en_llamada["dur_llamada_min"] >= umbral_llamada]
+    disponibles = df_filtrado[(df_filtrado["estado"].isin(["Available", "On Queue"])) & (df_filtrado["routing"] == "IDLE")]
+    en_pausas_regla = df_filtrado[df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"])]
+    en_gestion = df_filtrado[
+        (~df_filtrado["estado"].isin(ESTADOS_SISTEMA))
+        & (~df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
     ]
-    alertas = df_live[df_live["nivel_alerta"].isin(["danger", "warning"])]
+    alertas = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
 
     k1, k2, k3, k4, k5, k6 = st.columns(6)
 
@@ -297,26 +378,31 @@ def render_tab_en_vivo(agentes_map: dict):
                 unsafe_allow_html=True,
             )
 
-    pct_con = (len(conectados) / len(df_live) * 100.0) if len(df_live) > 0 else 0.0
-    render_kpi(k1, "Conectados", len(conectados), f"{pct_con:.0f}% del total", "#1baf7a")
-    render_kpi(k2, "En Interacción", len(en_llamada), "Llamada o chat activo", "#185FA5")
+    pct_con = (len(conectados) / len(df_filtrado) * 100.0) if len(df_filtrado) > 0 else 0.0
+    sub_llamada = f"🚨 {len(llamadas_largas)} > {umbral_llamada} min" if len(llamadas_largas) > 0 else "Duración normal"
+    color_llamada = "#E24B4A" if len(llamadas_largas) > 0 else "#185FA5"
+
+    render_kpi(k1, "Conectados", len(conectados), f"{pct_con:.0f}% del filtro", "#1baf7a")
+    render_kpi(k2, "En Interacción", len(en_llamada), sub_llamada, color_llamada)
     render_kpi(k3, "En Cola Disponibles", len(disponibles), "Esperando contacto", "#0F825C")
     render_kpi(k4, "En Pausas de Ley", len(en_pausas_regla), "Break, Baño, Pre Pausa", "#BA7517")
     render_kpi(k5, "En Gestión / BO", len(en_gestion), "Backoffice, Autogestión", "#6347A6")
-    render_kpi(k6, "Alertas de Exceso", len(alertas), "Pausas excedidas ahora", "#E24B4A" if len(alertas) > 0 else "#888")
+    render_kpi(k6, "Alertas de Exceso", len(alertas), f"Pausas y llamadas > {umbral_llamada}m", "#E24B4A" if len(alertas) > 0 else "#888")
 
-    # Banner de Alertas en Tiempo Real
+    # ── 3. Cuadro de Alertas en Tiempo Real (RESPONDE A LOS FILTROS) ──────
     if not alertas.empty:
         items_alertas = []
         for _, r in alertas.iterrows():
             nombre_agente = str(r["agente"] or "").split(" - ")[-1]
-            items_alertas.append(f"<b>{nombre_agente}</b>: {r['alerta']} (Lleva {r['cronometro']})")
-        
+            serv_tag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
+            items_alertas.append(f"<b>{nombre_agente}</b>{serv_tag}: {r['alerta']}")
+
+        filtro_txt = " (en tu selección actual)" if (coord_sel or serv_sel or superv_sel or buscar_agente) else ""
         st.markdown(
             f"""
             <div style="background:#fee8e7; border:1px solid #f9c0bc; border-radius:8px; padding:12px 16px; margin-bottom:16px;">
-                <b style="color:#b3261e; font-size:15px;">🚨 {len(alertas)} Pausa(s) Excedida(s) en este Instante:</b>
-                <div style="margin-top:6px; color:#5c1d1a; font-size:13px;">
+                <b style="color:#b3261e; font-size:15px;">🚨 {len(alertas)} Alerta(s) Activa(s) en este Instante{filtro_txt}:</b>
+                <div style="margin-top:6px; color:#5c1d1a; font-size:13px; line-height:1.7;">
                     {" &nbsp;·&nbsp; ".join(items_alertas)}
                 </div>
             </div>
@@ -324,63 +410,72 @@ def render_tab_en_vivo(agentes_map: dict):
             unsafe_allow_html=True,
         )
 
-    # Filtros de Piso
-    st.markdown("##### Filtros de Piso")
-    f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns([1.2, 1.2, 1.2, 1.2, 1.5])
-
-    with f_col1:
+    # ── 4. Controles de Visualización de Tabla ───────────────────────────
+    c_foco, c_orden = st.columns([1.5, 1.5])
+    with c_foco:
         vista_rapida = st.selectbox(
             "Foco de Vista",
-            options=["Solo Conectados", "Todos", "Solo Pausas con Meta", "Solo Gestión", "Solo Alertas"],
+            options=[
+                "Solo Conectados",
+                "Todos",
+                "Solo Llamadas Activas",
+                "Solo Llamadas Prolongadas",
+                "Solo Pausas con Meta",
+                "Solo Gestión",
+                "Solo Alertas",
+            ],
             index=0,
             key="live_vista_rapida",
         )
-
-    coords_disp = sorted([c for c in df_live["coordinador"].unique() if c and pd.notna(c)])
-    with f_col2:
-        coord_sel = st.multiselect("Coordinador", options=coords_disp, placeholder="Todos", key="live_coord_sel")
-
-    df_filtrado = df_live.copy()
-    if coord_sel:
-        df_filtrado = df_filtrado[df_filtrado["coordinador"].isin(coord_sel)]
-
-    servicios_disp = sorted([s for s in df_filtrado["servicio"].unique() if s and pd.notna(s)])
-    with f_col3:
-        serv_sel = st.multiselect("Servicio", options=servicios_disp, placeholder="Todos", key="live_serv_sel")
-
-    if serv_sel:
-        df_filtrado = df_filtrado[df_filtrado["servicio"].isin(serv_sel)]
-
-    supervs_disp = sorted([sp for sp in df_filtrado["supervisor"].unique() if sp and pd.notna(sp)])
-    with f_col4:
-        superv_sel = st.multiselect("Supervisor", options=supervs_disp, placeholder="Todos", key="live_superv_sel")
-
-    if superv_sel:
-        df_filtrado = df_filtrado[df_filtrado["supervisor"].isin(superv_sel)]
-
-    with f_col5:
-        buscar_agente = st.text_input("Buscar por Asesor o BP", placeholder="Ej: 4512348...", key="live_buscar_agente")
-
-    if buscar_agente:
-        df_filtrado = df_filtrado[df_filtrado["agente"].str.contains(buscar_agente, case=False, na=False)]
+    with c_orden:
+        orden_piso = st.selectbox(
+            "Ordenar por",
+            options=[
+                "Nivel de Alerta y Duración",
+                "Llamada más larga primero",
+                "Tiempo en Estado (mayor a menor)",
+                "Nombre del Asesor",
+            ],
+            index=0,
+            key="live_orden_piso",
+        )
 
     if vista_rapida == "Solo Conectados":
-        df_filtrado = df_filtrado[df_filtrado["sys_pres"] != "Offline"]
+        df_vista_final = df_filtrado[df_filtrado["sys_pres"] != "Offline"]
+    elif vista_rapida == "Solo Llamadas Activas":
+        df_vista_final = df_filtrado[(df_filtrado["sys_pres"] != "Offline") & (df_filtrado["routing"] == "INTERACTING")]
+    elif vista_rapida == "Solo Llamadas Prolongadas":
+        df_vista_final = df_filtrado[
+            (df_filtrado["sys_pres"] != "Offline")
+            & (df_filtrado["routing"] == "INTERACTING")
+            & (df_filtrado["dur_llamada_min"] >= umbral_llamada)
+        ]
     elif vista_rapida == "Solo Pausas con Meta":
-        df_filtrado = df_filtrado[df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"])]
+        df_vista_final = df_filtrado[df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"])]
     elif vista_rapida == "Solo Gestión":
-        df_filtrado = df_filtrado[
+        df_vista_final = df_filtrado[
             (~df_filtrado["estado"].isin(ESTADOS_SISTEMA))
             & (~df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
         ]
     elif vista_rapida == "Solo Alertas":
-        df_filtrado = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
+        df_vista_final = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
+    else:
+        df_vista_final = df_filtrado.copy()
 
-    # Ordenamiento seguro
-    df_filtrado["_sort_alerta"] = df_filtrado["nivel_alerta"].map({"danger": 3, "warning": 2, "ok": 1, "offline": 0}).fillna(0)
-    df_filtrado = df_filtrado.sort_values(by=["_sort_alerta", "dur_seg"], ascending=[False, False]).drop(columns=["_sort_alerta"])
+    # Ordenamiento de tabla
+    if orden_piso == "Llamada más larga primero":
+        df_vista_final = df_vista_final.sort_values(by="dur_llamada_seg", ascending=False)
+    elif orden_piso == "Tiempo en Estado (mayor a menor)":
+        df_vista_final = df_vista_final.sort_values(by="dur_seg", ascending=False)
+    elif orden_piso == "Nombre del Asesor":
+        df_vista_final = df_vista_final.sort_values(by="agente", ascending=True)
+    else:
+        df_vista_final["_sort_alerta"] = df_vista_final["nivel_alerta"].map({"danger": 3, "warning": 2, "ok": 1, "offline": 0}).fillna(0)
+        df_vista_final = df_vista_final.sort_values(
+            by=["_sort_alerta", "dur_llamada_seg", "dur_seg"], ascending=[False, False, False]
+        ).drop(columns=["_sort_alerta"])
 
-    st.caption(f"Mostrando {len(df_filtrado)} asesores de {len(df_live)} totales")
+    st.caption(f"Mostrando {len(df_vista_final)} asesores de {len(df_live)} totales")
 
     def estilo_estado(val):
         if val in ("Available", "On Queue"):
@@ -395,7 +490,7 @@ def render_tab_en_vivo(agentes_map: dict):
             return "background-color: #378add22; color: #185fa5; font-weight: 600;"
 
     def estilo_alerta_col(val):
-        if str(val).startswith("🚨"):
+        if str(val).startswith("🚨") or str(val).startswith("📞"):
             return "background-color: #fee8e7; color: #b3261e; font-weight: 700;"
         elif str(val).startswith("⚠️"):
             return "background-color: #fef7e0; color: #b07000; font-weight: 700;"
@@ -412,9 +507,14 @@ def render_tab_en_vivo(agentes_map: dict):
             return "background-color: #fce8e6; color: #c5221f; font-weight: 700;"
         return "color: gray;"
 
-    tabla_vista = df_filtrado[[
+    def estilo_llamada(val):
+        if str(val) == "—" or not val:
+            return "color: #aaa;"
+        return "color: #185fa5; font-weight: 700;"
+
+    tabla_vista = df_vista_final[[
         "agente", "servicio", "supervisor", "coordinador",
-        "estado", "routing", "hora_inicio", "cronometro", "alerta"
+        "estado", "routing", "cronometro_llamada", "hora_inicio", "cronometro", "alerta"
     ]].rename(columns={
         "agente": "Asesor",
         "servicio": "Servicio",
@@ -422,6 +522,7 @@ def render_tab_en_vivo(agentes_map: dict):
         "coordinador": "Coordinador",
         "estado": "Estado Actual",
         "routing": "Estado ACD",
+        "cronometro_llamada": "Tiempo Llamada",
         "hora_inicio": "Inicio Estado",
         "cronometro": "Tiempo en Estado",
         "alerta": "Alerta en Vivo",
@@ -431,6 +532,7 @@ def render_tab_en_vivo(agentes_map: dict):
         tabla_vista.style
         .map(estilo_estado, subset=["Estado Actual"])
         .map(estilo_routing, subset=["Estado ACD"])
+        .map(estilo_llamada, subset=["Tiempo Llamada"])
         .map(estilo_alerta_col, subset=["Alerta en Vivo"])
     )
 
@@ -445,6 +547,7 @@ def render_tab_en_vivo(agentes_map: dict):
             "Coordinador": st.column_config.TextColumn("Coordinador"),
             "Estado Actual": st.column_config.TextColumn("Estado Actual"),
             "Estado ACD": st.column_config.TextColumn("Estado ACD"),
+            "Tiempo Llamada": st.column_config.TextColumn("Tiempo Llamada"),
             "Inicio Estado": st.column_config.TextColumn("Inicio Estado"),
             "Tiempo en Estado": st.column_config.TextColumn("Tiempo en Estado"),
             "Alerta en Vivo": st.column_config.TextColumn("Alerta en Vivo"),
