@@ -15,6 +15,8 @@ import streamlit as st
 from openpyxl.utils import get_column_letter
 
 from config import DB_PATH
+import os
+from live_engine import render_tab_en_vivo
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
@@ -427,531 +429,553 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-rango_disponible = cargar_rango_fechas()
-if not rango_disponible:
-    st.warning("Todavía no hay datos extraídos. Corre `python extract_presencia.py` primero.")
-    st.stop()
 
-fecha_min_disp, fecha_max_disp = rango_disponible
-fecha_max_disp_d = pd.Timestamp(fecha_max_disp).date()
-fecha_min_disp_d = pd.Timestamp(fecha_min_disp).date()
-
-if "desde" not in st.session_state:
-    st.session_state["desde"] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=13))
-    st.session_state["hasta"] = fecha_max_disp_d
-
-col_desde, col_hasta, col_coord, col_servicio, col_superv, col_agente = st.columns(6)
-with col_desde:
-    st.date_input("Desde", key="desde", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
-with col_hasta:
-    st.date_input("Hasta", key="hasta", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
-
-col_rango1, col_rango2, col_rango3, col_rango4, _, col_caption = st.columns([1, 1, 1, 1, 1, 4])
-def set_rango(dias):
-    st.session_state["hasta"] = fecha_max_disp_d
-    st.session_state["desde"] = fecha_max_disp_d - pd.Timedelta(days=dias - 1) if dias else fecha_min_disp_d
-    if st.session_state["desde"] < fecha_min_disp_d:
-        st.session_state["desde"] = fecha_min_disp_d
-
-with col_rango1:
-    st.button("7 días", on_click=set_rango, args=(7,), use_container_width=True)
-with col_rango2:
-    st.button("14 días", on_click=set_rango, args=(14,), use_container_width=True)
-with col_rango3:
-    st.button("30 días", on_click=set_rango, args=(30,), use_container_width=True)
-with col_rango4:
-    st.button("Todo", on_click=set_rango, args=(None,), use_container_width=True)
-with col_caption:
-    st.markdown(
-        f"<p style='text-align:right; color:gray; padding-top:0.5rem;'>Datos disponibles: {fecha_min_disp} → {fecha_max_disp}</p>",
-        unsafe_allow_html=True,
+@st.cache_data(ttl=3600)
+def cargar_agentes_map_base():
+    real_db_path = Path(__file__).parent / DB_PATH
+    if not os.path.exists(real_db_path):
+        return {}
+    conn = sqlite3.connect(real_db_path)
+    agentes_db = pd.read_sql(
+        "SELECT distinct agente_id, agente, servicio, jefe_inmediato, coordinador FROM segments", conn
     )
-
-fecha_desde = str(st.session_state["desde"])
-fecha_hasta = str(st.session_state["hasta"])
-if fecha_desde > fecha_hasta:
-    st.error("La fecha 'Desde' es posterior a 'Hasta'.")
-    st.stop()
-
-df = cargar_rango(fecha_desde, fecha_hasta)
-if df.empty:
-    st.info("Sin tramos para este rango.")
-    st.stop()
-
-FILTROS = [
-    ("coord_sel", "coordinador", "Coordinador", col_coord),
-    ("servicio_sel", "servicio", "Servicio", col_servicio),
-    ("superv_sel", "jefe_inmediato", "Supervisor", col_superv),
-    ("agentes_sel", "agente", "Agente", col_agente),
-]
+    conn.close()
+    agentes_db = agentes_db.drop_duplicates("agente_id", keep="last")
+    return agentes_db.set_index("agente_id").to_dict(orient="index")
 
 
-def aplicar_filtros(df: pd.DataFrame, excluir_key: str | None) -> pd.DataFrame:
-    vista = df
-    for key, columna, _, _ in FILTROS:
-        if key == excluir_key:
-            continue
-        seleccion = st.session_state.get(key, [])
-        if seleccion:
-            vista = vista[vista[columna].isin(seleccion)]
-    return vista
+tab_historico, tab_vivo = st.tabs(["📊 Análisis Histórico y Adherencia", "🔴 Monitoreo en Vivo (Piso)"])
 
-
-for key, columna, label, col in FILTROS:
-    opciones = opciones_validas(aplicar_filtros(df, excluir_key=key)[columna])
-    seleccion_actual = st.session_state.get(key, [])
-    podada = [v for v in seleccion_actual if v in opciones]
-    if podada != seleccion_actual:
-        st.session_state[key] = podada
-    with col:
-        st.multiselect(label, opciones, key=key, placeholder="Todos")
-
-vista = aplicar_filtros(df, excluir_key=None)
-if vista.empty:
-    st.info("Sin tramos para estos filtros.")
-    st.stop()
-
-turnos_rango = cargar_turnos(fecha_desde, fecha_hasta)
-adherencia_horario = calcular_adherencia_horario(vista, turnos_rango)
-resumen_uso, global_uso, mapa_uso_diario = calcular_uso_turno(vista, turnos_rango)
-
-# ── Tarjetas KPI ─────────────────────────────────────────────────────────
-
-globales = cumplimiento_global(vista)
-kpi_cols = st.columns(4)
-
-with kpi_cols[0]:
-    horario_valido = adherencia_horario["horario"].dropna()
-    if horario_valido.empty:
-        pct_horario_txt, color_horario, subtitulo_horario = "—", "gray", "Sin turnos cargados en el rango"
-    else:
-        pct_horario = round(horario_valido.mean(), 1)
-        pct_horario_txt = f"{pct_horario}%"
-        color_horario = color_pct(pct_horario)
-        subtitulo_horario = f"{len(horario_valido)} agentes con turno"
-    st.markdown(
-        f"""
-        <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
-            <p style="color:gray; font-size:13px; margin:0;">Adherencia Horario</p>
-            <p style="color:{color_horario}; font-size:28px; font-weight:700; margin:2px 0;">{pct_horario_txt}</p>
-            <p style="color:gray; font-size:12px; margin:0;">{subtitulo_horario}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with kpi_cols[1]:
-    pct_uso = global_uso["uso_turno"]
-    min_exceso = global_uso["exceso_prom_min"]
-    color_uso = color_uso_turno(pct_uso)
-    st.markdown(
-        f"""
-        <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
-            <p style="color:gray; font-size:13px; margin:0;">Uso de Turno</p>
-            <p style="color:{color_uso}; font-size:28px; font-weight:700; margin:2px 0;">{pct_uso:.1f}%</p>
-            <p style="color:gray; font-size:12px; margin:0;">Fuga prom: {min_exceso:.1f} min/día</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-for i, card in enumerate(CARDS):
-    valor = globales[card["key"]]
-    if card["tipo"] == "conteo":
-        valor_txt, color_valor = f"{valor}", "#378ADD"
-    else:
-        valor_txt, color_valor = f"{valor}%", color_pct(valor)
-    with kpi_cols[(i + 2) % 4]:
+with tab_historico:
+    rango_disponible = cargar_rango_fechas()
+    if not rango_disponible:
+        st.warning("Todavía no hay datos extraídos. Corre `python extract_presencia.py` primero.")
+        st.stop()
+    
+    fecha_min_disp, fecha_max_disp = rango_disponible
+    fecha_max_disp_d = pd.Timestamp(fecha_max_disp).date()
+    fecha_min_disp_d = pd.Timestamp(fecha_min_disp).date()
+    
+    if "desde" not in st.session_state:
+        st.session_state["desde"] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=13))
+        st.session_state["hasta"] = fecha_max_disp_d
+    
+    col_desde, col_hasta, col_coord, col_servicio, col_superv, col_agente = st.columns(6)
+    with col_desde:
+        st.date_input("Desde", key="desde", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
+    with col_hasta:
+        st.date_input("Hasta", key="hasta", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
+    
+    col_rango1, col_rango2, col_rango3, col_rango4, _, col_caption = st.columns([1, 1, 1, 1, 1, 4])
+    def set_rango(dias):
+        st.session_state["hasta"] = fecha_max_disp_d
+        st.session_state["desde"] = fecha_max_disp_d - pd.Timedelta(days=dias - 1) if dias else fecha_min_disp_d
+        if st.session_state["desde"] < fecha_min_disp_d:
+            st.session_state["desde"] = fecha_min_disp_d
+    
+    with col_rango1:
+        st.button("7 días", on_click=set_rango, args=(7,), use_container_width=True)
+    with col_rango2:
+        st.button("14 días", on_click=set_rango, args=(14,), use_container_width=True)
+    with col_rango3:
+        st.button("30 días", on_click=set_rango, args=(30,), use_container_width=True)
+    with col_rango4:
+        st.button("Todo", on_click=set_rango, args=(None,), use_container_width=True)
+    with col_caption:
+        st.markdown(
+            f"<p style='text-align:right; color:gray; padding-top:0.5rem;'>Datos disponibles: {fecha_min_disp} → {fecha_max_disp}</p>",
+            unsafe_allow_html=True,
+        )
+    
+    fecha_desde = str(st.session_state["desde"])
+    fecha_hasta = str(st.session_state["hasta"])
+    if fecha_desde > fecha_hasta:
+        st.error("La fecha 'Desde' es posterior a 'Hasta'.")
+        st.stop()
+    
+    df = cargar_rango(fecha_desde, fecha_hasta)
+    if df.empty:
+        st.info("Sin tramos para este rango.")
+        st.stop()
+    
+    FILTROS = [
+        ("coord_sel", "coordinador", "Coordinador", col_coord),
+        ("servicio_sel", "servicio", "Servicio", col_servicio),
+        ("superv_sel", "jefe_inmediato", "Supervisor", col_superv),
+        ("agentes_sel", "agente", "Agente", col_agente),
+    ]
+    
+    
+    def aplicar_filtros(df: pd.DataFrame, excluir_key: str | None) -> pd.DataFrame:
+        vista = df
+        for key, columna, _, _ in FILTROS:
+            if key == excluir_key:
+                continue
+            seleccion = st.session_state.get(key, [])
+            if seleccion:
+                vista = vista[vista[columna].isin(seleccion)]
+        return vista
+    
+    
+    for key, columna, label, col in FILTROS:
+        opciones = opciones_validas(aplicar_filtros(df, excluir_key=key)[columna])
+        seleccion_actual = st.session_state.get(key, [])
+        podada = [v for v in seleccion_actual if v in opciones]
+        if podada != seleccion_actual:
+            st.session_state[key] = podada
+        with col:
+            st.multiselect(label, opciones, key=key, placeholder="Todos")
+    
+    vista = aplicar_filtros(df, excluir_key=None)
+    if vista.empty:
+        st.info("Sin tramos para estos filtros.")
+        st.stop()
+    
+    turnos_rango = cargar_turnos(fecha_desde, fecha_hasta)
+    adherencia_horario = calcular_adherencia_horario(vista, turnos_rango)
+    resumen_uso, global_uso, mapa_uso_diario = calcular_uso_turno(vista, turnos_rango)
+    
+    # ── Tarjetas KPI ─────────────────────────────────────────────────────────
+    
+    globales = cumplimiento_global(vista)
+    kpi_cols = st.columns(4)
+    
+    with kpi_cols[0]:
+        horario_valido = adherencia_horario["horario"].dropna()
+        if horario_valido.empty:
+            pct_horario_txt, color_horario, subtitulo_horario = "—", "gray", "Sin turnos cargados en el rango"
+        else:
+            pct_horario = round(horario_valido.mean(), 1)
+            pct_horario_txt = f"{pct_horario}%"
+            color_horario = color_pct(pct_horario)
+            subtitulo_horario = f"{len(horario_valido)} agentes con turno"
         st.markdown(
             f"""
             <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
-                <p style="color:gray; font-size:13px; margin:0;">{card['label']}</p>
-                <p style="color:{color_valor}; font-size:28px; font-weight:700; margin:2px 0;">{valor_txt}</p>
-                <p style="color:gray; font-size:12px; margin:0;">{meta_texto(card)}</p>
+                <p style="color:gray; font-size:13px; margin:0;">Adherencia Horario</p>
+                <p style="color:{color_horario}; font-size:28px; font-weight:700; margin:2px 0;">{pct_horario_txt}</p>
+                <p style="color:gray; font-size:12px; margin:0;">{subtitulo_horario}</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-
-# ── Tabla por agente ───────────────────────────────────────────────────
-
-micro_por_agente = (
-    vista[
-        (~vista["presence_label"].isin(ESTADOS_SISTEMA)) &
-        (vista["duracion_min"] <= 0.25)
-    ]
-    .groupby("agente_id")
-    .size()
-    .rename("micro_estados")
-)
-
-tabla = (
-    calcular_cumplimiento(vista)
-    .join(adherencia_horario[["horario", "dias_con_turno"]])
-    .join(resumen_uso[["uso_turno", "exceso_prom_min"]])
-    .join(micro_por_agente)
-)
-tabla["micro_estados"] = tabla["micro_estados"].fillna(0).astype(int)
-n_agentes = len(tabla)
-st.caption(f"{n_agentes} agentes · clic en una fila para ver el detalle y la comparación contra su servicio")
-
-columnas_mostrar = ["agente", "coordinador", "servicio", "jefe_inmediato", "uso_turno", "micro_estados", "horario"] + [c["key"] for c in CARDS]
-tabla_mostrar = (
-    tabla.reset_index()[["agente_id"] + columnas_mostrar]
-    .rename(
-        columns={
-            "agente": "Agente", "coordinador": "Coordinador", "servicio": "Servicio",
-            "jefe_inmediato": "Supervisor", "uso_turno": "Uso Turno",
-            "micro_estados": "Micro (≤15s)", "horario": "Horario",
-            **{c["key"]: c["label"] for c in CARDS},
-        }
-    )
-    .sort_values(by="Uso Turno", ascending=True)
-)
-
-pct_cols = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
-conteo_cols = ["Micro (≤15s)"] + [c["label"] for c in CARDS if c["tipo"] == "conteo"]
-
-
-def estilo_pct(val):
-    if pd.isna(val):
-        return ""
-    return f"background-color: {color_pct(val)}22; color: {color_pct(val)}; font-weight: 600;"
-
-
-def estilo_uso(val):
-    if pd.isna(val):
-        return ""
-    return f"background-color: {color_uso_turno(val)}22; color: {color_uso_turno(val)}; font-weight: 600;"
-
-
-styler = (
-    tabla_mostrar.drop(columns=["agente_id"])
-    .style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
-    .map(estilo_uso, subset=["Uso Turno"])
-    .map(estilo_micro, subset=["Micro (≤15s)"])
-)
-
-# st.dataframe en modo interactivo (on_select) ignora Styler.format() para el
-# valor mostrado - solo respeta el color via Styler.map(). El formato real de
-# los numeros se controla aparte con column_config.
-column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols}
-column_config.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols})
-column_config["Micro (≤15s)"] = st.column_config.NumberColumn(
-    "Micro (≤15s)",
-    format="%d",
-    help="Tramos en pausas o gestiones con duración ≤ 15 seg. Ítem a revisar por posibles refrescos de cola o alternancia operativa.",
-)
-
-evento = st.dataframe(
-    styler,
-    column_config=column_config,
-    use_container_width=True,
-    hide_index=True,
-    on_select="rerun",
-    selection_mode="single-row",
-    key="tabla_agentes",
-)
-
-# ── Exportar Excel ───────────────────────────────────────────────────────
-
-presencias_de_interes = [p for c in CARDS for p in c["presence"]]
-conteo_general = (
-    vista[vista["presence_label"].isin(presencias_de_interes)]
-    .groupby(["agente", "presence_label"])
-    .size()
-    .unstack(fill_value=0)
-    .rename(columns=lambda p: f"{p} (veces)")
-)
-
-buffer = BytesIO()
-with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-    hoja_radar = tabla_mostrar.drop(columns=["agente_id"])
-    hoja_radar.to_excel(writer, index=False, sheet_name="Radar Genesys")
-    conteo_general.reset_index().to_excel(writer, index=False, sheet_name="Cantidad de pausas")
-
-    # Excel muestra los floats con toda su precision binaria (ej. 71.79999999999999)
-    # si no se fija un formato de celda explicito - el .round(1) de pandas no alcanza.
-    ws = writer.sheets["Radar Genesys"]
-    for nombre_col in pct_cols + conteo_cols:
-        idx = hoja_radar.columns.get_loc(nombre_col) + 1
-        letra = get_column_letter(idx)
-        formato = '0.0"%"' if nombre_col in pct_cols else "0"
-        for celda in ws[f"{letra}2:{letra}{ws.max_row}"]:
-            celda[0].number_format = formato
-st.download_button(
-    "📥 Exportar Excel",
-    buffer.getvalue(),
-    file_name=f"radar_genesys_{fecha_desde}_a_{fecha_hasta}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
-
-# ── Detalle del agente seleccionado ─────────────────────────────────────
-
-filas_sel = evento.selection.rows if evento and evento.selection else []
-if filas_sel:
-    agente_id_sel = tabla_mostrar.iloc[filas_sel[0]]["agente_id"]
-    fila_sel = tabla.loc[agente_id_sel]
-
-    st.divider()
-    st.subheader(f"Detalle — {fila_sel['agente']}")
-    st.caption(f"{fila_sel['servicio']} · Supervisor: {fila_sel['jefe_inmediato']}")
-
-    vista_servicio = vista[vista["servicio"] == fila_sel["servicio"]]
-    n_agentes_servicio = vista_servicio["agente_id"].nunique()
-    df_agente = vista[vista["agente_id"] == agente_id_sel]
-    bp_agente = fila_sel["agente"].split(" - ")[0].strip()
-    conteo_por_estado = df_agente.groupby("presence_label").size()
-
-    # Micro-estados del asesor (tramos auxiliares <= 15 seg)
-    df_agente_valid = df_agente[~df_agente["presence_label"].isin(ESTADOS_SISTEMA)]
-    micro_agente = df_agente_valid[df_agente_valid["duracion_min"] <= 0.25]
-    conteo_micro = micro_agente.groupby("presence_label").size()
-    total_micro = len(micro_agente)
-
-    diario_agente = df_agente.groupby(["fecha", "presence_label"])["duracion_min"].sum().reset_index()
-    pivot_agente_dia = diario_agente.pivot_table(index="fecha", columns="presence_label", values="duracion_min", fill_value=0)
-
-    # Alerta amistosa de auditoría / ítem a revisar
-    if total_micro > 0:
-        st.info(
-            f"🔍 **Ítem a revisar:** Se identificaron **{total_micro} micro-estados (≤ 15 seg)** en el período. "
-            f"En servicios mixtos (voz y no-voz, como DT FFP / Trim Team) puede deberse a alternancia operativa entre canales, "
-            f"pero se sugiere validar con el asesor para descartar posibles refrescos de cola o evasión de turnos.",
-            icon="🔍",
+    
+    with kpi_cols[1]:
+        pct_uso = global_uso["uso_turno"]
+        min_exceso = global_uso["exceso_prom_min"]
+        color_uso = color_uso_turno(pct_uso)
+        st.markdown(
+            f"""
+            <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
+                <p style="color:gray; font-size:13px; margin:0;">Uso de Turno</p>
+                <p style="color:{color_uso}; font-size:28px; font-weight:700; margin:2px 0;">{pct_uso:.1f}%</p>
+                <p style="color:gray; font-size:12px; margin:0;">Fuga prom: {min_exceso:.1f} min/día</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-
-    # ── Tabla Maestra Unificada de Pausas y Gestiones ─────────────────
-    st.markdown(f"**Uso de Pausas y Gestiones — vs. Metas y Mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes en el servicio)")
-
-    # Formatear duración: si promedio >= 0.1 min -> X.X min, si > 0 pero < 0.1 -> X seg, si 0 -> 0.0 min
-    def format_duracion(prom_min, dur_total_min):
-        if prom_min >= 0.1:
-            return f"{prom_min:.1f} min"
-        elif dur_total_min > 0:
-            sec = int(round(dur_total_min * 60))
-            return f"{sec} seg" if sec > 0 else "< 1 seg"
+    
+    for i, card in enumerate(CARDS):
+        valor = globales[card["key"]]
+        if card["tipo"] == "conteo":
+            valor_txt, color_valor = f"{valor}", "#378ADD"
         else:
-            return "0.0 min"
-
-    # Duración promedio de turno del agente
-    fechas_agente = sorted(pivot_agente_dia.index)
-    duraciones_turno = []
-    for f in fechas_agente:
-        turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == f)]
-        if not turnos_dia.empty:
-            r = turnos_dia.iloc[0]
-            f_dt = pd.Timestamp(r["fecha"])
-            ini = f_dt + pd.to_timedelta(r["hora_inicio"])
-            fin = f_dt + pd.to_timedelta(r["hora_fin"])
-            if fin <= ini:
-                fin += pd.Timedelta(days=1)
-            dur = (fin - ini).total_seconds() / 60.0
-            if dur > 0:
-                duraciones_turno.append(dur)
-    if not duraciones_turno:
-        conectado_dia = df_agente[df_agente["presence_label"] != "Offline"].groupby("fecha")["duracion_min"].sum()
-        promedio_turno_agente = conectado_dia.mean() if not conectado_dia.empty and conectado_dia.mean() > 0 else 480.0
-    else:
-        promedio_turno_agente = sum(duraciones_turno) / len(duraciones_turno)
-
-    filas_unificadas = []
-    tiene_prepausa_serv = servicio_tiene_prepausa(fila_sel["servicio"])
-
-    # 1. Pausas reglamentarias con meta
-    for c in CARDS:
-        veces = int(sum(conteo_por_estado.get(p, 0) for p in c["presence"]))
-        micro_c = int(sum(conteo_micro.get(p, 0) for p in c["presence"]))
-        dur_total = float(df_agente[df_agente["presence_label"].isin(c["presence"])]["duracion_min"].sum())
-        usado_serie = sumar_presencias(pivot_agente_dia, c["presence"])
-        prom_min = float(usado_serie.mean()) if len(usado_serie) else 0.0
-        pct_turno = (prom_min / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
-
-        if c["unidad"] == "dia":
-            if c["key"] == "lunch":
-                meta_txt = "0 min (No aut.)"
-                dif_min = prom_min
-                adh = 100.0 if prom_min == 0 else max(0.0, 100.0 - (prom_min / promedio_turno_agente * 100.0))
-            elif c["key"] == "pre_pausa":
-                meta_val = 60 if tiene_prepausa_serv else 0
-                meta_txt = f"{meta_val} min" if tiene_prepausa_serv else "0 min (No aut.)"
-                dif_min = prom_min - meta_val
-                adh = 100.0 if prom_min <= meta_val else (round(100.0 * meta_val / prom_min, 1) if meta_val > 0 else 0.0)
-            elif c["key"] == "bano":
-                meta_txt = f"{c['meta']} min"
-                dif_min = prom_min - c["meta"]
-                adh = 100.0 if prom_min <= c["meta"] else round(100.0 * c["meta"] / prom_min, 1)
-            else:
-                meta_txt = f"{c['meta']} min"
-                dif_min = prom_min - c["meta"]
-                adh = fila_sel[c["key"]]
-        else:
-            # CDR semanal
-            meta_txt = f"{c['meta']} min/sem"
-            dif_min = prom_min - (c["meta"] / 5.0)
-            adh = 100.0 if prom_min == 0 else fila_sel[c["key"]]
-
-        filas_unificadas.append({
-            "Categoría": "Pausa Reglamentaria",
-            "Pausa / Estado": c["label"],
-            "Veces": veces,
-            "Micro (≤15s)": micro_c,
-            "Min. promedio/día": format_duracion(prom_min, dur_total),
-            "% del Turno": round(pct_turno, 1),
-            "Meta / Referencia": meta_txt,
-            "Dif. vs Referencia": round(dif_min, 1),
-            "Adherencia": f"{adh:.1f}%" if pd.notna(adh) else "—",
-            "_adh_num": float(adh) if pd.notna(adh) else 999.0,
-        })
-
-    # 2. Gestiones operativas sin meta (comparadas contra la mediana del servicio)
-    presencias_con_meta = {p for c in CARDS for p in c["presence"]}
-    otras_presencias = sorted(
-        set(vista_servicio["presence_label"].unique()) - presencias_con_meta - ESTADOS_SISTEMA
+            valor_txt, color_valor = f"{valor}%", color_pct(valor)
+        with kpi_cols[(i + 2) % 4]:
+            st.markdown(
+                f"""
+                <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
+                    <p style="color:gray; font-size:13px; margin:0;">{card['label']}</p>
+                    <p style="color:{color_valor}; font-size:28px; font-weight:700; margin:2px 0;">{valor_txt}</p>
+                    <p style="color:gray; font-size:12px; margin:0;">{meta_texto(card)}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    
+    # ── Tabla por agente ───────────────────────────────────────────────────
+    
+    micro_por_agente = (
+        vista[
+            (~vista["presence_label"].isin(ESTADOS_SISTEMA)) &
+            (vista["duracion_min"] <= 0.25)
+        ]
+        .groupby("agente_id")
+        .size()
+        .rename("micro_estados")
     )
-
-    if otras_presencias and not vista_servicio.empty:
-        diario_servicio = vista_servicio.groupby(["agente_id", "fecha", "presence_label"])["duracion_min"].sum().reset_index()
-        pivot_servicio = diario_servicio.pivot_table(index=["agente_id", "fecha"], columns="presence_label", values="duracion_min", fill_value=0)
-        promedio_por_agente = pivot_servicio.groupby("agente_id").mean()
-
-        for label in otras_presencias:
-            if label not in promedio_por_agente.columns:
-                continue
-            prom_agente = float(promedio_por_agente.loc[agente_id_sel, label]) if agente_id_sel in promedio_por_agente.index else 0.0
-            dur_total = float(df_agente[df_agente["presence_label"] == label]["duracion_min"].sum())
-            mediana_servicio = float(promedio_por_agente[label].median())
-            pct_turno = (prom_agente / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
-            dif_equipo = prom_agente - mediana_servicio
-            micro_l = int(conteo_micro.get(label, 0))
-
-            filas_unificadas.append({
-                "Categoría": "Gestión Operativa",
-                "Pausa / Estado": label,
-                "Veces": int(conteo_por_estado.get(label, 0)),
-                "Micro (≤15s)": micro_l,
-                "Min. promedio/día": format_duracion(prom_agente, dur_total),
-                "% del Turno": round(pct_turno, 1),
-                "Meta / Referencia": f"Mediana: {mediana_servicio:.1f} min",
-                "Dif. vs Referencia": round(dif_equipo, 1),
-                "Adherencia": "—",
-                "_adh_num": 999.0,
-            })
-
-    tabla_unificada = pd.DataFrame(filas_unificadas)
-    if not tabla_unificada.empty:
-        df_meta = tabla_unificada[tabla_unificada["Categoría"] == "Pausa Reglamentaria"].sort_values(
-            by="_adh_num", ascending=True
+    
+    tabla = (
+        calcular_cumplimiento(vista)
+        .join(adherencia_horario[["horario", "dias_con_turno"]])
+        .join(resumen_uso[["uso_turno", "exceso_prom_min"]])
+        .join(micro_por_agente)
+    )
+    tabla["micro_estados"] = tabla["micro_estados"].fillna(0).astype(int)
+    n_agentes = len(tabla)
+    st.caption(f"{n_agentes} agentes · clic en una fila para ver el detalle y la comparación contra su servicio")
+    
+    columnas_mostrar = ["agente", "coordinador", "servicio", "jefe_inmediato", "uso_turno", "micro_estados", "horario"] + [c["key"] for c in CARDS]
+    tabla_mostrar = (
+        tabla.reset_index()[["agente_id"] + columnas_mostrar]
+        .rename(
+            columns={
+                "agente": "Agente", "coordinador": "Coordinador", "servicio": "Servicio",
+                "jefe_inmediato": "Supervisor", "uso_turno": "Uso Turno",
+                "micro_estados": "Micro (≤15s)", "horario": "Horario",
+                **{c["key"]: c["label"] for c in CARDS},
+            }
         )
-        df_gestion = tabla_unificada[tabla_unificada["Categoría"] == "Gestión Operativa"].sort_values(
-            by="Dif. vs Referencia", ascending=False
-        )
-        tabla_unificada = pd.concat([df_meta, df_gestion], ignore_index=True).drop(columns=["_adh_num"])
-
-    def estilo_dif(val):
+        .sort_values(by="Uso Turno", ascending=True)
+    )
+    
+    pct_cols = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
+    conteo_cols = ["Micro (≤15s)"] + [c["label"] for c in CARDS if c["tipo"] == "conteo"]
+    
+    
+    def estilo_pct(val):
         if pd.isna(val):
             return ""
-        if val > 15:
-            color = "#e24b4a"
-        elif val > 5:
-            color = "#eda100"
-        else:
-            color = "#1baf7a"
-        return f"background-color: {color}22; color: {color}; font-weight: 600;"
-
-    def estilo_adh(val):
-        if not val or val == "—":
+        return f"background-color: {color_pct(val)}22; color: {color_pct(val)}; font-weight: 600;"
+    
+    
+    def estilo_uso(val):
+        if pd.isna(val):
             return ""
-        try:
-            num = float(str(val).replace("%", "").strip())
-            return f"background-color: {color_pct(num)}22; color: {color_pct(num)}; font-weight: 600;"
-        except Exception:
-            return ""
-
-    styler_unificado = (
-        tabla_unificada.style
-        .map(estilo_dif, subset=["Dif. vs Referencia"])
-        .map(estilo_micro, subset=["Micro (≤15s)"])
-        .map(estilo_adh, subset=["Adherencia"])
-    )
-
-    st.dataframe(
-        styler_unificado,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Categoría": st.column_config.TextColumn("Categoría"),
-            "Pausa / Estado": st.column_config.TextColumn("Pausa / Estado"),
-            "Veces": st.column_config.NumberColumn("Veces", format="%d"),
-            "Micro (≤15s)": st.column_config.NumberColumn(
-                "Micro (≤15s)",
-                format="%d",
-                help="Tramos con duración ≤ 15 seg. Ítem a revisar por posibles refrescos de cola o alternancia operativa.",
-            ),
-            "Min. promedio/día": st.column_config.TextColumn("Min. promedio/día"),
-            "% del Turno": st.column_config.NumberColumn("% del Turno", format="%.1f%%"),
-            "Meta / Referencia": st.column_config.TextColumn("Meta / Referencia"),
-            "Dif. vs Referencia": st.column_config.NumberColumn("Dif. vs Referencia", format="%+.1f min"),
-            "Adherencia": st.column_config.TextColumn("Adherencia"),
-        },
-    )
-
-    color_map = cargar_color_map()
-    render_timeline(df_agente, color_map)
-
-    # ── Detalle diario (score por dia) ──────────────────────────────
-    fechas_agente = sorted(pivot_agente_dia.index)
-    st.subheader(f"Detalle diario ({len(fechas_agente)} días)")
-
-    filas_diarias = []
-    for fecha in fechas_agente:
-        df_dia = df_agente[df_agente["fecha"] == fecha]
-        turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == fecha)]
-        adh_dia = calcular_adherencia_horario(df_dia, turnos_dia)
-        horario_dia = adh_dia["horario"].iloc[0] if not adh_dia.empty else float("nan")
-        uso_dia = mapa_uso_diario.get((agente_id_sel, fecha), float("nan"))
-
-        fila = {"Fecha": fecha, "Novedad": "—", "Uso Turno": uso_dia, "Horario": horario_dia}
-        fila_valores = pivot_agente_dia.loc[[fecha]]
-        for c in CARDS:
-            usado_dia = sumar_presencias(fila_valores, c["presence"]).iloc[0]
-            if c["tipo"] == "conteo":
-                fila[c["label"]] = int(df_dia["presence_label"].isin(c["presence"]).sum())
-            else:
-                fila[c["label"]] = score_graduado(pd.Series([usado_dia]), c["meta"]).iloc[0]
-        filas_diarias.append(fila)
-
-    tabla_diaria = pd.DataFrame(filas_diarias).sort_values(by="Uso Turno", ascending=True)
-    pct_cols_diario = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
-    conteo_cols_diario = [c["label"] for c in CARDS if c["tipo"] == "conteo"]
-    styler_diario = (
-        tabla_diaria.style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
+        return f"background-color: {color_uso_turno(val)}22; color: {color_uso_turno(val)}; font-weight: 600;"
+    
+    
+    styler = (
+        tabla_mostrar.drop(columns=["agente_id"])
+        .style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
         .map(estilo_uso, subset=["Uso Turno"])
+        .map(estilo_micro, subset=["Micro (≤15s)"])
     )
-    col_config_diario = {c: st.column_config.NumberColumn(c, format="%.0f%%") for c in pct_cols_diario + ["Uso Turno"]}
-    col_config_diario.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols_diario})
-    st.dataframe(
-        styler_diario,
+    
+    # st.dataframe en modo interactivo (on_select) ignora Styler.format() para el
+    # valor mostrado - solo respeta el color via Styler.map(). El formato real de
+    # los numeros se controla aparte con column_config.
+    column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols}
+    column_config.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols})
+    column_config["Micro (≤15s)"] = st.column_config.NumberColumn(
+        "Micro (≤15s)",
+        format="%d",
+        help="Tramos en pausas o gestiones con duración ≤ 15 seg. Ítem a revisar por posibles refrescos de cola o alternancia operativa.",
+    )
+    
+    evento = st.dataframe(
+        styler,
+        column_config=column_config,
         use_container_width=True,
         hide_index=True,
-        column_config=col_config_diario,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="tabla_agentes",
     )
+    
+    # ── Exportar Excel ───────────────────────────────────────────────────────
+    
+    presencias_de_interes = [p for c in CARDS for p in c["presence"]]
+    conteo_general = (
+        vista[vista["presence_label"].isin(presencias_de_interes)]
+        .groupby(["agente", "presence_label"])
+        .size()
+        .unstack(fill_value=0)
+        .rename(columns=lambda p: f"{p} (veces)")
+    )
+    
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        hoja_radar = tabla_mostrar.drop(columns=["agente_id"])
+        hoja_radar.to_excel(writer, index=False, sheet_name="Radar Genesys")
+        conteo_general.reset_index().to_excel(writer, index=False, sheet_name="Cantidad de pausas")
+    
+        # Excel muestra los floats con toda su precision binaria (ej. 71.79999999999999)
+        # si no se fija un formato de celda explicito - el .round(1) de pandas no alcanza.
+        ws = writer.sheets["Radar Genesys"]
+        for nombre_col in pct_cols + conteo_cols:
+            idx = hoja_radar.columns.get_loc(nombre_col) + 1
+            letra = get_column_letter(idx)
+            formato = '0.0"%"' if nombre_col in pct_cols else "0"
+            for celda in ws[f"{letra}2:{letra}{ws.max_row}"]:
+                celda[0].number_format = formato
+    st.download_button(
+        "📥 Exportar Excel",
+        buffer.getvalue(),
+        file_name=f"radar_genesys_{fecha_desde}_a_{fecha_hasta}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    
+    # ── Detalle del agente seleccionado ─────────────────────────────────────
+    
+    filas_sel = evento.selection.rows if evento and evento.selection else []
+    if filas_sel:
+        agente_id_sel = tabla_mostrar.iloc[filas_sel[0]]["agente_id"]
+        fila_sel = tabla.loc[agente_id_sel]
+    
+        st.divider()
+        st.subheader(f"Detalle — {fila_sel['agente']}")
+        st.caption(f"{fila_sel['servicio']} · Supervisor: {fila_sel['jefe_inmediato']}")
+    
+        vista_servicio = vista[vista["servicio"] == fila_sel["servicio"]]
+        n_agentes_servicio = vista_servicio["agente_id"].nunique()
+        df_agente = vista[vista["agente_id"] == agente_id_sel]
+        bp_agente = fila_sel["agente"].split(" - ")[0].strip()
+        conteo_por_estado = df_agente.groupby("presence_label").size()
+    
+        # Micro-estados del asesor (tramos auxiliares <= 15 seg)
+        df_agente_valid = df_agente[~df_agente["presence_label"].isin(ESTADOS_SISTEMA)]
+        micro_agente = df_agente_valid[df_agente_valid["duracion_min"] <= 0.25]
+        conteo_micro = micro_agente.groupby("presence_label").size()
+        total_micro = len(micro_agente)
+    
+        diario_agente = df_agente.groupby(["fecha", "presence_label"])["duracion_min"].sum().reset_index()
+        pivot_agente_dia = diario_agente.pivot_table(index="fecha", columns="presence_label", values="duracion_min", fill_value=0)
+    
+        # Alerta amistosa de auditoría / ítem a revisar
+        if total_micro > 0:
+            st.info(
+                f"🔍 **Ítem a revisar:** Se identificaron **{total_micro} micro-estados (≤ 15 seg)** en el período. "
+                f"En servicios mixtos (voz y no-voz, como DT FFP / Trim Team) puede deberse a alternancia operativa entre canales, "
+                f"pero se sugiere validar con el asesor para descartar posibles refrescos de cola o evasión de turnos.",
+                icon="🔍",
+            )
+    
+        # ── Tabla Maestra Unificada de Pausas y Gestiones ─────────────────
+        st.markdown(f"**Uso de Pausas y Gestiones — vs. Metas y Mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes en el servicio)")
+    
+        # Formatear duración: si promedio >= 0.1 min -> X.X min, si > 0 pero < 0.1 -> X seg, si 0 -> 0.0 min
+        def format_duracion(prom_min, dur_total_min):
+            if prom_min >= 0.1:
+                return f"{prom_min:.1f} min"
+            elif dur_total_min > 0:
+                sec = int(round(dur_total_min * 60))
+                return f"{sec} seg" if sec > 0 else "< 1 seg"
+            else:
+                return "0.0 min"
+    
+        # Duración promedio de turno del agente
+        fechas_agente = sorted(pivot_agente_dia.index)
+        duraciones_turno = []
+        for f in fechas_agente:
+            turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == f)]
+            if not turnos_dia.empty:
+                r = turnos_dia.iloc[0]
+                f_dt = pd.Timestamp(r["fecha"])
+                ini = f_dt + pd.to_timedelta(r["hora_inicio"])
+                fin = f_dt + pd.to_timedelta(r["hora_fin"])
+                if fin <= ini:
+                    fin += pd.Timedelta(days=1)
+                dur = (fin - ini).total_seconds() / 60.0
+                if dur > 0:
+                    duraciones_turno.append(dur)
+        if not duraciones_turno:
+            conectado_dia = df_agente[df_agente["presence_label"] != "Offline"].groupby("fecha")["duracion_min"].sum()
+            promedio_turno_agente = conectado_dia.mean() if not conectado_dia.empty and conectado_dia.mean() > 0 else 480.0
+        else:
+            promedio_turno_agente = sum(duraciones_turno) / len(duraciones_turno)
+    
+        filas_unificadas = []
+        tiene_prepausa_serv = servicio_tiene_prepausa(fila_sel["servicio"])
+    
+        # 1. Pausas reglamentarias con meta
+        for c in CARDS:
+            veces = int(sum(conteo_por_estado.get(p, 0) for p in c["presence"]))
+            micro_c = int(sum(conteo_micro.get(p, 0) for p in c["presence"]))
+            dur_total = float(df_agente[df_agente["presence_label"].isin(c["presence"])]["duracion_min"].sum())
+            usado_serie = sumar_presencias(pivot_agente_dia, c["presence"])
+            prom_min = float(usado_serie.mean()) if len(usado_serie) else 0.0
+            pct_turno = (prom_min / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
+    
+            if c["unidad"] == "dia":
+                if c["key"] == "lunch":
+                    meta_txt = "0 min (No aut.)"
+                    dif_min = prom_min
+                    adh = 100.0 if prom_min == 0 else max(0.0, 100.0 - (prom_min / promedio_turno_agente * 100.0))
+                elif c["key"] == "pre_pausa":
+                    meta_val = 60 if tiene_prepausa_serv else 0
+                    meta_txt = f"{meta_val} min" if tiene_prepausa_serv else "0 min (No aut.)"
+                    dif_min = prom_min - meta_val
+                    adh = 100.0 if prom_min <= meta_val else (round(100.0 * meta_val / prom_min, 1) if meta_val > 0 else 0.0)
+                elif c["key"] == "bano":
+                    meta_txt = f"{c['meta']} min"
+                    dif_min = prom_min - c["meta"]
+                    adh = 100.0 if prom_min <= c["meta"] else round(100.0 * c["meta"] / prom_min, 1)
+                else:
+                    meta_txt = f"{c['meta']} min"
+                    dif_min = prom_min - c["meta"]
+                    adh = fila_sel[c["key"]]
+            else:
+                # CDR semanal
+                meta_txt = f"{c['meta']} min/sem"
+                dif_min = prom_min - (c["meta"] / 5.0)
+                adh = 100.0 if prom_min == 0 else fila_sel[c["key"]]
+    
+            filas_unificadas.append({
+                "Categoría": "Pausa Reglamentaria",
+                "Pausa / Estado": c["label"],
+                "Veces": veces,
+                "Micro (≤15s)": micro_c,
+                "Min. promedio/día": format_duracion(prom_min, dur_total),
+                "% del Turno": round(pct_turno, 1),
+                "Meta / Referencia": meta_txt,
+                "Dif. vs Referencia": round(dif_min, 1),
+                "Adherencia": f"{adh:.1f}%" if pd.notna(adh) else "—",
+                "_adh_num": float(adh) if pd.notna(adh) else 999.0,
+            })
+    
+        # 2. Gestiones operativas sin meta (comparadas contra la mediana del servicio)
+        presencias_con_meta = {p for c in CARDS for p in c["presence"]}
+        otras_presencias = sorted(
+            set(vista_servicio["presence_label"].unique()) - presencias_con_meta - ESTADOS_SISTEMA
+        )
+    
+        if otras_presencias and not vista_servicio.empty:
+            diario_servicio = vista_servicio.groupby(["agente_id", "fecha", "presence_label"])["duracion_min"].sum().reset_index()
+            pivot_servicio = diario_servicio.pivot_table(index=["agente_id", "fecha"], columns="presence_label", values="duracion_min", fill_value=0)
+            promedio_por_agente = pivot_servicio.groupby("agente_id").mean()
+    
+            for label in otras_presencias:
+                if label not in promedio_por_agente.columns:
+                    continue
+                prom_agente = float(promedio_por_agente.loc[agente_id_sel, label]) if agente_id_sel in promedio_por_agente.index else 0.0
+                dur_total = float(df_agente[df_agente["presence_label"] == label]["duracion_min"].sum())
+                mediana_servicio = float(promedio_por_agente[label].median())
+                pct_turno = (prom_agente / promedio_turno_agente) * 100.0 if promedio_turno_agente > 0 else 0.0
+                dif_equipo = prom_agente - mediana_servicio
+                micro_l = int(conteo_micro.get(label, 0))
+    
+                filas_unificadas.append({
+                    "Categoría": "Gestión Operativa",
+                    "Pausa / Estado": label,
+                    "Veces": int(conteo_por_estado.get(label, 0)),
+                    "Micro (≤15s)": micro_l,
+                    "Min. promedio/día": format_duracion(prom_agente, dur_total),
+                    "% del Turno": round(pct_turno, 1),
+                    "Meta / Referencia": f"Mediana: {mediana_servicio:.1f} min",
+                    "Dif. vs Referencia": round(dif_equipo, 1),
+                    "Adherencia": "—",
+                    "_adh_num": 999.0,
+                })
+    
+        tabla_unificada = pd.DataFrame(filas_unificadas)
+        if not tabla_unificada.empty:
+            df_meta = tabla_unificada[tabla_unificada["Categoría"] == "Pausa Reglamentaria"].sort_values(
+                by="_adh_num", ascending=True
+            )
+            df_gestion = tabla_unificada[tabla_unificada["Categoría"] == "Gestión Operativa"].sort_values(
+                by="Dif. vs Referencia", ascending=False
+            )
+            tabla_unificada = pd.concat([df_meta, df_gestion], ignore_index=True).drop(columns=["_adh_num"])
+    
+        def estilo_dif(val):
+            if pd.isna(val):
+                return ""
+            if val > 15:
+                color = "#e24b4a"
+            elif val > 5:
+                color = "#eda100"
+            else:
+                color = "#1baf7a"
+            return f"background-color: {color}22; color: {color}; font-weight: 600;"
+    
+        def estilo_adh(val):
+            if not val or val == "—":
+                return ""
+            try:
+                num = float(str(val).replace("%", "").strip())
+                return f"background-color: {color_pct(num)}22; color: {color_pct(num)}; font-weight: 600;"
+            except Exception:
+                return ""
+    
+        styler_unificado = (
+            tabla_unificada.style
+            .map(estilo_dif, subset=["Dif. vs Referencia"])
+            .map(estilo_micro, subset=["Micro (≤15s)"])
+            .map(estilo_adh, subset=["Adherencia"])
+        )
+    
+        st.dataframe(
+            styler_unificado,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Categoría": st.column_config.TextColumn("Categoría"),
+                "Pausa / Estado": st.column_config.TextColumn("Pausa / Estado"),
+                "Veces": st.column_config.NumberColumn("Veces", format="%d"),
+                "Micro (≤15s)": st.column_config.NumberColumn(
+                    "Micro (≤15s)",
+                    format="%d",
+                    help="Tramos con duración ≤ 15 seg. Ítem a revisar por posibles refrescos de cola o alternancia operativa.",
+                ),
+                "Min. promedio/día": st.column_config.TextColumn("Min. promedio/día"),
+                "% del Turno": st.column_config.NumberColumn("% del Turno", format="%.1f%%"),
+                "Meta / Referencia": st.column_config.TextColumn("Meta / Referencia"),
+                "Dif. vs Referencia": st.column_config.NumberColumn("Dif. vs Referencia", format="%+.1f min"),
+                "Adherencia": st.column_config.TextColumn("Adherencia"),
+            },
+        )
+    
+        color_map = cargar_color_map()
+        render_timeline(df_agente, color_map)
+    
+        # ── Detalle diario (score por dia) ──────────────────────────────
+        fechas_agente = sorted(pivot_agente_dia.index)
+        st.subheader(f"Detalle diario ({len(fechas_agente)} días)")
+    
+        filas_diarias = []
+        for fecha in fechas_agente:
+            df_dia = df_agente[df_agente["fecha"] == fecha]
+            turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == fecha)]
+            adh_dia = calcular_adherencia_horario(df_dia, turnos_dia)
+            horario_dia = adh_dia["horario"].iloc[0] if not adh_dia.empty else float("nan")
+            uso_dia = mapa_uso_diario.get((agente_id_sel, fecha), float("nan"))
+    
+            fila = {"Fecha": fecha, "Novedad": "—", "Uso Turno": uso_dia, "Horario": horario_dia}
+            fila_valores = pivot_agente_dia.loc[[fecha]]
+            for c in CARDS:
+                usado_dia = sumar_presencias(fila_valores, c["presence"]).iloc[0]
+                if c["tipo"] == "conteo":
+                    fila[c["label"]] = int(df_dia["presence_label"].isin(c["presence"]).sum())
+                else:
+                    fila[c["label"]] = score_graduado(pd.Series([usado_dia]), c["meta"]).iloc[0]
+            filas_diarias.append(fila)
+    
+        tabla_diaria = pd.DataFrame(filas_diarias).sort_values(by="Uso Turno", ascending=True)
+        pct_cols_diario = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
+        conteo_cols_diario = [c["label"] for c in CARDS if c["tipo"] == "conteo"]
+        styler_diario = (
+            tabla_diaria.style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
+            .map(estilo_uso, subset=["Uso Turno"])
+        )
+        col_config_diario = {c: st.column_config.NumberColumn(c, format="%.0f%%") for c in pct_cols_diario + ["Uso Turno"]}
+        col_config_diario.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols_diario})
+        st.dataframe(
+            styler_diario,
+            use_container_width=True,
+            hide_index=True,
+            column_config=col_config_diario,
+        )
+    
+        st.subheader("Detalle de cada ítem")
+        st.caption("Cada tramo registrado en Genesys, para todos los días del rango filtrado.")
+        detalle_diario = df_agente[["fecha", "presence_label", "inicio", "fin", "duracion_min"]].copy()
+        detalle_diario["inicio"] = pd.to_datetime(detalle_diario["inicio"]).dt.strftime("%H:%M:%S")
+        detalle_diario["fin"] = pd.to_datetime(detalle_diario["fin"]).dt.strftime("%H:%M:%S")
+        detalle_diario["duracion_min"] = detalle_diario["duracion_min"].round(1)
+        detalle_diario = detalle_diario.sort_values(["fecha", "inicio"]).rename(
+            columns={
+                "fecha": "Fecha", "presence_label": "Estado", "inicio": "Hora inicio",
+                "fin": "Hora fin", "duracion_min": "Duración (min)",
+            }
+        )
+        st.dataframe(
+            detalle_diario,
+            use_container_width=True,
+            hide_index=True,
+            column_config={"Duración (min)": st.column_config.NumberColumn("Duración (min)", format="%.1f")},
+        )
 
-    st.subheader("Detalle de cada ítem")
-    st.caption("Cada tramo registrado en Genesys, para todos los días del rango filtrado.")
-    detalle_diario = df_agente[["fecha", "presence_label", "inicio", "fin", "duracion_min"]].copy()
-    detalle_diario["inicio"] = pd.to_datetime(detalle_diario["inicio"]).dt.strftime("%H:%M:%S")
-    detalle_diario["fin"] = pd.to_datetime(detalle_diario["fin"]).dt.strftime("%H:%M:%S")
-    detalle_diario["duracion_min"] = detalle_diario["duracion_min"].round(1)
-    detalle_diario = detalle_diario.sort_values(["fecha", "inicio"]).rename(
-        columns={
-            "fecha": "Fecha", "presence_label": "Estado", "inicio": "Hora inicio",
-            "fin": "Hora fin", "duracion_min": "Duración (min)",
-        }
-    )
-    st.dataframe(
-        detalle_diario,
-        use_container_width=True,
-        hide_index=True,
-        column_config={"Duración (min)": st.column_config.NumberColumn("Duración (min)", format="%.1f")},
-    )
+
+with tab_vivo:
+    render_tab_en_vivo(cargar_agentes_map_base())
