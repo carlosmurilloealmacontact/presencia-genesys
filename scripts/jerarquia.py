@@ -9,9 +9,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import os
 
+from pathlib import Path
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-TOKEN_PATH = "google_token.json"
-CREDS_PATH = "google_oauth_client.json"
+_BASE_DIR = Path(__file__).parent
+TOKEN_PATH = str(_BASE_DIR / "google_token.json")
+CREDS_PATH = str(_BASE_DIR / "google_oauth_client.json")
 
 BASE_SPREADSHEET_ID = "1veAlRJlVrJ2MRtoYNi3aJ_NX97sBFTgcww0V0jv6_Q0"
 BASE_SHEET_NAME = "Base"
