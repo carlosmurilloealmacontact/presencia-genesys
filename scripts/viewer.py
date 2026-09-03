@@ -1,3 +1,4 @@
+import numpy as np
 """
 Radar Genesys — Pausas y Adherencia de Turno.
 
@@ -11,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from openpyxl.utils import get_column_letter
 
@@ -40,6 +42,42 @@ CARDS = [
 
 ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
 
+PAUSAS_NO_AUTORIZADAS = {
+    "Lunch",
+    "Refeição (sólo BR)",
+    "Ampliado",
+    "Reunión Equipo",
+    "LATAM News",
+    "Casos borde (sólo LAE)",
+    "Boletín RT (sólo LAE)",
+    "Mediación entidades (sólo LAE)",
+    "Corresponsables (sólo LAE)",
+}
+
+# Asesores de Backoffice / Células especializadas con alto uso legítimo de Available
+AGENTES_AUTORIZADOS_AVAILABLE_DEFAULT = [
+    "4452121 - Galeano Arboleda Cristian Alfredo",
+    "4509968 - Macias Cardenas Mateo",
+    "4810816 - Ospina Porras Juan Felipe",
+    "4856439 - Morales Albarracin Juan Esteban",
+    "4856439 - Juan Esteban Morales Albarracin",
+    "4770490 - Martinez Benitez Carol Dariena",
+    "4690319 - Chaverra Aguirre Mariana",
+    "4450680 - Higuita Guerra Yadi Lorena",
+    "4758833 - David Felipe Pardo Anzola",
+    "4818871 - Toro Munera Juan Manuel",
+    "4718011 - Perez Hincapie Yolanda",
+    "4614395 - Restrepo Uribe Emanuel",
+    "4729574 - Darly Dayana Guzman Jimenez",
+    "4819011 - Rojas Rodriguez Mairene Beatriz",
+    "4790270 - Tobon Cardenas Maria Isabel",
+    "4853852 - Carrascal Gonzalez Luciana",
+    "4636625 - Mosquera Vergara Jhoseline Dayana",
+    "4822621 - Cano Gaviria Ana Maria",
+    "4196581 - QUINTERO BETANCUR KELLY GEOVANNA",
+    "4496451 - Rutberling Delcarmen Rojas Anderson",
+]
+
 
 def meta_texto(card: dict) -> str:
     if card["tipo"] == "conteo":
@@ -65,6 +103,28 @@ def color_uso_turno(pct: float) -> str:
     return "#1baf7a"
 
 
+def color_fuga(pct: float) -> str:
+    """Semáforo para fuga en conexión (excesos e improductivas): <=3% verde, <=6% amarillo, >6% rojo."""
+    if pct <= 3.0:
+        return "#1baf7a"
+    if pct <= 6.0:
+        return "#eda100"
+    return "#e24b4a"
+
+
+def estilo_prod(val):
+    if pd.isna(val):
+        return ""
+    color = "#1baf7a" if val >= 85 else ("#eda100" if val >= 75 else "#e24b4a")
+    return f"background-color: {color}22; color: {color}; font-weight: 600;"
+
+
+def estilo_aut(val):
+    if pd.isna(val):
+        return ""
+    return "background-color: #378ADD22; color: #378ADD; font-weight: 600;"
+
+
 def estilo_micro(val):
     """Estilo para micro-estados (<= 15 seg): alerta si es recurrente."""
     if pd.isna(val) or val == 0:
@@ -84,6 +144,150 @@ def servicio_tiene_prepausa(servicio: str) -> bool:
     if "CHAT AGENCIAS ESP" in s:
         return False
     return any(k in s for k in ("WPP", "CHAT", "RRSS"))
+
+
+def calcular_componentes_100(
+    df_sub: pd.DataFrame,
+    servicio: str = "",
+    penalizar_available: bool = True,
+    excluidos_available: set = None,
+):
+    """Calcula minutos productivos, pausas autorizadas y excesos sobre el tiempo conectado (100%)."""
+    if excluidos_available is None:
+        excluidos_available = set()
+
+    conectados_df = df_sub[df_sub["presence_label"] != "Offline"]
+    t_con = float(conectados_df["duracion_min"].sum()) if not conectados_df.empty else 0.0
+    if t_con <= 0:
+        return 0.0, 0.0, 0.0, 0.0, {}, {}, {}
+
+    diario = (
+        conectados_df.groupby(["agente", "fecha", "presence_label"])["duracion_min"]
+        .sum()
+        .unstack(fill_value=0.0)
+    )
+    tiene_pre = servicio_tiene_prepausa(servicio)
+    meta_pre = 60.0 if tiene_pre else 0.0
+
+    tot_aut = 0.0
+    tot_exc = 0.0
+    detalle_aut = {}
+    detalle_exc = {}
+    detalle_prod = {}
+    presencias_meta = {"Break", "Baño", "Diálogo Diario / 4DX", "PCA- Diálogo", "Lunch", "Pre Pausa", "CDR"}
+
+    for (agente, fecha), row in diario.iterrows():
+        bano = row.get("Baño", 0.0)
+        b_aut = min(bano, 5.0)
+        b_exc = max(0.0, bano - 5.0)
+
+        brk = row.get("Break", 0.0)
+        brk_aut = min(brk, 30.0)
+        brk_exc = max(0.0, brk - 30.0)
+
+        dia = row.get("Diálogo Diario / 4DX", 0.0) + row.get("PCA- Diálogo", 0.0)
+        dia_aut = min(dia, 15.0)
+        dia_exc = max(0.0, dia - 15.0)
+
+        pre = row.get("Pre Pausa", 0.0)
+        pre_aut = min(pre, meta_pre)
+        pre_exc = max(0.0, pre - meta_pre)
+
+        cdr = row.get("CDR", 0.0)
+        cdr_aut = min(cdr, 30.0)
+        cdr_exc = max(0.0, cdr - 30.0)
+
+        # Determinar si se penaliza Available para este asesor
+        penalizar_este = penalizar_available and (agente not in excluidos_available)
+        pausas_no_aut = set(PAUSAS_NO_AUTORIZADAS)
+        if penalizar_este:
+            pausas_no_aut.update({"Available", "Conectado"})
+
+        tot_no_aut = 0.0
+        for p_na in pausas_no_aut:
+            v_na = row.get(p_na, 0.0)
+            if v_na > 0:
+                tot_no_aut += v_na
+                detalle_exc[f"{p_na} (No aut.)"] = detalle_exc.get(f"{p_na} (No aut.)", 0.0) + v_na
+
+        tot_aut += (b_aut + brk_aut + dia_aut + pre_aut + cdr_aut)
+        tot_exc += (b_exc + brk_exc + dia_exc + pre_exc + cdr_exc + tot_no_aut)
+
+        detalle_aut["Descanso (Break)"] = detalle_aut.get("Descanso (Break)", 0.0) + brk_aut
+        detalle_aut["Baño"] = detalle_aut.get("Baño", 0.0) + b_aut
+        detalle_aut["Diálogo / 4DX"] = detalle_aut.get("Diálogo / 4DX", 0.0) + dia_aut
+        if tiene_pre:
+            detalle_aut["Pre Pausa"] = detalle_aut.get("Pre Pausa", 0.0) + pre_aut
+        if cdr_aut > 0:
+            detalle_aut["CDR"] = detalle_aut.get("CDR", 0.0) + cdr_aut
+
+        if brk_exc > 0:
+            detalle_exc["Exceso Descanso"] = detalle_exc.get("Exceso Descanso", 0.0) + brk_exc
+        if b_exc > 0:
+            detalle_exc["Exceso Baño"] = detalle_exc.get("Exceso Baño", 0.0) + b_exc
+        if dia_exc > 0:
+            detalle_exc["Exceso Diálogo"] = detalle_exc.get("Exceso Diálogo", 0.0) + dia_exc
+        if pre_exc > 0:
+            detalle_exc["Exceso Pre Pausa"] = detalle_exc.get("Exceso Pre Pausa", 0.0) + pre_exc
+        if cdr_exc > 0:
+            detalle_exc["Exceso CDR"] = detalle_exc.get("Exceso CDR", 0.0) + cdr_exc
+
+        # Si NO se penaliza Available para este agente, registrarlo en detalle_prod
+        if not penalizar_este:
+            for p_av in ("Available", "Conectado"):
+                v_av = row.get(p_av, 0.0)
+                if v_av > 0:
+                    detalle_prod[p_av] = detalle_prod.get(p_av, 0.0) + v_av
+
+    # Registrar el resto de presencias productivas
+    for col in diario.columns:
+        if col not in presencias_meta and col not in PAUSAS_NO_AUTORIZADAS and col not in ("Available", "Conectado", "Offline"):
+            val = float(diario[col].sum())
+            if val > 0:
+                detalle_prod[col] = val
+
+    prod_min = max(0.0, t_con - tot_aut - tot_exc)
+    return prod_min, tot_aut, tot_exc, t_con, detalle_prod, detalle_aut, detalle_exc
+
+
+def render_distribucion_100(prod_min: float, aut_min: float, exc_min: float, t_con_min: float, titulo: str = "Distribución del 100% del Tiempo Conectado"):
+    """Renderiza una barra horizontal apilada que suma exactamente el 100% del tiempo conectado."""
+    if t_con_min <= 0:
+        return
+    pct_prod = round(prod_min / t_con_min * 100.0, 1)
+    pct_aut = round(aut_min / t_con_min * 100.0, 1)
+    pct_exc = round(exc_min / t_con_min * 100.0, 1)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=["Conexión"], x=[pct_prod], name="Productivo", orientation="h",
+        marker=dict(color="#1baf7a"),
+        text=[f"Productivo<br>{pct_prod}% ({prod_min:.0f}m)"], textposition="inside", insidetextanchor="middle",
+        hovertemplate="<b>Productivo</b>: %{x:.1f}% (" + f"{prod_min:.1f} min)<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        y=["Conexión"], x=[pct_aut], name="Pausas Autorizadas", orientation="h",
+        marker=dict(color="#378ADD"),
+        text=[f"Pausas Aut.<br>{pct_aut}% ({aut_min:.0f}m)"] if pct_aut >= 6 else [""], textposition="inside", insidetextanchor="middle",
+        hovertemplate="<b>Pausas Autorizadas</b>: %{x:.1f}% (" + f"{aut_min:.1f} min)<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        y=["Conexión"], x=[pct_exc], name="Excesos / Fuga", orientation="h",
+        marker=dict(color="#e24b4a"),
+        text=[f"Excesos/Fuga<br>{pct_exc}% ({exc_min:.0f}m)"] if pct_exc >= 6 else [""], textposition="inside", insidetextanchor="middle",
+        hovertemplate="<b>Excesos / Fuga</b>: %{x:.1f}% (" + f"{exc_min:.1f} min)<extra></extra>",
+    ))
+    fig.update_layout(
+        barmode="stack",
+        height=130,
+        margin=dict(l=10, r=10, t=32, b=10),
+        xaxis=dict(showgrid=False, showticklabels=True, range=[0, 100], ticksuffix="%"),
+        yaxis=dict(showticklabels=False),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        title=dict(text=f"<b>{titulo}</b> — Total: {t_con_min/60.0:.1f} hrs ({t_con_min:.0f} min = 100%)", font=dict(size=13)),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def sumar_presencias(pivot: pd.DataFrame, presence_list: list[str]) -> pd.Series:
@@ -292,37 +496,41 @@ def calcular_adherencia_horario(vista: pd.DataFrame, turnos: pd.DataFrame) -> pd
 
 
 def calcular_uso_turno(
-    vista: pd.DataFrame, turnos: pd.DataFrame
-) -> tuple[pd.DataFrame, dict[str, float], dict[tuple[str, str], float]]:
-    """
-    Calcula el % de Uso de Turno (aprovechamiento descontando excesos de pausas).
-    Devuelve:
-      - DataFrame indexado por agente_id con columnas ['uso_turno', 'exceso_prom_min']
-      - dict con metricas globales: {'uso_turno': float, 'exceso_prom_min': float}
-      - dict (agente_id, fecha) -> uso_dia para el detalle diario
-    """
-    columnas_vacias = ["uso_turno", "exceso_prom_min"]
+    vista: pd.DataFrame,
+    turnos: pd.DataFrame,
+    penalizar_available: bool = True,
+    excluidos_available: set = None,
+):
+    """Calcula el aprovechamiento descontando excesos de pausas y pausas no autorizadas."""
+    if excluidos_available is None:
+        excluidos_available = set()
+
+    columnas_vacias = ["pct_fuga_con", "pct_productivo", "pct_pausa_aut", "exceso_prom_min", "t_conectado_hrs"]
     if vista.empty:
         return (
             pd.DataFrame(columns=["agente_id"] + columnas_vacias).set_index("agente_id"),
-            {"uso_turno": 0.0, "exceso_prom_min": 0.0},
+            {"pct_fuga_con": 0.0, "pct_productivo": 0.0, "pct_pausa_aut": 0.0, "exceso_prom_min": 0.0, "t_conectado_hrs": 0.0},
             {},
         )
 
-    # 1. Mapa de turnos por (bp, fecha) -> duracion en minutos
-    mapa_turnos = {}
-    if not turnos.empty:
-        for row in turnos.itertuples(index=False):
-            fecha_dt = pd.Timestamp(row.fecha)
-            ini = fecha_dt + pd.to_timedelta(row.hora_inicio)
-            fin = fecha_dt + pd.to_timedelta(row.hora_fin)
-            if fin <= ini:
-                fin += pd.Timedelta(days=1)
-            dur = (fin - ini).total_seconds() / 60.0
-            if dur > 0:
-                mapa_turnos[(str(row.bp).strip(), str(row.fecha))] = dur
+    turnos_validos = turnos.dropna(subset=["hora_inicio", "hora_fin"]).copy()
+    if not turnos_validos.empty:
+        turnos_validos["inicio_dt"] = pd.to_datetime(
+            turnos_validos["fecha"] + " " + turnos_validos["hora_inicio"]
+        )
+        turnos_validos["fin_dt"] = pd.to_datetime(
+            turnos_validos["fecha"] + " " + turnos_validos["hora_fin"]
+        )
+        turnos_validos.loc[
+            turnos_validos["fin_dt"] < turnos_validos["inicio_dt"], "fin_dt"
+        ] += pd.Timedelta(days=1)
+        turnos_validos["duracion_min"] = (
+            turnos_validos["fin_dt"] - turnos_validos["inicio_dt"]
+        ).dt.total_seconds() / 60.0
+        mapa_turnos = turnos_validos.set_index(["bp", "fecha"])["duracion_min"].to_dict()
+    else:
+        mapa_turnos = {}
 
-    # 2. Agrupacion diaria de pausas y tiempo conectado
     vista_temp = vista.copy()
     vista_temp["bp"] = vista_temp["agente"].str.split(" - ").str[0].str.strip()
 
@@ -334,7 +542,7 @@ def calcular_uso_turno(
     )
 
     diario = (
-        vista_temp.groupby(["agente_id", "bp", "servicio", "fecha", "presence_label"])["duracion_min"]
+        vista_temp.groupby(["agente_id", "agente", "bp", "servicio", "fecha", "presence_label"])["duracion_min"]
         .sum()
         .unstack(fill_value=0.0)
     )
@@ -342,7 +550,7 @@ def calcular_uso_turno(
     filas_dias = []
     mapa_diario = {}
 
-    for (agente_id, bp, servicio, fecha), row in diario.iterrows():
+    for (agente_id, agente, bp, servicio, fecha), row in diario.iterrows():
         duracion_turno = mapa_turnos.get((bp, fecha))
         if not duracion_turno or duracion_turno <= 0:
             duracion_turno = conectados.get((agente_id, fecha), 0.0)
@@ -358,48 +566,105 @@ def calcular_uso_turno(
         dialogo = row.get("Diálogo Diario / 4DX", 0.0) + row.get("PCA- Diálogo", 0.0)
         exceso_dialogo = max(0.0, dialogo - 15.0)
 
-        lunch = row.get("Lunch", 0.0)
-        exceso_lunch = lunch  # No autorizada
-
         pre_pausa = row.get("Pre Pausa", 0.0)
         meta_pre = 60.0 if servicio_tiene_prepausa(servicio) else 0.0
         exceso_pre = max(0.0, pre_pausa - meta_pre)
 
-        total_exceso = exceso_bano + exceso_break + exceso_dialogo + exceso_lunch + exceso_pre
+        # Penalización de Available si NO está en lista de exclusión
+        penalizar_este = penalizar_available and (agente not in excluidos_available)
+        no_aut_lista = list(PAUSAS_NO_AUTORIZADAS)
+        if penalizar_este:
+            no_aut_lista.extend(["Available", "Conectado"])
+
+        no_aut_min = sum(row.get(col, 0.0) for col in no_aut_lista)
+        total_exceso = exceso_bano + exceso_break + exceso_dialogo + exceso_pre + no_aut_min
         uso_dia = max(0.0, min(100.0, 100.0 - (100.0 * total_exceso / duracion_turno)))
 
-        mapa_diario[(agente_id, fecha)] = round(float(uso_dia), 1)
+        t_conectado = conectados.get((agente_id, fecha), 0.0)
+        cdr = row.get("CDR", 0.0)
+
+        # Autorizadas dentro de meta
+        b_aut = min(bano, 5.0)
+        brk_aut = min(descanso, 30.0)
+        dia_aut = min(dialogo, 15.0)
+        pre_aut = min(pre_pausa, meta_pre)
+        cdr_aut = min(cdr, 30.0)
+        tot_aut = b_aut + brk_aut + dia_aut + pre_aut + cdr_aut
+
+        pct_fuga = min(100.0, (100.0 * total_exceso / t_conectado)) if t_conectado > 0 else 0.0
+        pct_aut = min(100.0, (100.0 * tot_aut / t_conectado)) if t_conectado > 0 else 0.0
+        pct_prod = max(0.0, round(100.0 - pct_fuga - pct_aut, 1)) if t_conectado > 0 else 0.0
+
+        mapa_diario[(agente_id, fecha)] = {
+            "pct_fuga": round(float(pct_fuga), 1),
+            "pct_prod": round(float(pct_prod), 1),
+            "pct_aut": round(float(pct_aut), 1),
+            "exceso_min": round(float(total_exceso), 1),
+            "t_con_min": round(float(t_conectado), 1),
+        }
         filas_dias.append({
             "agente_id": agente_id,
             "fecha": fecha,
             "uso_dia": uso_dia,
             "total_exceso": total_exceso,
+            "tot_aut": tot_aut,
+            "t_conectado_min": t_conectado,
+            "pct_productivo": pct_prod,
+            "pct_pausa_aut": pct_aut,
+            "pct_fuga_con": pct_fuga,
         })
 
     df_dias = pd.DataFrame(filas_dias)
     if df_dias.empty:
         return (
-            pd.DataFrame(columns=["agente_id"] + columnas_vacias).set_index("agente_id"),
-            {"uso_turno": 0.0, "exceso_prom_min": 0.0},
+            pd.DataFrame(columns=["agente_id", "pct_fuga_con", "pct_productivo", "pct_pausa_aut", "exceso_prom_min", "t_conectado_hrs"]).set_index("agente_id"),
+            {"pct_fuga_con": 0.0, "pct_productivo": 0.0, "pct_pausa_aut": 0.0, "exceso_prom_min": 0.0, "t_conectado_hrs": 0.0},
             {},
         )
 
-    resumen_agente = df_dias.groupby("agente_id").agg(
-        uso_turno=("uso_dia", "mean"),
-        exceso_prom_min=("total_exceso", "mean")
+    # Agregación ponderada por minutos totales conectados (evita distorsión de días con logins de 1 minuto)
+    ag_sum = df_dias.groupby("agente_id").agg(
+        tot_con=("t_conectado_min", "sum"),
+        tot_exc=("total_exceso", "sum"),
+        tot_aut=("tot_aut", "sum"),
+        exceso_prom_min=("total_exceso", "mean"),
+        t_conectado_hrs=("t_conectado_min", lambda x: x.mean() / 60.0),
     )
-    resumen_agente["uso_turno"] = resumen_agente["uso_turno"].round(1)
-    resumen_agente["exceso_prom_min"] = resumen_agente["exceso_prom_min"].round(1)
+    resumen_agente = pd.DataFrame(index=ag_sum.index)
+    resumen_agente["pct_fuga_con"] = np.where(
+        ag_sum["tot_con"] > 0,
+        (ag_sum["tot_exc"] / ag_sum["tot_con"] * 100.0).round(1),
+        0.0,
+    )
+    resumen_agente["pct_pausa_aut"] = np.where(
+        ag_sum["tot_con"] > 0,
+        (ag_sum["tot_aut"] / ag_sum["tot_con"] * 100.0).round(1),
+        0.0,
+    )
+    resumen_agente["pct_productivo"] = np.maximum(
+        0.0,
+        (100.0 - resumen_agente["pct_fuga_con"] - resumen_agente["pct_pausa_aut"]).round(1),
+    )
+    resumen_agente["exceso_prom_min"] = ag_sum["exceso_prom_min"].round(1)
+    resumen_agente["t_conectado_hrs"] = ag_sum["t_conectado_hrs"].round(1)
+
+    tot_con_g = float(df_dias["t_conectado_min"].sum())
+    tot_exc_g = float(df_dias["total_exceso"].sum())
+    tot_aut_g = float(df_dias["tot_aut"].sum())
+    pct_fuga_g = round(tot_exc_g / tot_con_g * 100.0, 1) if tot_con_g > 0 else 0.0
+    pct_aut_g = round(tot_aut_g / tot_con_g * 100.0, 1) if tot_con_g > 0 else 0.0
+    pct_prod_g = round(max(0.0, 100.0 - pct_fuga_g - pct_aut_g), 1)
 
     global_kpi = {
-        "uso_turno": round(float(df_dias["uso_dia"].mean()), 1),
+        "pct_fuga_con": pct_fuga_g,
+        "pct_productivo": pct_prod_g,
+        "pct_pausa_aut": pct_aut_g,
         "exceso_prom_min": round(float(df_dias["total_exceso"].mean()), 1),
+        "t_conectado_hrs": round(float(df_dias["t_conectado_min"].mean() / 60.0), 1),
     }
 
     return resumen_agente, global_kpi, mapa_diario
 
-
-# ── Vista de detalle (linea de tiempo de un agente) ─────────────────────
 
 def render_timeline(df_agente: pd.DataFrame, color_map: dict[str, str]):
     df_agente = df_agente.copy()
@@ -535,9 +800,31 @@ with tab_historico:
         st.info("Sin tramos para estos filtros.")
         st.stop()
     
+    with st.expander("⚙️ Configuración: Regla de Available / Conectado y Exclusiones", expanded=False):
+        c_av1, c_av2 = st.columns([1, 2])
+        with c_av1:
+            penalizar_available = st.toggle(
+                "⚠️ Penalizar Available como Fuga",
+                value=True,
+                help="Penaliza el tiempo en Available/Conectado para asesores que deberían estar en cola (On Queue).",
+            )
+        with c_av2:
+            todos_los_agentes = sorted(df["agente"].dropna().unique())
+            default_excluidos = [a for a in AGENTES_AUTORIZADOS_AVAILABLE_DEFAULT if a in todos_los_agentes]
+            excluidos_available = set(
+                st.multiselect(
+                    "🛡️ Asesores autorizados en Available (Lista blanca / No penalizar):",
+                    options=todos_los_agentes,
+                    default=default_excluidos,
+                    help="Los asesores aquí seleccionados (Backoffice, Equipajes, Cargo, etc.) NO serán penalizados por estar en Available (computa como Productivo).",
+                )
+            ) if penalizar_available else set()
+
     turnos_rango = cargar_turnos(fecha_desde, fecha_hasta)
     adherencia_horario = calcular_adherencia_horario(vista, turnos_rango)
-    resumen_uso, global_uso, mapa_uso_diario = calcular_uso_turno(vista, turnos_rango)
+    resumen_uso, global_uso, mapa_uso_diario = calcular_uso_turno(
+        vista, turnos_rango, penalizar_available=penalizar_available, excluidos_available=excluidos_available
+    )
     
     # ── Tarjetas KPI ─────────────────────────────────────────────────────────
     
@@ -565,15 +852,15 @@ with tab_historico:
         )
     
     with kpi_cols[1]:
-        pct_uso = global_uso["uso_turno"]
+        pct_fuga = global_uso["pct_fuga_con"]
         min_exceso = global_uso["exceso_prom_min"]
-        color_uso = color_uso_turno(pct_uso)
+        color_f = color_fuga(pct_fuga)
         st.markdown(
             f"""
             <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
-                <p style="color:gray; font-size:13px; margin:0;">Uso de Turno</p>
-                <p style="color:{color_uso}; font-size:28px; font-weight:700; margin:2px 0;">{pct_uso:.1f}%</p>
-                <p style="color:gray; font-size:12px; margin:0;">Fuga prom: {min_exceso:.1f} min/día</p>
+                <p style="color:gray; font-size:13px; margin:0;">% Fuga en Conexión</p>
+                <p style="color:{color_f}; font-size:28px; font-weight:700; margin:2px 0;">{pct_fuga:.1f}%</p>
+                <p style="color:gray; font-size:12px; margin:0;">Exceso prom: {min_exceso:.1f} min/día</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -598,7 +885,26 @@ with tab_historico:
             )
     
     # ── Tabla por agente ───────────────────────────────────────────────────
-    
+
+    # ── Módulo Comparativo: Uso de Turno vs. % Pausas sobre Conexión ────────
+    with st.expander("⚖️ Distribución del 100% del Tiempo Conectado (Balance de Jornada)", expanded=False):
+        st.markdown(
+            """
+            **Composición del 100% del tiempo conectado:**  
+            `% Productivo` + `% Pausas Autorizadas` representan la porción válida y legítima. El **% Fuga** es el faltante para completar el 100%.
+            """
+        )
+        c_kpi1, c_kpi2, c_kpi3, c_kpi4 = st.columns(4)
+        c_kpi1.metric("1. % Fuga (Excesos)", f"{global_uso['pct_fuga_con']:.1f}%", f"Exceso: {global_uso['exceso_prom_min']:.1f} m/día", delta_color="inverse")
+        c_kpi2.metric("2. % Productivo", f"{global_uso['pct_productivo']:.1f}%", "Atención y gestión", delta_color="off")
+        c_kpi3.metric("3. % Pausas Autorizadas", f"{global_uso['pct_pausa_aut']:.1f}%", "Dentro de metas", delta_color="off")
+        c_kpi4.metric("4. Conectado Promedio", f"{global_uso['t_conectado_hrs']:.1f} h/día", "Base de conexión")
+
+        prod_g, aut_g, exc_g, con_g, _, _, _ = calcular_componentes_100(
+            vista, "", penalizar_available=penalizar_available, excluidos_available=excluidos_available
+        )
+        render_distribucion_100(prod_g, aut_g, exc_g, con_g, titulo="Distribución Global del Tiempo Conectado (Filtros actuales)")
+
     micro_por_agente = (
         vista[
             (~vista["presence_label"].isin(ESTADOS_SISTEMA)) &
@@ -608,65 +914,79 @@ with tab_historico:
         .size()
         .rename("micro_estados")
     )
-    
+
     tabla = (
         calcular_cumplimiento(vista)
         .join(adherencia_horario[["horario", "dias_con_turno"]])
-        .join(resumen_uso[["uso_turno", "exceso_prom_min"]])
+        .join(resumen_uso[["pct_fuga_con", "pct_productivo", "pct_pausa_aut", "exceso_prom_min", "t_conectado_hrs"]])
         .join(micro_por_agente)
     )
     tabla["micro_estados"] = tabla["micro_estados"].fillna(0).astype(int)
     n_agentes = len(tabla)
-    st.caption(f"{n_agentes} agentes · clic en una fila para ver el detalle y la comparación contra su servicio")
-    
-    columnas_mostrar = ["agente", "coordinador", "servicio", "jefe_inmediato", "uso_turno", "micro_estados", "horario"] + [c["key"] for c in CARDS]
+    st.caption(f"{n_agentes} agentes · ordenados por mayor % de fuga · % Fuga + % Productivo + % Pausas Aut. = 100% · clic en una fila para ver el detalle")
+
+    columnas_mostrar = [
+        "agente", "coordinador", "servicio", "jefe_inmediato",
+        "pct_fuga_con", "pct_productivo", "pct_pausa_aut", "exceso_prom_min", "t_conectado_hrs",
+        "micro_estados", "horario"
+    ] + [c["key"] for c in CARDS]
+
     tabla_mostrar = (
         tabla.reset_index()[["agente_id"] + columnas_mostrar]
         .rename(
             columns={
                 "agente": "Agente", "coordinador": "Coordinador", "servicio": "Servicio",
-                "jefe_inmediato": "Supervisor", "uso_turno": "Uso Turno",
+                "jefe_inmediato": "Supervisor",
+                "pct_fuga_con": "% Fuga",
+                "pct_productivo": "% Productivo",
+                "pct_pausa_aut": "% Pausas Aut.",
+                "exceso_prom_min": "Exceso (min)",
+                "t_conectado_hrs": "Conectado (h)",
                 "micro_estados": "Micro (≤15s)", "horario": "Horario",
                 **{c["key"]: c["label"] for c in CARDS},
             }
         )
-        .sort_values(by="Uso Turno", ascending=True)
+        .sort_values(by=["% Fuga", "Exceso (min)"], ascending=[False, False])
     )
-    
-    pct_cols = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
+
+    pct_cols = ["% Fuga", "% Productivo", "% Pausas Aut.", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
     conteo_cols = ["Micro (≤15s)"] + [c["label"] for c in CARDS if c["tipo"] == "conteo"]
-    
-    
+
+
     def estilo_pct(val):
         if pd.isna(val):
             return ""
         return f"background-color: {color_pct(val)}22; color: {color_pct(val)}; font-weight: 600;"
-    
-    
-    def estilo_uso(val):
+
+
+    def estilo_fuga_celda(val):
         if pd.isna(val):
             return ""
-        return f"background-color: {color_uso_turno(val)}22; color: {color_uso_turno(val)}; font-weight: 600;"
-    
-    
+        return f"background-color: {color_fuga(val)}22; color: {color_fuga(val)}; font-weight: 600;"
+
+
     styler = (
         tabla_mostrar.drop(columns=["agente_id"])
         .style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
-        .map(estilo_uso, subset=["Uso Turno"])
+        .map(estilo_fuga_celda, subset=["% Fuga"])
+        .map(estilo_prod, subset=["% Productivo"])
+        .map(estilo_aut, subset=["% Pausas Aut."])
         .map(estilo_micro, subset=["Micro (≤15s)"])
     )
-    
-    # st.dataframe en modo interactivo (on_select) ignora Styler.format() para el
-    # valor mostrado - solo respeta el color via Styler.map(). El formato real de
-    # los numeros se controla aparte con column_config.
+
     column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols}
     column_config.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols})
+    column_config["% Fuga"] = st.column_config.NumberColumn("% Fuga", format="%.1f%%", help="Pausas no productivas o excesos sobre el tiempo conectado (faltante para el 100%)")
+    column_config["% Productivo"] = st.column_config.NumberColumn("% Productivo", format="%.1f%%", help="% del tiempo conectado en atención y gestión operativa")
+    column_config["% Pausas Aut."] = st.column_config.NumberColumn("% Pausas Aut.", format="%.1f%%", help="% del tiempo conectado en pausas reglamentarias dentro de meta")
+    column_config["Exceso (min)"] = st.column_config.NumberColumn("Exceso (min)", format="%.1f m", help="Minutos diarios promedio de exceso sobre metas de pausas")
+    column_config["Conectado (h)"] = st.column_config.NumberColumn("Conectado (h)", format="%.1f h", help="Horas promedio de conexión diaria")
     column_config["Micro (≤15s)"] = st.column_config.NumberColumn(
         "Micro (≤15s)",
         format="%d",
         help="Tramos en pausas o gestiones con duración ≤ 15 seg. Ítem a revisar por posibles refrescos de cola o alternancia operativa.",
     )
-    
+
     evento = st.dataframe(
         styler,
         column_config=column_config,
@@ -720,6 +1040,44 @@ with tab_historico:
         st.divider()
         st.subheader(f"Detalle — {fila_sel['agente']}")
         st.caption(f"{fila_sel['servicio']} · Supervisor: {fila_sel['jefe_inmediato']}")
+
+        c_da1, c_da2, c_da3, c_da4 = st.columns(4)
+        c_da1.metric("% Fuga s/ Conexión", f"{fila_sel['pct_fuga_con']:.1f}%", help="Minutos de pausas no productivas o excesos ÷ tiempo conectado (faltante para el 100%)")
+        c_da2.metric("% Productivo", f"{fila_sel['pct_productivo']:.1f}%", help="% del tiempo conectado en atención y gestión operativa")
+        c_da3.metric("% Pausas Autorizadas", f"{fila_sel['pct_pausa_aut']:.1f}%", help="% del tiempo conectado en pausas reglamentarias dentro de meta")
+        c_da4.metric("Conectado Diario Prom.", f"{fila_sel['t_conectado_hrs']:.1f} h/día", f"Exceso: {fila_sel['exceso_prom_min']:.1f} m/día")
+
+        df_agente = vista[vista["agente_id"] == agente_id_sel]
+        if fila_sel["agente"] in excluidos_available:
+            st.info("🛡️ **Asesor en Lista Blanca:** Autorizado para operar en `Available` (computa como tiempo productivo).")
+        prod_a, aut_a, exc_a, con_a, det_pa, det_aa, det_ea = calcular_componentes_100(
+            df_agente, fila_sel["servicio"], penalizar_available=penalizar_available, excluidos_available=excluidos_available
+        )
+        render_distribucion_100(prod_a, aut_a, exc_a, con_a, titulo=f"Distribución del 100% Conectado — {fila_sel['agente']}")
+
+        with st.expander("🔍 Desglose detallado del 100% (Productivo vs. Pausas)", expanded=False):
+            col_dp1, col_dp2, col_dp3 = st.columns(3)
+            with col_dp1:
+                pct_p = (prod_a / con_a * 100) if con_a > 0 else 0.0
+                st.markdown(f"**🟢 Operación Productiva ({pct_p:.1f}%)**")
+                for k, v in sorted(det_pa.items(), key=lambda x: -x[1]):
+                    st.write(f"- {k}: **{v:.1f} min** ({(v/con_a*100):.1f}%)")
+            with col_dp2:
+                pct_a = (aut_a / con_a * 100) if con_a > 0 else 0.0
+                st.markdown(f"**🔵 Pausas Autorizadas ({pct_a:.1f}%)**")
+                for k, v in sorted(det_aa.items(), key=lambda x: -x[1]):
+                    if v > 0:
+                        st.write(f"- {k}: **{v:.1f} min** ({(v/con_a*100):.1f}%)")
+                if aut_a == 0:
+                    st.caption("Sin pausas autorizadas registradas")
+            with col_dp3:
+                pct_e = (exc_a / con_a * 100) if con_a > 0 else 0.0
+                st.markdown(f"**🔴 Excesos / Fuga ({pct_e:.1f}%)**")
+                for k, v in sorted(det_ea.items(), key=lambda x: -x[1]):
+                    if v > 0:
+                        st.write(f"- {k}: **{v:.1f} min** ({(v/con_a*100):.1f}%)")
+                if exc_a == 0:
+                    st.caption("✅ Sin excesos ni pausas no autorizadas")
     
         vista_servicio = vista[vista["servicio"] == fila_sel["servicio"]]
         n_agentes_servicio = vista_servicio["agente_id"].nunique()
@@ -933,9 +1291,21 @@ with tab_historico:
             turnos_dia = turnos_rango[(turnos_rango["bp"] == bp_agente) & (turnos_rango["fecha"] == fecha)]
             adh_dia = calcular_adherencia_horario(df_dia, turnos_dia)
             horario_dia = adh_dia["horario"].iloc[0] if not adh_dia.empty else float("nan")
-            uso_dia = mapa_uso_diario.get((agente_id_sel, fecha), float("nan"))
-    
-            fila = {"Fecha": fecha, "Novedad": "—", "Uso Turno": uso_dia, "Horario": horario_dia}
+            info_dia = mapa_uso_diario.get((agente_id_sel, fecha), {})
+            fuga_dia = info_dia.get("pct_fuga", float("nan")) if isinstance(info_dia, dict) else float("nan")
+            prod_dia = info_dia.get("pct_prod", float("nan")) if isinstance(info_dia, dict) else float("nan")
+            aut_dia = info_dia.get("pct_aut", float("nan")) if isinstance(info_dia, dict) else float("nan")
+            exc_dia = info_dia.get("exceso_min", float("nan")) if isinstance(info_dia, dict) else float("nan")
+
+            fila = {
+                "Fecha": fecha,
+                "Novedad": "—",
+                "% Fuga": fuga_dia,
+                "% Productivo": prod_dia,
+                "% Pausas Aut.": aut_dia,
+                "Exceso (min)": exc_dia,
+                "Horario": horario_dia,
+            }
             fila_valores = pivot_agente_dia.loc[[fecha]]
             for c in CARDS:
                 usado_dia = sumar_presencias(fila_valores, c["presence"]).iloc[0]
@@ -944,15 +1314,18 @@ with tab_historico:
                 else:
                     fila[c["label"]] = score_graduado(pd.Series([usado_dia]), c["meta"]).iloc[0]
             filas_diarias.append(fila)
-    
-        tabla_diaria = pd.DataFrame(filas_diarias).sort_values(by="Uso Turno", ascending=True)
-        pct_cols_diario = ["Uso Turno", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
+
+        tabla_diaria = pd.DataFrame(filas_diarias).sort_values(by=["% Fuga", "Exceso (min)"], ascending=[False, False])
+        pct_cols_diario = ["% Fuga", "% Productivo", "% Pausas Aut.", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
         conteo_cols_diario = [c["label"] for c in CARDS if c["tipo"] == "conteo"]
         styler_diario = (
             tabla_diaria.style.map(estilo_pct, subset=["Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"])
-            .map(estilo_uso, subset=["Uso Turno"])
+            .map(estilo_fuga_celda, subset=["% Fuga"])
+            .map(estilo_prod, subset=["% Productivo"])
+            .map(estilo_aut, subset=["% Pausas Aut."])
         )
-        col_config_diario = {c: st.column_config.NumberColumn(c, format="%.0f%%") for c in pct_cols_diario + ["Uso Turno"]}
+        col_config_diario = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols_diario}
+        col_config_diario["Exceso (min)"] = st.column_config.NumberColumn("Exceso (min)", format="%.1f m")
         col_config_diario.update({c: st.column_config.NumberColumn(c, format="%d") for c in conteo_cols_diario})
         st.dataframe(
             styler_diario,
@@ -960,7 +1333,7 @@ with tab_historico:
             hide_index=True,
             column_config=col_config_diario,
         )
-    
+
         st.subheader("Detalle de cada ítem")
         st.caption("Cada tramo registrado en Genesys, para todos los días del rango filtrado.")
         detalle_diario = df_agente[["fecha", "presence_label", "inicio", "fin", "duracion_min"]].copy()
