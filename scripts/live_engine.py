@@ -77,16 +77,33 @@ def obtener_token_genesys() -> str | None:
     return None
 
 
+def safe_genesys_get(url: str, headers: dict, params: dict = None, max_retries: int = 3):
+    """Consulta GET a Genesys con reintento automático si responde 429 (Rate Limit)."""
+    for attempt in range(max_retries):
+        try:
+            r = requests.get(url, headers=headers, params=params, timeout=15)
+            if r.status_code == 429:
+                wait_sec = int(r.headers.get("Retry-After", 3))
+                time.sleep(min(wait_sec, 8))
+                continue
+            return r
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                raise
+    return r
+
+
 @st.cache_data(ttl=3600)
 def cargar_catalogo_presencias(token: str) -> dict:
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        r = requests.get(
+        r = safe_genesys_get(
             "https://api.mypurecloud.com/api/v2/presencedefinitions?pageSize=100",
             headers=headers,
-            timeout=10,
         )
-        if r.status_code == 200:
+        if r and r.status_code == 200:
             catalog = {}
             for e in r.json().get("entities", []):
                 labels = e.get("languageLabels", {})
@@ -103,16 +120,16 @@ def cargar_catalogo_presencias(token: str) -> dict:
     return {}
 
 
+@st.cache_data(ttl=25, show_spinner=False)
 def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> pd.DataFrame:
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        r_init = requests.get(
+        r_init = safe_genesys_get(
             "https://api.mypurecloud.com/api/v2/users",
             headers=headers,
             params={"pageSize": 100, "pageNumber": 1, "expand": "presence,routingStatus"},
-            timeout=10,
         )
-        if r_init.status_code == 401:
+        if not r_init or r_init.status_code == 401:
             st.error("⚠️ El token de Genesys ha expirado o no es válido.")
             return pd.DataFrame()
         if r_init.status_code != 200:
@@ -123,15 +140,14 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
         total_pages = data_init.get("pageCount", 1)
 
         def fetch_page(p):
-            r = requests.get(
+            r = safe_genesys_get(
                 "https://api.mypurecloud.com/api/v2/users",
                 headers=headers,
                 params={"pageSize": 100, "pageNumber": p, "expand": "presence,routingStatus"},
-                timeout=10,
             )
-            return r.json().get("entities", []) if r.status_code == 200 else []
+            return r.json().get("entities", []) if r and r.status_code == 200 else []
 
-        with ThreadPoolExecutor(max_workers=12) as executor:
+        with ThreadPoolExecutor(max_workers=5) as executor:
             paginas = list(executor.map(fetch_page, range(1, total_pages + 1)))
 
         now_utc = datetime.now(timezone.utc)
