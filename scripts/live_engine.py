@@ -365,29 +365,42 @@ def render_tab_en_vivo(agentes_map: dict):
 
     k1, k2, k3, k4, k5, k6 = st.columns(6)
 
-    def render_kpi(col, titulo, valor, subtitulo, color):
+    foco_actual = st.session_state.get("live_vista_rapida", "Solo Conectados")
+
+    def render_kpi_interactivo(col, titulo, valor, subtitulo, color, foco_asociado):
+        es_activo = (foco_actual == foco_asociado)
+        borde_k = f"border: 2px solid {color}; box-shadow: 0 0 10px {color}44; background: #fff;" if es_activo else f"border-left: 4px solid {color}; background: #f8f9fa;"
+        tag_k = "<span style='float:right; font-size:10px; background:#185fa5; color:#fff; padding:1px 6px; border-radius:8px;'>✓ Filtrando</span>" if es_activo else ""
+
         with col:
             st.markdown(
                 f"""
-                <div style="background:#f8f9fa; border-radius:8px; padding:12px 14px; border-left:4px solid {color}; margin-bottom:12px;">
-                    <p style="color:#666; font-size:12px; margin:0;">{titulo}</p>
+                <div style="{borde_k} border-radius:8px; padding:10px 12px; margin-bottom:4px; transition: all 0.2s;">
+                    <p style="color:#666; font-size:12px; margin:0;">{titulo} {tag_k}</p>
                     <p style="color:{color}; font-size:24px; font-weight:700; margin:2px 0;">{valor}</p>
                     <p style="color:#888; font-size:11px; margin:0;">{subtitulo}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+            btn_txt = "✖ Quitar" if es_activo else "🔍 Filtrar"
+            if st.button(btn_txt, key=f"btn_live_card_{foco_asociado}", width="stretch", type="primary" if es_activo else "secondary"):
+                if es_activo:
+                    st.session_state["live_vista_rapida"] = "Todos"
+                else:
+                    st.session_state["live_vista_rapida"] = foco_asociado
+                st.rerun(scope="fragment")
 
     pct_con = (len(conectados) / len(df_filtrado) * 100.0) if len(df_filtrado) > 0 else 0.0
     sub_llamada = f"🚨 {len(llamadas_largas)} > {umbral_llamada} min" if len(llamadas_largas) > 0 else "Duración normal"
     color_llamada = "#E24B4A" if len(llamadas_largas) > 0 else "#185FA5"
 
-    render_kpi(k1, "Conectados", len(conectados), f"{pct_con:.0f}% del filtro", "#1baf7a")
-    render_kpi(k2, "En Interacción", len(en_llamada), sub_llamada, color_llamada)
-    render_kpi(k3, "En Cola Disponibles", len(disponibles), "Esperando contacto", "#0F825C")
-    render_kpi(k4, "En Pausas de Ley", len(en_pausas_regla), "Break, Baño, Pre Pausa", "#BA7517")
-    render_kpi(k5, "En Gestión / BO", len(en_gestion), "Backoffice, Autogestión", "#6347A6")
-    render_kpi(k6, "Alertas de Exceso", len(alertas), f"Pausas y llamadas > {umbral_llamada}m", "#E24B4A" if len(alertas) > 0 else "#888")
+    render_kpi_interactivo(k1, "Conectados", len(conectados), f"{pct_con:.0f}% del filtro", "#1baf7a", "Solo Conectados")
+    render_kpi_interactivo(k2, "En Interacción", len(en_llamada), sub_llamada, color_llamada, "Solo Llamadas Activas")
+    render_kpi_interactivo(k3, "En Cola Disponibles", len(disponibles), "Esperando contacto", "#0F825C", "Solo En Cola")
+    render_kpi_interactivo(k4, "En Pausas de Ley", len(en_pausas_regla), "Break, Baño, Pre Pausa", "#BA7517", "Solo Pausas con Meta")
+    render_kpi_interactivo(k5, "En Gestión / BO", len(en_gestion), "Backoffice, Autogestión", "#6347A6", "Solo Gestión")
+    render_kpi_interactivo(k6, "Alertas de Exceso", len(alertas), f"Pausas y llamadas > {umbral_llamada}m", "#E24B4A" if len(alertas) > 0 else "#888", "Solo Alertas")
 
     # ── 3. Cuadro de Alertas en Tiempo Real (RESPONDE A LOS FILTROS) ──────
     if not alertas.empty:
@@ -420,6 +433,7 @@ def render_tab_en_vivo(agentes_map: dict):
                 "Todos",
                 "Solo Llamadas Activas",
                 "Solo Llamadas Prolongadas",
+                "Solo En Cola",
                 "Solo Pausas con Meta",
                 "Solo Gestión",
                 "Solo Alertas",
@@ -450,6 +464,8 @@ def render_tab_en_vivo(agentes_map: dict):
             & (df_filtrado["routing"] == "INTERACTING")
             & (df_filtrado["dur_llamada_min"] >= umbral_llamada)
         ]
+    elif vista_rapida == "Solo En Cola":
+        df_vista_final = df_filtrado[(df_filtrado["estado"].isin(["Available", "On Queue"])) & (df_filtrado["routing"] == "IDLE")]
     elif vista_rapida == "Solo Pausas con Meta":
         df_vista_final = df_filtrado[df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"])]
     elif vista_rapida == "Solo Gestión":

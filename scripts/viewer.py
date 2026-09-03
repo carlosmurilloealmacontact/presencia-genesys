@@ -1,10 +1,6 @@
+# Radar Genesys — Pausas y Adherencia de Turno.
+# Uso: streamlit run viewer.py
 import numpy as np
-"""
-Radar Genesys — Pausas y Adherencia de Turno.
-
-Uso:
-    streamlit run viewer.py
-"""
 
 import sqlite3
 from io import BytesIO
@@ -829,8 +825,10 @@ with tab_historico:
     # ── Tarjetas KPI ─────────────────────────────────────────────────────────
     
     globales = cumplimiento_global(vista)
+    filtro_kpi_hist = st.session_state.get("hist_filtro_kpi", None)
     kpi_cols = st.columns(4)
-    
+
+    # 1. Tarjeta Adherencia Horario
     with kpi_cols[0]:
         horario_valido = adherencia_horario["horario"].dropna()
         if horario_valido.empty:
@@ -840,49 +838,78 @@ with tab_historico:
             pct_horario_txt = f"{pct_horario}%"
             color_horario = color_pct(pct_horario)
             subtitulo_horario = f"{len(horario_valido)} agentes con turno"
+
+        es_act_h = (filtro_kpi_hist == "horario")
+        borde_h = f"border: 2px solid {color_horario}; box-shadow: 0 0 10px {color_horario}44; background: #fff;" if es_act_h else "background: #f7f7f7;"
+        tag_h = "<span style='float:right; font-size:10px; background:#185fa5; color:#fff; padding:1px 6px; border-radius:8px;'>✓ Filtrando</span>" if es_act_h else ""
+
         st.markdown(
             f"""
-            <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
-                <p style="color:gray; font-size:13px; margin:0;">Adherencia Horario</p>
+            <div style="{borde_h} border-radius:10px; padding:12px 14px; margin-bottom:4px; transition: all 0.2s;">
+                <p style="color:gray; font-size:13px; margin:0;">Adherencia Horario {tag_h}</p>
                 <p style="color:{color_horario}; font-size:28px; font-weight:700; margin:2px 0;">{pct_horario_txt}</p>
                 <p style="color:gray; font-size:12px; margin:0;">{subtitulo_horario}</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    
+        btn_txt_h = "✖ Quitar filtro" if es_act_h else "🔍 Filtrar <90%"
+        if st.button(btn_txt_h, key="btn_hist_kpi_horario", width="stretch", type="primary" if es_act_h else "secondary"):
+            st.session_state["hist_filtro_kpi"] = None if es_act_h else "horario"
+            st.rerun()
+
+    # 2. Tarjeta % Fuga
     with kpi_cols[1]:
         pct_fuga = global_uso["pct_fuga_con"]
         min_exceso = global_uso["exceso_prom_min"]
         color_f = color_fuga(pct_fuga)
+        es_act_f = (filtro_kpi_hist == "fuga")
+        borde_f = f"border: 2px solid {color_f}; box-shadow: 0 0 10px {color_f}44; background: #fff;" if es_act_f else "background: #f7f7f7;"
+        tag_f = "<span style='float:right; font-size:10px; background:#b3261e; color:#fff; padding:1px 6px; border-radius:8px;'>✓ Filtrando</span>" if es_act_f else ""
+
         st.markdown(
             f"""
-            <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
-                <p style="color:gray; font-size:13px; margin:0;">% Fuga en Conexión</p>
+            <div style="{borde_f} border-radius:10px; padding:12px 14px; margin-bottom:4px; transition: all 0.2s;">
+                <p style="color:gray; font-size:13px; margin:0;">% Fuga en Conexión {tag_f}</p>
                 <p style="color:{color_f}; font-size:28px; font-weight:700; margin:2px 0;">{pct_fuga:.1f}%</p>
                 <p style="color:gray; font-size:12px; margin:0;">Exceso prom: {min_exceso:.1f} min/día</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    
+        btn_txt_f = "✖ Quitar filtro" if es_act_f else "🔍 Filtrar con Fuga"
+        if st.button(btn_txt_f, key="btn_hist_kpi_fuga", width="stretch", type="primary" if es_act_f else "secondary"):
+            st.session_state["hist_filtro_kpi"] = None if es_act_f else "fuga"
+            st.rerun()
+
+    # 3. Tarjetas de Pausas (Descanso, Pre Pausa, Baño, Diálogo, Lunch, CDR)
     for i, card in enumerate(CARDS):
         valor = globales[card["key"]]
         if card["tipo"] == "conteo":
             valor_txt, color_valor = f"{valor}", "#378ADD"
         else:
             valor_txt, color_valor = f"{valor}%", color_pct(valor)
+
+        ckey = card["key"]
+        es_act_c = (filtro_kpi_hist == ckey)
+        borde_c = f"border: 2px solid {color_valor}; box-shadow: 0 0 10px {color_valor}44; background: #fff;" if es_act_c else "background: #f7f7f7;"
+        tag_c = "<span style='float:right; font-size:10px; background:#185fa5; color:#fff; padding:1px 6px; border-radius:8px;'>✓ Filtrando</span>" if es_act_c else ""
+
         with kpi_cols[(i + 2) % 4]:
             st.markdown(
                 f"""
-                <div style="background:#f7f7f7; border-radius:10px; padding:14px 16px; margin-bottom:12px;">
-                    <p style="color:gray; font-size:13px; margin:0;">{card['label']}</p>
+                <div style="{borde_c} border-radius:10px; padding:12px 14px; margin-bottom:4px; transition: all 0.2s;">
+                    <p style="color:gray; font-size:13px; margin:0;">{card['label']} {tag_c}</p>
                     <p style="color:{color_valor}; font-size:28px; font-weight:700; margin:2px 0;">{valor_txt}</p>
                     <p style="color:gray; font-size:12px; margin:0;">{meta_texto(card)}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+            btn_txt_c = "✖ Quitar" if es_act_c else ("🔍 Filtrar uso" if card["tipo"] == "conteo" else "🔍 Filtrar <100%")
+            if st.button(btn_txt_c, key=f"btn_hist_kpi_{ckey}", width="stretch", type="primary" if es_act_c else "secondary"):
+                st.session_state["hist_filtro_kpi"] = None if es_act_c else ckey
+                st.rerun()
     
     # ── Tabla por agente ───────────────────────────────────────────────────
 
@@ -948,6 +975,32 @@ with tab_historico:
         )
         .sort_values(by=["% Fuga", "Exceso (min)"], ascending=[False, False])
     )
+
+    # Filtrado interactivo activado desde tarjetas KPI
+    filtro_kpi_hist = st.session_state.get("hist_filtro_kpi", None)
+    if filtro_kpi_hist:
+        nombre_filtro_kpi = ""
+        if filtro_kpi_hist == "horario":
+            nombre_filtro_kpi = "Adherencia Horario (< 90%)"
+            tabla_mostrar = tabla_mostrar[(tabla_mostrar["Horario"].notna()) & (tabla_mostrar["Horario"] < 90.0)].sort_values(by="Horario", ascending=True)
+        elif filtro_kpi_hist == "fuga":
+            nombre_filtro_kpi = "% Fuga en Conexión (> 0%)"
+            tabla_mostrar = tabla_mostrar[tabla_mostrar["% Fuga"] > 0.0].sort_values(by=["% Fuga", "Exceso (min)"], ascending=[False, False])
+        else:
+            for card in CARDS:
+                if card["key"] == filtro_kpi_hist:
+                    c_label = card["label"]
+                    nombre_filtro_kpi = f"{c_label} (Uso o Exceso)"
+                    if card["tipo"] == "conteo":
+                        tabla_mostrar = tabla_mostrar[tabla_mostrar[c_label] > 0]
+                    else:
+                        tabla_mostrar = tabla_mostrar[(tabla_mostrar[c_label].notna()) & (tabla_mostrar[c_label] < 100.0)].sort_values(by=c_label, ascending=True)
+                    break
+
+        st.info(
+            f"🔍 **Filtro de Tarjeta Activo:** Mostrando **{len(tabla_mostrar)} asesores** filtrados por **{nombre_filtro_kpi}**. "
+            "Haz clic en el botón de la tarjeta activa para ver todos."
+        )
 
     pct_cols = ["% Fuga", "% Productivo", "% Pausas Aut.", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
     conteo_cols = ["Micro (≤15s)"] + [c["label"] for c in CARDS if c["tipo"] == "conteo"]
