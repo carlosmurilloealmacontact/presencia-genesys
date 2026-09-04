@@ -120,6 +120,53 @@ def cargar_catalogo_presencias(token: str) -> dict:
     return {}
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def obtener_aht_hoy(token: str) -> dict:
+    """Consulta analytics conversation aggregate para obtener atendidas y AHT en segundos de hoy."""
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    now_utc = datetime.now(timezone.utc)
+    bogota_today = now_utc.astimezone(timezone(timedelta(hours=-5))).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_utc = bogota_today.astimezone(timezone.utc)
+    s_str = start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    e_str = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    interval = f"{s_str}/{e_str}"
+
+    body = {
+        "interval": interval,
+        "groupBy": ["userId"],
+        "metrics": ["tHandle"],
+        "filter": {
+            "type": "and",
+            "predicates": [
+                {"type": "dimension", "dimension": "purpose", "operator": "matches", "value": "agent"}
+            ]
+        }
+    }
+    try:
+        r = requests.post("https://api.mypurecloud.com/api/v2/analytics/conversations/aggregates/query", headers=headers, json=body, timeout=12)
+        if r.status_code == 200:
+            mapa_aht = {}
+            for item in r.json().get("results", []):
+                uid = item.get("group", {}).get("userId")
+                data = item.get("data", [])
+                if uid and data:
+                    metrics = {m.get("metric"): m.get("stats") for m in data[0].get("metrics", [])}
+                    th = metrics.get("tHandle", {})
+                    count = th.get("count", 0)
+                    tot_ms = th.get("sum", 0)
+                    if count > 0 and tot_ms > 0:
+                        aht_seg = int(round((tot_ms / count) / 1000.0))
+                        mapa_aht[uid] = {
+                            "atendidas_hoy": count,
+                            "aht_seg": aht_seg,
+                            "aht_seg_str": f"{aht_seg}s",
+                        }
+            return mapa_aht
+    except Exception:
+        pass
+    return {}
+
+
 @st.cache_data(ttl=25, show_spinner=False)
 def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> pd.DataFrame:
     headers = {"Authorization": f"Bearer {token}"}
@@ -151,6 +198,7 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
             paginas = list(executor.map(fetch_page, range(1, total_pages + 1)))
 
         now_utc = datetime.now(timezone.utc)
+        mapa_aht = obtener_aht_hoy(token)
         filas = []
 
         for page_entities in paginas:
@@ -252,6 +300,11 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                         alerta = f"En llamada ({cronometro_llamada})"
                         nivel_alerta = "ok"
 
+                    info_aht = mapa_aht.get(uid, {"atendidas_hoy": 0, "aht_seg": 0, "aht_seg_str": "—"})
+                    atendidas_hoy = info_aht["atendidas_hoy"]
+                    aht_seg = info_aht["aht_seg"]
+                    aht_seg_str = info_aht["aht_seg_str"]
+
                     filas.append({
                         "agente": meta_agente["agente"],
                         "coordinador": meta_agente["coordinador"],
@@ -267,6 +320,9 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                         "dur_llamada_min": round(dur_llamada_min, 1),
                         "dur_llamada_seg": dur_llamada_seg,
                         "cronometro_llamada": cronometro_llamada,
+                        "atendidas_hoy": atendidas_hoy,
+                        "aht_seg": aht_seg,
+                        "aht_seg_str": aht_seg_str,
                         "alerta": alerta,
                         "nivel_alerta": nivel_alerta,
                     })
@@ -311,8 +367,12 @@ def render_tab_en_vivo(agentes_map: dict):
         return
 
     hora_actual = datetime.now(COLOMBIA_TZ).strftime("%I:%M:%S %p")
+    df_con_aht_tot = df_live[df_live["atendidas_hoy"] > 0]
+    aht_prom_global = int(df_con_aht_tot["aht_seg"].mean()) if not df_con_aht_tot.empty else 0
+    tot_atendidas_global = int(df_live["atendidas_hoy"].sum())
+
     st.markdown(
-        f"<p style='color:gray; font-size:13px;'>Última sincronización: <b>{hora_actual}</b> (completada en {t_descarga:.1f}s) · {len(df_live)} asesores monitoreados</p>",
+        f"<p style='color:gray; font-size:13px;'>Última sincronización: <b>{hora_actual}</b> (en {t_descarga:.1f}s) · <b>{len(df_live)}</b> asesores · 🎯 <b>{tot_atendidas_global}</b> interacciones hoy · ⏱️ AHT Promedio: <b>{aht_prom_global}s</b></p>",
         unsafe_allow_html=True,
     )
 
@@ -464,6 +524,8 @@ def render_tab_en_vivo(agentes_map: dict):
             "Ordenar por",
             options=[
                 "Nivel de Alerta y Duración",
+                "Mayor AHT Hoy (seg)",
+                "Más Interacciones Hoy",
                 "Llamada más larga primero",
                 "Tiempo en Estado (mayor a menor)",
                 "Nombre del Asesor",
@@ -497,7 +559,11 @@ def render_tab_en_vivo(agentes_map: dict):
         df_vista_final = df_filtrado.copy()
 
     # Ordenamiento de tabla
-    if orden_piso == "Llamada más larga primero":
+    if orden_piso == "Mayor AHT Hoy (seg)":
+        df_vista_final = df_vista_final.sort_values(by="aht_seg", ascending=False)
+    elif orden_piso == "Más Interacciones Hoy":
+        df_vista_final = df_vista_final.sort_values(by="atendidas_hoy", ascending=False)
+    elif orden_piso == "Llamada más larga primero":
         df_vista_final = df_vista_final.sort_values(by="dur_llamada_seg", ascending=False)
     elif orden_piso == "Tiempo en Estado (mayor a menor)":
         df_vista_final = df_vista_final.sort_values(by="dur_seg", ascending=False)
@@ -546,9 +612,23 @@ def render_tab_en_vivo(agentes_map: dict):
             return "color: #aaa;"
         return "color: #185fa5; font-weight: 700;"
 
+    def estilo_aht(val):
+        if str(val) == "—" or not val:
+            return "color: #aaa;"
+        try:
+            s_val = int(str(val).replace("s", ""))
+            if s_val >= 1200:
+                return "background-color: #fee8e7; color: #b3261e; font-weight: 700;"
+            elif s_val >= 900:
+                return "background-color: #fef7e0; color: #b07000; font-weight: 700;"
+        except Exception:
+            pass
+        return "color: #185fa5; font-weight: 700;"
+
     tabla_vista = df_vista_final[[
         "agente", "servicio", "supervisor", "coordinador",
-        "estado", "routing", "cronometro_llamada", "hora_inicio", "cronometro", "alerta"
+        "estado", "routing", "cronometro_llamada", "atendidas_hoy", "aht_seg_str",
+        "hora_inicio", "cronometro", "alerta"
     ]].rename(columns={
         "agente": "Asesor",
         "servicio": "Servicio",
@@ -557,6 +637,8 @@ def render_tab_en_vivo(agentes_map: dict):
         "estado": "Estado Actual",
         "routing": "Estado ACD",
         "cronometro_llamada": "Tiempo Llamada",
+        "atendidas_hoy": "Interacciones Hoy",
+        "aht_seg_str": "AHT Hoy (seg)",
         "hora_inicio": "Inicio Estado",
         "cronometro": "Tiempo en Estado",
         "alerta": "Alerta en Vivo",
@@ -567,6 +649,7 @@ def render_tab_en_vivo(agentes_map: dict):
         .map(estilo_estado, subset=["Estado Actual"])
         .map(estilo_routing, subset=["Estado ACD"])
         .map(estilo_llamada, subset=["Tiempo Llamada"])
+        .map(estilo_aht, subset=["AHT Hoy (seg)"])
         .map(estilo_alerta_col, subset=["Alerta en Vivo"])
     )
 
@@ -582,6 +665,8 @@ def render_tab_en_vivo(agentes_map: dict):
             "Estado Actual": st.column_config.TextColumn("Estado Actual"),
             "Estado ACD": st.column_config.TextColumn("Estado ACD"),
             "Tiempo Llamada": st.column_config.TextColumn("Tiempo Llamada"),
+            "Interacciones Hoy": st.column_config.NumberColumn("Interacciones Hoy", format="%d", help="Total de interacciones atendidas y finalizadas hoy"),
+            "AHT Hoy (seg)": st.column_config.TextColumn("AHT Hoy (seg)", help="Tiempo Promedio de Operación (Handle Time) en segundos en lo que va del día"),
             "Inicio Estado": st.column_config.TextColumn("Inicio Estado"),
             "Tiempo en Estado": st.column_config.TextColumn("Tiempo en Estado"),
             "Alerta en Vivo": st.column_config.TextColumn("Alerta en Vivo"),
