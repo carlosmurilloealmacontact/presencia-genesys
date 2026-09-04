@@ -28,12 +28,16 @@ PALETA_ESTADOS = px.colors.qualitative.Alphabet + px.colors.qualitative.Dark24
 #   sola meta de 15 min/dia (un agente usa una u otra, no las dos).
 # unidad: "dia" o "semana" (CDR es semanal).
 CARDS = [
-    {"key": "descanso",  "label": "Descanso",             "presence": ["Break"],                                    "meta": 30, "unidad": "dia",    "tipo": "graduada"},
-    {"key": "pre_pausa", "label": "Ocupado: Pre Pausa",    "presence": ["Pre Pausa"],                                "meta": 60, "unidad": "dia",    "tipo": "graduada"},
-    {"key": "bano",      "label": "Ausente: Baño",        "presence": ["Baño"],                                     "meta": 5,  "unidad": "dia",    "tipo": "graduada"},
-    {"key": "dialogo",   "label": "Reunión: Diálogo",     "presence": ["PCA- Diálogo", "Diálogo Diario / 4DX"],     "meta": 15, "unidad": "dia",    "tipo": "graduada"},
-    {"key": "lunch",     "label": "Comida: Lunch",         "presence": ["Lunch"],                                    "meta": None, "unidad": "dia",  "tipo": "conteo"},
-    {"key": "cdr",       "label": "Reunión: CDR",          "presence": ["CDR"],                                      "meta": 30, "unidad": "semana", "tipo": "graduada"},
+    {"key": "descanso",    "label": "Descanso",               "presence": ["Break"],                                    "meta": 30, "unidad": "dia",    "tipo": "graduada"},
+    {"key": "pre_pausa",   "label": "Ocupado: Pre Pausa",      "presence": ["Pre Pausa"],                                "meta": 60, "unidad": "dia",    "tipo": "graduada"},
+    {"key": "bano",        "label": "Ausente: Baño",          "presence": ["Baño"],                                     "meta": 5,  "unidad": "dia",    "tipo": "graduada"},
+    {"key": "dialogo",     "label": "Reunión: Diálogo",       "presence": ["PCA- Diálogo", "Diálogo Diario / 4DX"],     "meta": 15, "unidad": "dia",    "tipo": "graduada"},
+    {"key": "cdr",         "label": "Reunión: CDR",            "presence": ["CDR"],                                      "meta": 30, "unidad": "semana", "tipo": "graduada"},
+    {"key": "refuerzo",    "label": "Capacitación: Refuerzo", "presence": ["Refuerzo Semanal"],                         "meta": 60, "unidad": "semana", "tipo": "graduada"},
+    {"key": "autogestion", "label": "Autogestión",            "presence": ["Autogestión"],                              "meta": 30, "unidad": "semana", "tipo": "graduada"},
+    {"key": "feedback",    "label": "Feedback",               "presence": ["Feedback", "PCA - Feedback"],               "meta": 30, "unidad": "semana", "tipo": "graduada"},
+    {"key": "cursos",      "label": "Cursos Adicionales",     "presence": ["Cursos Adicionales"],                       "meta": 60, "unidad": "semana", "tipo": "graduada"},
+    {"key": "lunch",       "label": "Comida: Lunch",           "presence": ["Lunch"],                                    "meta": None, "unidad": "dia",  "tipo": "conteo"},
 ]
 
 ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
@@ -48,7 +52,28 @@ PAUSAS_NO_AUTORIZADAS = {
     "Boletín RT (sólo LAE)",
     "Mediación entidades (sólo LAE)",
     "Corresponsables (sólo LAE)",
+    "Gestión sin Contacto",
+    "Problemas de Acceso",
 }
+
+def servicio_autorizado_casos_bo(servicio: str) -> bool:
+    """Casos Backoffice está autorizado para servicios BO y células de Chat/Redes autorizadas."""
+    s = (servicio or "").upper()
+    if s.startswith("BO ") or s.startswith("BO_") or "BACKOFFICE" in s:
+        return True
+    celulas = (
+        "RRSS AMC",
+        "CHAT AGENCIAS ESP",
+        "AG CORPORATE CHAT",
+        "SPEECH",
+        "AG CHECK IN",
+        "AG CELULA REMISION",
+        "CARGO BOOKING",
+        "RRSS AMC ING",
+        "RRSS PORT AMC",
+        "ANTIFRAUDE",
+    )
+    return any(c in s for c in celulas)
 
 # Asesores de Backoffice / Células especializadas con alto uso legítimo de Available
 AGENTES_AUTORIZADOS_AVAILABLE_DEFAULT = [
@@ -152,27 +177,35 @@ def calcular_componentes_100(
     if excluidos_available is None:
         excluidos_available = set()
 
-    conectados_df = df_sub[df_sub["presence_label"] != "Offline"]
+    conectados_df = df_sub[df_sub["presence_label"] != "Offline"].copy()
     t_con = float(conectados_df["duracion_min"].sum()) if not conectados_df.empty else 0.0
     if t_con <= 0:
         return 0.0, 0.0, 0.0, 0.0, {}, {}, {}
 
+    dt = pd.to_datetime(conectados_df["fecha"])
+    iso = dt.dt.isocalendar()
+    conectados_df["semana"] = iso.year.astype(str) + "-W" + iso.week.astype(str).str.zfill(2)
+
+    # 1. Diario (Break, Baño, Diálogo, Pre Pausa, no autorizadas)
     diario = (
-        conectados_df.groupby(["agente", "fecha", "presence_label"])["duracion_min"]
+        conectados_df.groupby(["agente", "fecha", "semana", "servicio", "presence_label"])["duracion_min"]
         .sum()
         .unstack(fill_value=0.0)
+        .reset_index()
     )
-    tiene_pre = servicio_tiene_prepausa(servicio)
-    meta_pre = 60.0 if tiene_pre else 0.0
 
     tot_aut = 0.0
     tot_exc = 0.0
     detalle_aut = {}
     detalle_exc = {}
     detalle_prod = {}
-    presencias_meta = {"Break", "Baño", "Diálogo Diario / 4DX", "PCA- Diálogo", "Lunch", "Pre Pausa", "CDR"}
 
-    for (agente, fecha), row in diario.iterrows():
+    for _, row in diario.iterrows():
+        agente = row["agente"]
+        serv = row["servicio"] if "servicio" in row and pd.notna(row["servicio"]) else servicio
+        tiene_pre = servicio_tiene_prepausa(serv)
+        meta_pre = 60.0 if tiene_pre else 0.0
+
         bano = row.get("Baño", 0.0)
         b_aut = min(bano, 5.0)
         b_exc = max(0.0, bano - 5.0)
@@ -189,15 +222,12 @@ def calcular_componentes_100(
         pre_aut = min(pre, meta_pre)
         pre_exc = max(0.0, pre - meta_pre)
 
-        cdr = row.get("CDR", 0.0)
-        cdr_aut = min(cdr, 30.0)
-        cdr_exc = max(0.0, cdr - 30.0)
-
-        # Determinar si se penaliza Available para este asesor
-        penalizar_este = penalizar_available and (agente not in excluidos_available)
+        # Determinar pausas no autorizadas
         pausas_no_aut = set(PAUSAS_NO_AUTORIZADAS)
-        if penalizar_este:
+        if penalizar_available and (agente not in excluidos_available):
             pausas_no_aut.update({"Available", "Conectado"})
+        if not servicio_autorizado_casos_bo(serv):
+            pausas_no_aut.add("Casos Backoffice")
 
         tot_no_aut = 0.0
         for p_na in pausas_no_aut:
@@ -206,16 +236,14 @@ def calcular_componentes_100(
                 tot_no_aut += v_na
                 detalle_exc[f"{p_na} (No aut.)"] = detalle_exc.get(f"{p_na} (No aut.)", 0.0) + v_na
 
-        tot_aut += (b_aut + brk_aut + dia_aut + pre_aut + cdr_aut)
-        tot_exc += (b_exc + brk_exc + dia_exc + pre_exc + cdr_exc + tot_no_aut)
+        tot_aut += (b_aut + brk_aut + dia_aut + pre_aut)
+        tot_exc += (b_exc + brk_exc + dia_exc + pre_exc + tot_no_aut)
 
         detalle_aut["Descanso (Break)"] = detalle_aut.get("Descanso (Break)", 0.0) + brk_aut
         detalle_aut["Baño"] = detalle_aut.get("Baño", 0.0) + b_aut
         detalle_aut["Diálogo / 4DX"] = detalle_aut.get("Diálogo / 4DX", 0.0) + dia_aut
-        if tiene_pre:
+        if tiene_pre and pre_aut > 0:
             detalle_aut["Pre Pausa"] = detalle_aut.get("Pre Pausa", 0.0) + pre_aut
-        if cdr_aut > 0:
-            detalle_aut["CDR"] = detalle_aut.get("CDR", 0.0) + cdr_aut
 
         if brk_exc > 0:
             detalle_exc["Exceso Descanso"] = detalle_exc.get("Exceso Descanso", 0.0) + brk_exc
@@ -225,26 +253,90 @@ def calcular_componentes_100(
             detalle_exc["Exceso Diálogo"] = detalle_exc.get("Exceso Diálogo", 0.0) + dia_exc
         if pre_exc > 0:
             detalle_exc["Exceso Pre Pausa"] = detalle_exc.get("Exceso Pre Pausa", 0.0) + pre_exc
-        if cdr_exc > 0:
-            detalle_exc["Exceso CDR"] = detalle_exc.get("Exceso CDR", 0.0) + cdr_exc
 
-        # Si NO se penaliza Available para este agente, registrarlo en detalle_prod
-        if not penalizar_este:
+        # Available si está en lista blanca
+        if not (penalizar_available and (agente not in excluidos_available)):
             for p_av in ("Available", "Conectado"):
                 v_av = row.get(p_av, 0.0)
                 if v_av > 0:
                     detalle_prod[p_av] = detalle_prod.get(p_av, 0.0) + v_av
 
-    # Registrar el resto de presencias productivas
-    for col in diario.columns:
-        if col not in presencias_meta and col not in PAUSAS_NO_AUTORIZADAS and col not in ("Available", "Conectado", "Offline"):
-            val = float(diario[col].sum())
+        # Casos Backoffice si está en servicio autorizado
+        if servicio_autorizado_casos_bo(serv):
+            v_bo = row.get("Casos Backoffice", 0.0)
+            if v_bo > 0:
+                detalle_prod["Casos Backoffice"] = detalle_prod.get("Casos Backoffice", 0.0) + v_bo
+
+    # 2. Semanal (CDR 30m, Refuerzo 60m, Autogestión 30m, Feedback 30m, Cursos 60m)
+    semanal = (
+        conectados_df.groupby(["agente", "semana", "presence_label"])["duracion_min"]
+        .sum()
+        .unstack(fill_value=0.0)
+        .reset_index()
+    )
+
+    for _, row in semanal.iterrows():
+        cdr = row.get("CDR", 0.0)
+        cdr_aut = min(cdr, 30.0)
+        cdr_exc = max(0.0, cdr - 30.0)
+
+        ref = row.get("Refuerzo Semanal", 0.0)
+        ref_aut = min(ref, 60.0)
+        ref_exc = max(0.0, ref - 60.0)
+
+        auto = row.get("Autogestión", 0.0)
+        auto_aut = min(auto, 30.0)
+        auto_exc = max(0.0, auto - 30.0)
+
+        feed = row.get("Feedback", 0.0) + row.get("PCA - Feedback", 0.0)
+        feed_exc = max(0.0, feed - 30.0)
+        feed_prod = min(feed, 30.0)
+
+        cur = row.get("Cursos Adicionales", 0.0)
+        cur_exc = max(0.0, cur - 60.0)
+        cur_prod = min(cur, 60.0)
+
+        tot_aut += (cdr_aut + ref_aut + auto_aut)
+        tot_exc += (cdr_exc + ref_exc + auto_exc + feed_exc + cur_exc)
+
+        if cdr_aut > 0:
+            detalle_aut["CDR"] = detalle_aut.get("CDR", 0.0) + cdr_aut
+        if ref_aut > 0:
+            detalle_aut["Refuerzo Semanal"] = detalle_aut.get("Refuerzo Semanal", 0.0) + ref_aut
+        if auto_aut > 0:
+            detalle_aut["Autogestión"] = detalle_aut.get("Autogestión", 0.0) + auto_aut
+
+        if cdr_exc > 0:
+            detalle_exc["Exceso CDR"] = detalle_exc.get("Exceso CDR", 0.0) + cdr_exc
+        if ref_exc > 0:
+            detalle_exc["Exceso Refuerzo"] = detalle_exc.get("Exceso Refuerzo", 0.0) + ref_exc
+        if auto_exc > 0:
+            detalle_exc["Exceso Autogestión"] = detalle_exc.get("Exceso Autogestión", 0.0) + auto_exc
+        if feed_exc > 0:
+            detalle_exc["Exceso Feedback (>30m/sem)"] = detalle_exc.get("Exceso Feedback (>30m/sem)", 0.0) + feed_exc
+        if cur_exc > 0:
+            detalle_exc["Exceso Cursos (>60m/sem)"] = detalle_exc.get("Exceso Cursos (>60m/sem)", 0.0) + cur_exc
+
+        if feed_prod > 0:
+            detalle_prod["Feedback"] = detalle_prod.get("Feedback", 0.0) + feed_prod
+        if cur_prod > 0:
+            detalle_prod["Cursos Adicionales"] = detalle_prod.get("Cursos Adicionales", 0.0) + cur_prod
+
+    # Registrar el resto de presencias productivas directas (On Queue, etc.)
+    presencias_controladas = {
+        "Break", "Baño", "Diálogo Diario / 4DX", "PCA- Diálogo", "Lunch", "Pre Pausa",
+        "CDR", "Refuerzo Semanal", "Autogestión", "Feedback", "PCA - Feedback", "Cursos Adicionales",
+        "Casos Backoffice", "Available", "Conectado", "Offline"
+    }.union(PAUSAS_NO_AUTORIZADAS)
+
+    for col in conectados_df["presence_label"].unique():
+        if col not in presencias_controladas:
+            val = float(conectados_df[conectados_df["presence_label"] == col]["duracion_min"].sum())
             if val > 0:
                 detalle_prod[col] = val
 
     prod_min = max(0.0, t_con - tot_aut - tot_exc)
     return prod_min, tot_aut, tot_exc, t_con, detalle_prod, detalle_aut, detalle_exc
-
 
 def render_distribucion_100(prod_min: float, aut_min: float, exc_min: float, t_con_min: float, titulo: str = "Distribución del 100% del Tiempo Conectado"):
     """Renderiza una barra horizontal apilada que suma exactamente el 100% del tiempo conectado."""
@@ -529,137 +621,194 @@ def calcular_uso_turno(
 
     vista_temp = vista.copy()
     vista_temp["bp"] = vista_temp["agente"].str.split(" - ").str[0].str.strip()
+    dt = pd.to_datetime(vista_temp["fecha"])
+    iso = dt.dt.isocalendar()
+    vista_temp["semana"] = iso.year.astype(str) + "-W" + iso.week.astype(str).str.zfill(2)
 
-    conectados = (
-        vista_temp[vista_temp["presence_label"] != "Offline"]
-        .groupby(["agente_id", "fecha"])["duracion_min"]
-        .sum()
-        .to_dict()
-    )
+    df_con = vista_temp[vista_temp["presence_label"] != "Offline"].copy()
+    conectados = df_con.groupby(["agente_id", "fecha"])["duracion_min"].sum().to_dict()
 
+    # 1. Diario (Break, Baño, Diálogo, Pre Pausa, No autorizadas)
     diario = (
-        vista_temp.groupby(["agente_id", "agente", "bp", "servicio", "fecha", "presence_label"])["duracion_min"]
+        df_con.groupby(["agente_id", "agente", "bp", "servicio", "fecha", "semana", "presence_label"])["duracion_min"]
         .sum()
         .unstack(fill_value=0.0)
+        .reset_index()
     )
 
     filas_dias = []
-    mapa_diario = {}
+    for _, row in diario.iterrows():
+        agente_id = row["agente_id"]
+        agente = row["agente"]
+        bp = row["bp"]
+        servicio = row["servicio"]
+        fecha = row["fecha"]
+        semana = row["semana"]
 
-    for (agente_id, agente, bp, servicio, fecha), row in diario.iterrows():
         duracion_turno = mapa_turnos.get((bp, fecha))
+        t_conectado = conectados.get((agente_id, fecha), 0.0)
         if not duracion_turno or duracion_turno <= 0:
-            duracion_turno = conectados.get((agente_id, fecha), 0.0)
-        if duracion_turno <= 0:
-            duracion_turno = 480.0
+            duracion_turno = t_conectado if t_conectado > 0 else 480.0
 
         bano = row.get("Baño", 0.0)
-        exceso_bano = max(0.0, bano - 5.0)
+        b_aut = min(bano, 5.0)
+        b_exc = max(0.0, bano - 5.0)
 
         descanso = row.get("Break", 0.0)
-        exceso_break = max(0.0, descanso - 30.0)
+        brk_aut = min(descanso, 30.0)
+        brk_exc = max(0.0, descanso - 30.0)
 
         dialogo = row.get("Diálogo Diario / 4DX", 0.0) + row.get("PCA- Diálogo", 0.0)
-        exceso_dialogo = max(0.0, dialogo - 15.0)
+        dia_aut = min(dialogo, 15.0)
+        dia_exc = max(0.0, dialogo - 15.0)
 
         pre_pausa = row.get("Pre Pausa", 0.0)
         meta_pre = 60.0 if servicio_tiene_prepausa(servicio) else 0.0
-        exceso_pre = max(0.0, pre_pausa - meta_pre)
+        pre_aut = min(pre_pausa, meta_pre)
+        pre_exc = max(0.0, pre_pausa - meta_pre)
 
-        # Penalización de Available si NO está en lista de exclusión
+        # Pausas no autorizadas
         penalizar_este = penalizar_available and (agente not in excluidos_available)
-        no_aut_lista = list(PAUSAS_NO_AUTORIZADAS)
+        no_aut_lista = set(PAUSAS_NO_AUTORIZADAS)
         if penalizar_este:
-            no_aut_lista.extend(["Available", "Conectado"])
+            no_aut_lista.update({"Available", "Conectado"})
+        if not servicio_autorizado_casos_bo(servicio):
+            no_aut_lista.add("Casos Backoffice")
 
         no_aut_min = sum(row.get(col, 0.0) for col in no_aut_lista)
-        total_exceso = exceso_bano + exceso_break + exceso_dialogo + exceso_pre + no_aut_min
-        uso_dia = max(0.0, min(100.0, 100.0 - (100.0 * total_exceso / duracion_turno)))
+        exc_dia = b_exc + brk_exc + dia_exc + pre_exc + no_aut_min
+        aut_dia = b_aut + brk_aut + dia_aut + pre_aut
 
-        t_conectado = conectados.get((agente_id, fecha), 0.0)
-        cdr = row.get("CDR", 0.0)
-
-        # Autorizadas dentro de meta
-        b_aut = min(bano, 5.0)
-        brk_aut = min(descanso, 30.0)
-        dia_aut = min(dialogo, 15.0)
-        pre_aut = min(pre_pausa, meta_pre)
-        cdr_aut = min(cdr, 30.0)
-        tot_aut = b_aut + brk_aut + dia_aut + pre_aut + cdr_aut
-
-        pct_fuga = min(100.0, (100.0 * total_exceso / t_conectado)) if t_conectado > 0 else 0.0
-        pct_aut = min(100.0, (100.0 * tot_aut / t_conectado)) if t_conectado > 0 else 0.0
-        pct_prod = max(0.0, round(100.0 - pct_fuga - pct_aut, 1)) if t_conectado > 0 else 0.0
-
-        mapa_diario[(agente_id, fecha)] = {
-            "pct_fuga": round(float(pct_fuga), 1),
-            "pct_prod": round(float(pct_prod), 1),
-            "pct_aut": round(float(pct_aut), 1),
-            "exceso_min": round(float(total_exceso), 1),
-            "t_con_min": round(float(t_conectado), 1),
-        }
         filas_dias.append({
             "agente_id": agente_id,
+            "agente": agente,
             "fecha": fecha,
-            "uso_dia": uso_dia,
-            "total_exceso": total_exceso,
-            "tot_aut": tot_aut,
+            "semana": semana,
             "t_conectado_min": t_conectado,
-            "pct_productivo": pct_prod,
-            "pct_pausa_aut": pct_aut,
-            "pct_fuga_con": pct_fuga,
+            "exc_dia": exc_dia,
+            "aut_dia": aut_dia,
         })
 
     df_dias = pd.DataFrame(filas_dias)
-    if df_dias.empty:
-        return (
-            pd.DataFrame(columns=["agente_id", "pct_fuga_con", "pct_productivo", "pct_pausa_aut", "exceso_prom_min", "t_conectado_hrs"]).set_index("agente_id"),
-            {"pct_fuga_con": 0.0, "pct_productivo": 0.0, "pct_pausa_aut": 0.0, "exceso_prom_min": 0.0, "t_conectado_hrs": 0.0},
-            {},
-        )
 
-    # Agregación ponderada por minutos totales conectados (evita distorsión de días con logins de 1 minuto)
-    ag_sum = df_dias.groupby("agente_id").agg(
-        tot_con=("t_conectado_min", "sum"),
-        tot_exc=("total_exceso", "sum"),
-        tot_aut=("tot_aut", "sum"),
-        exceso_prom_min=("total_exceso", "mean"),
-        t_conectado_hrs=("t_conectado_min", lambda x: x.mean() / 60.0),
+    # 2. Semanal (CDR 30m, Refuerzo 60m, Autogestión 30m, Feedback 30m, Cursos 60m)
+    semanal = (
+        df_con.groupby(["agente_id", "semana", "presence_label"])["duracion_min"]
+        .sum()
+        .unstack(fill_value=0.0)
+        .reset_index()
     )
-    resumen_agente = pd.DataFrame(index=ag_sum.index)
+
+    filas_sem = []
+    for _, row in semanal.iterrows():
+        agente_id = row["agente_id"]
+        semana = row["semana"]
+
+        cdr = row.get("CDR", 0.0)
+        cdr_aut = min(cdr, 30.0)
+        cdr_exc = max(0.0, cdr - 30.0)
+
+        ref = row.get("Refuerzo Semanal", 0.0)
+        ref_aut = min(ref, 60.0)
+        ref_exc = max(0.0, ref - 60.0)
+
+        auto = row.get("Autogestión", 0.0)
+        auto_aut = min(auto, 30.0)
+        auto_exc = max(0.0, auto - 30.0)
+
+        feed = row.get("Feedback", 0.0) + row.get("PCA - Feedback", 0.0)
+        feed_exc = max(0.0, feed - 30.0) # exceso a fuga
+
+        cur = row.get("Cursos Adicionales", 0.0)
+        cur_exc = max(0.0, cur - 60.0) # exceso a fuga
+
+        exc_sem = cdr_exc + ref_exc + auto_exc + feed_exc + cur_exc
+        aut_sem = cdr_aut + ref_aut + auto_aut
+
+        filas_sem.append({
+            "agente_id": agente_id,
+            "semana": semana,
+            "exc_sem": exc_sem,
+            "aut_sem": aut_sem,
+        })
+
+    df_sem = pd.DataFrame(filas_sem)
+
+    # Consolidación por agente
+    ag_dias = df_dias.groupby("agente_id").agg(
+        tot_con=("t_conectado_min", "sum"),
+        tot_exc_dia=("exc_dia", "sum"),
+        tot_aut_dia=("aut_dia", "sum"),
+        dias_con=("t_conectado_min", "count"),
+    )
+    ag_sem = df_sem.groupby("agente_id").agg(
+        tot_exc_sem=("exc_sem", "sum"),
+        tot_aut_sem=("aut_sem", "sum"),
+    )
+
+    ag_total = ag_dias.join(ag_sem, how="left").fillna(0.0)
+    ag_total["tot_exc"] = ag_total["tot_exc_dia"] + ag_total["tot_exc_sem"]
+    ag_total["tot_aut"] = ag_total["tot_aut_dia"] + ag_total["tot_aut_sem"]
+
+    resumen_agente = pd.DataFrame(index=ag_total.index)
     resumen_agente["pct_fuga_con"] = np.where(
-        ag_sum["tot_con"] > 0,
-        (ag_sum["tot_exc"] / ag_sum["tot_con"] * 100.0).round(1),
+        ag_total["tot_con"] > 0,
+        (ag_total["tot_exc"] / ag_total["tot_con"] * 100.0).round(1),
         0.0,
     )
     resumen_agente["pct_pausa_aut"] = np.where(
-        ag_sum["tot_con"] > 0,
-        (ag_sum["tot_aut"] / ag_sum["tot_con"] * 100.0).round(1),
+        ag_total["tot_con"] > 0,
+        (ag_total["tot_aut"] / ag_total["tot_con"] * 100.0).round(1),
         0.0,
     )
     resumen_agente["pct_productivo"] = np.maximum(
         0.0,
         (100.0 - resumen_agente["pct_fuga_con"] - resumen_agente["pct_pausa_aut"]).round(1),
     )
-    resumen_agente["exceso_prom_min"] = ag_sum["exceso_prom_min"].round(1)
-    resumen_agente["t_conectado_hrs"] = ag_sum["t_conectado_hrs"].round(1)
+    resumen_agente["exceso_prom_min"] = np.where(
+        ag_total["dias_con"] > 0,
+        (ag_total["tot_exc"] / ag_total["dias_con"]).round(1),
+        0.0,
+    )
+    resumen_agente["t_conectado_hrs"] = np.where(
+        ag_total["dias_con"] > 0,
+        (ag_total["tot_con"] / ag_total["dias_con"] / 60.0).round(1),
+        0.0,
+    )
 
-    tot_con_g = float(df_dias["t_conectado_min"].sum())
-    tot_exc_g = float(df_dias["total_exceso"].sum())
-    tot_aut_g = float(df_dias["tot_aut"].sum())
+    tot_con_g = float(ag_total["tot_con"].sum())
+    tot_exc_g = float(ag_total["tot_exc"].sum())
+    tot_aut_g = float(ag_total["tot_aut"].sum())
+    dias_tot_g = float(ag_total["dias_con"].sum())
+
     pct_fuga_g = round(tot_exc_g / tot_con_g * 100.0, 1) if tot_con_g > 0 else 0.0
     pct_aut_g = round(tot_aut_g / tot_con_g * 100.0, 1) if tot_con_g > 0 else 0.0
-    pct_prod_g = round(max(0.0, 100.0 - pct_fuga_g - pct_aut_g), 1)
+    pct_prod_g = max(0.0, round(100.0 - pct_fuga_g - pct_aut_g, 1)) if tot_con_g > 0 else 0.0
+    exceso_prom_g = round(tot_exc_g / dias_tot_g, 1) if dias_tot_g > 0 else 0.0
+    t_conectado_hrs_g = round(tot_con_g / dias_tot_g / 60.0, 1) if dias_tot_g > 0 else 0.0
 
-    global_kpi = {
+    global_uso = {
         "pct_fuga_con": pct_fuga_g,
         "pct_productivo": pct_prod_g,
         "pct_pausa_aut": pct_aut_g,
-        "exceso_prom_min": round(float(df_dias["total_exceso"].mean()), 1),
-        "t_conectado_hrs": round(float(df_dias["t_conectado_min"].mean() / 60.0), 1),
+        "exceso_prom_min": exceso_prom_g,
+        "t_conectado_hrs": t_conectado_hrs_g,
     }
 
-    return resumen_agente, global_kpi, mapa_diario
+    mapa_diario = {}
+    for _, r in df_dias.iterrows():
+        aid = r["agente_id"]
+        fec = r["fecha"]
+        t_c = r["t_conectado_min"]
+        e_d = r["exc_dia"]
+        p_f = min(100.0, (100.0 * e_d / t_c)) if t_c > 0 else 0.0
+        mapa_diario[(aid, fec)] = {
+            "pct_fuga": round(float(p_f), 1),
+            "t_con_min": round(float(t_c), 1),
+            "exceso_min": round(float(e_d), 1),
+        }
+
+    return resumen_agente, global_uso, mapa_diario
 
 
 def render_timeline(df_agente: pd.DataFrame, color_map: dict[str, str]):

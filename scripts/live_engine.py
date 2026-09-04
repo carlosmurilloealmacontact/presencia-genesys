@@ -230,6 +230,24 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                     elif label == "Pre Pausa" and min_dur > 60.0:
                         alerta = f"🚨 Pre Pausa excedida (+{min_dur - 60.0:.1f} min)"
                         nivel_alerta = "danger"
+                    elif label in ("Feedback", "PCA - Feedback") and min_dur > 30.0:
+                        alerta = f"⚠️ Feedback prolongado (+{min_dur - 30.0:.1f} min)"
+                        nivel_alerta = "warning"
+                    elif label == "Cursos Adicionales" and min_dur > 60.0:
+                        alerta = f"⚠️ Cursos prolongados (+{min_dur - 60.0:.1f} min)"
+                        nivel_alerta = "warning"
+                    elif label == "Refuerzo Semanal" and min_dur > 60.0:
+                        alerta = f"⚠️ Refuerzo prolongado (+{min_dur - 60.0:.1f} min)"
+                        nivel_alerta = "warning"
+                    elif label == "Autogestión" and min_dur > 30.0:
+                        alerta = f"⚠️ Autogestión prolongada (+{min_dur - 30.0:.1f} min)"
+                        nivel_alerta = "warning"
+                    elif label == "Gestión sin Contacto":
+                        alerta = f"🚨 Gestión sin Contacto (No aut. {min_dur:.1f} min)"
+                        nivel_alerta = "danger"
+                    elif label == "Casos Backoffice" and not servicio_autorizado_casos_bo(meta_agente.get("servicio", "")):
+                        alerta = f"🚨 Casos BO no autorizado en {meta_agente.get('servicio', '')}"
+                        nivel_alerta = "danger"
                     elif routing == "INTERACTING":
                         alerta = f"En llamada ({cronometro_llamada})"
                         nivel_alerta = "ok"
