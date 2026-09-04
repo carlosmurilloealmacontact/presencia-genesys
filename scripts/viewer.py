@@ -14,7 +14,7 @@ from openpyxl.utils import get_column_letter
 
 from config import DB_PATH
 import os
-from live_engine import render_tab_en_vivo
+from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
@@ -55,25 +55,6 @@ PAUSAS_NO_AUTORIZADAS = {
     "Gestión sin Contacto",
     "Problemas de Acceso",
 }
-
-def servicio_autorizado_casos_bo(servicio: str) -> bool:
-    """Casos Backoffice está autorizado para servicios BO y células de Chat/Redes autorizadas."""
-    s = (servicio or "").upper()
-    if s.startswith("BO ") or s.startswith("BO_") or "BACKOFFICE" in s:
-        return True
-    celulas = (
-        "RRSS AMC",
-        "CHAT AGENCIAS ESP",
-        "AG CORPORATE CHAT",
-        "SPEECH",
-        "AG CHECK IN",
-        "AG CELULA REMISION",
-        "CARGO BOOKING",
-        "RRSS AMC ING",
-        "RRSS PORT AMC",
-        "ANTIFRAUDE",
-    )
-    return any(c in s for c in celulas)
 
 # Asesores de Backoffice / Células especializadas con alto uso legítimo de Available
 AGENTES_AUTORIZADOS_AVAILABLE_DEFAULT = [

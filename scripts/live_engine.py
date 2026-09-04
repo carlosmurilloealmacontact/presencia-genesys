@@ -24,6 +24,26 @@ TOKEN_PATH_DEFAULT = os.path.normpath(
 ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
 
 
+def servicio_autorizado_casos_bo(servicio: str) -> bool:
+    """Casos Backoffice está autorizado para servicios BO y células de Chat/Redes autorizadas."""
+    s = (servicio or "").upper()
+    if s.startswith("BO ") or s.startswith("BO_") or "BACKOFFICE" in s:
+        return True
+    celulas = (
+        "RRSS AMC",
+        "CHAT AGENCIAS ESP",
+        "AG CORPORATE CHAT",
+        "SPEECH",
+        "AG CHECK IN",
+        "AG CELULA REMISION",
+        "CARGO BOOKING",
+        "RRSS AMC ING",
+        "RRSS PORT AMC",
+        "ANTIFRAUDE",
+    )
+    return any(c in s for c in celulas)
+
+
 def obtener_token_genesys() -> str | None:
     """Busca el token en archivo local, st.secrets o base de datos Neon Postgres."""
     # 1. Archivo local de renovación automática (entorno local)
