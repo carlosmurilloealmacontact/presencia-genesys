@@ -320,9 +320,9 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                         alerta = f"En llamada ({cronometro_llamada})"
                         nivel_alerta = "ok"
 
-                    info_aht = mapa_aht.get(uid, {"atendidas_hoy": 0, "aht_seg": 0, "aht_seg_str": "—"})
+                    info_aht = mapa_aht.get(uid, {"atendidas_hoy": 0, "aht_seg": None, "aht_seg_str": "—"})
                     atendidas_hoy = info_aht["atendidas_hoy"]
-                    aht_seg = info_aht["aht_seg"]
+                    aht_seg = info_aht["aht_seg"] if atendidas_hoy > 0 else None
                     aht_seg_str = info_aht["aht_seg_str"]
 
                     filas.append({
@@ -580,7 +580,7 @@ def render_tab_en_vivo(agentes_map: dict):
 
     # Ordenamiento de tabla
     if orden_piso == "Mayor AHT Hoy (seg)":
-        df_vista_final = df_vista_final.sort_values(by="aht_seg", ascending=False)
+        df_vista_final = df_vista_final.sort_values(by="aht_seg", ascending=False, na_position="last")
     elif orden_piso == "Más Interacciones Hoy":
         df_vista_final = df_vista_final.sort_values(by="atendidas_hoy", ascending=False)
     elif orden_piso == "Llamada más larga primero":
@@ -633,10 +633,10 @@ def render_tab_en_vivo(agentes_map: dict):
         return "color: #185fa5; font-weight: 700;"
 
     def estilo_aht(val):
-        if str(val) == "—" or not val:
+        if pd.isna(val) or val is None or val == 0 or str(val) == "—" or not val:
             return "color: #aaa;"
         try:
-            s_val = int(str(val).replace("s", ""))
+            s_val = float(val)
             if s_val >= 1200:
                 return "background-color: #fee8e7; color: #b3261e; font-weight: 700;"
             elif s_val >= 900:
@@ -647,7 +647,7 @@ def render_tab_en_vivo(agentes_map: dict):
 
     tabla_vista = df_vista_final[[
         "agente", "servicio", "supervisor", "coordinador",
-        "estado", "routing", "cronometro_llamada", "atendidas_hoy", "aht_seg_str",
+        "estado", "routing", "cronometro_llamada", "atendidas_hoy", "aht_seg",
         "hora_inicio", "cronometro", "alerta"
     ]].rename(columns={
         "agente": "Asesor",
@@ -658,7 +658,7 @@ def render_tab_en_vivo(agentes_map: dict):
         "routing": "Estado ACD",
         "cronometro_llamada": "Tiempo Llamada",
         "atendidas_hoy": "Interacciones Hoy",
-        "aht_seg_str": "AHT Hoy (seg)",
+        "aht_seg": "AHT Hoy (seg)",
         "hora_inicio": "Inicio Estado",
         "cronometro": "Tiempo en Estado",
         "alerta": "Alerta en Vivo",
@@ -686,7 +686,7 @@ def render_tab_en_vivo(agentes_map: dict):
             "Estado ACD": st.column_config.TextColumn("Estado ACD"),
             "Tiempo Llamada": st.column_config.TextColumn("Tiempo Llamada"),
             "Interacciones Hoy": st.column_config.NumberColumn("Interacciones Hoy", format="%d", help="Total de interacciones atendidas y finalizadas hoy"),
-            "AHT Hoy (seg)": st.column_config.TextColumn("AHT Hoy (seg)", help="Tiempo Promedio de Operación (Handle Time) en segundos en lo que va del día"),
+            "AHT Hoy (seg)": st.column_config.NumberColumn("AHT Hoy (seg)", format="%d", help="Tiempo Promedio de Operación (Handle Time) en segundos en lo que va del día"),
             "Inicio Estado": st.column_config.TextColumn("Inicio Estado"),
             "Tiempo en Estado": st.column_config.TextColumn("Tiempo en Estado"),
             "Alerta en Vivo": st.column_config.TextColumn("Alerta en Vivo"),
