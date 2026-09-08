@@ -23,4 +23,4 @@ RETENTION_DIAS = 60
 # necesitar configurar nada aparte en la nube.
 DB_PATH = "../data/presencia.db"
 CLOUD_EXPORT_PATH = DB_PATH
-CLOUD_RETENTION_DIAS = 35
+CLOUD_RETENTION_DIAS = 28

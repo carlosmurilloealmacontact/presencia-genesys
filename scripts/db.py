@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS segments (
 );
 CREATE INDEX IF NOT EXISTS idx_segments_fecha ON segments(fecha);
 CREATE INDEX IF NOT EXISTS idx_segments_agente ON segments(agente_id, fecha);
+CREATE INDEX IF NOT EXISTS idx_segments_agente_id ON segments(agente_id);
 
 CREATE TABLE IF NOT EXISTS turnos (
     bp TEXT NOT NULL,

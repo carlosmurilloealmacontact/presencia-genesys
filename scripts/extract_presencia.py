@@ -158,6 +158,39 @@ def build_rows(user_details: list[dict], agents_map: dict, catalog: dict, jerarq
     return rows
 
 
+def sincronizar_metadata_agentes(conn: sqlite3.Connection, jerarquia: dict) -> int:
+    """
+    Sincroniza estado_laboral, cargo, servicio y supervisores de todos los agentes
+    en la base de datos a partir de la última versión de la hoja Base de Google Sheets.
+    """
+    cur = conn.cursor()
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_segments_agente_id ON segments(agente_id);")
+    agentes_db = cur.execute("SELECT DISTINCT agente_id, agente FROM segments").fetchall()
+
+    updates = []
+    for aid, ag_nombre in agentes_db:
+        bp = ag_nombre.split(" - ")[0].strip() if " - " in ag_nombre else ""
+        info = jerarquia.get(bp)
+        if info:
+            updates.append((
+                info.get("estado_laboral", "Activo") or "Activo",
+                info.get("cargo", ""),
+                info.get("servicio", ""),
+                info.get("jefe_inmediato", ""),
+                info.get("coordinador", ""),
+                aid,
+            ))
+
+    if updates:
+        cur.executemany("""
+            UPDATE segments
+            SET estado_laboral = ?, cargo = ?, servicio = ?, jefe_inmediato = ?, coordinador = ?
+            WHERE agente_id = ?;
+        """, updates)
+        conn.commit()
+    return len(updates)
+
+
 def run(fecha_objetivo: str):
     with open(GENESYS_CONFIG["token_file"], encoding="utf-8") as f:
         token = f.read().strip()
@@ -193,6 +226,8 @@ def run(fecha_objetivo: str):
 
     conn = get_connection()
     replace_day(conn, fecha_objetivo, rows)
+    actualizados = sincronizar_metadata_agentes(conn, jerarquia)
+    print(f"  {actualizados} agentes sincronizados con metadatos actualizados de Google Sheets.")
     borrados = purge_old(conn)
     conn.close()
     print(f"Guardado en SQLite. {borrados} tramos viejos purgados (retención).")
