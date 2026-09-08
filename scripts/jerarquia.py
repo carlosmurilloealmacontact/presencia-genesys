@@ -52,6 +52,7 @@ def load_jerarquia() -> dict:
             "jefe_inmediato": row.get("jefe_inmediato", ""),
             "coordinador": row.get("coordinador", ""),
             "cargo": row.get("cargo", ""),
+            "estado_laboral": row.get("estado", "Activo") or "Activo",
         }
     return lookup
 

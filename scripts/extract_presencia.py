@@ -145,6 +145,7 @@ def build_rows(user_details: list[dict], agents_map: dict, catalog: dict, jerarq
                 "agente_id": user_id,
                 "agente": agente_nombre,
                 "cargo": info_jerarquia.get("cargo", ""),
+                "estado_laboral": info_jerarquia.get("estado_laboral", "Activo"),
                 "servicio": info_jerarquia.get("servicio", ""),
                 "jefe_inmediato": info_jerarquia.get("jefe_inmediato", ""),
                 "coordinador": info_jerarquia.get("coordinador", ""),

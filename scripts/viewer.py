@@ -830,11 +830,13 @@ def cargar_agentes_map_base():
         return {}
     conn = sqlite3.connect(real_db_path)
     agentes_db = pd.read_sql(
-        "SELECT distinct agente_id, agente, cargo, servicio, jefe_inmediato, coordinador FROM segments", conn
+        "SELECT distinct agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM segments", conn
     )
     conn.close()
     if "cargo" in agentes_db.columns:
         agentes_db = agentes_db[agentes_db["cargo"].str.upper().str.contains("ASESOR", na=False)]
+    if "estado_laboral" in agentes_db.columns:
+        agentes_db = agentes_db[agentes_db["estado_laboral"].str.upper() == "ACTIVO"]
     agentes_db = agentes_db.drop_duplicates("agente_id", keep="last")
     return agentes_db.set_index("agente_id").to_dict(orient="index")
 
@@ -855,11 +857,15 @@ with tab_historico:
         st.session_state["desde"] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=13))
         st.session_state["hasta"] = fecha_max_disp_d
     
-    col_desde, col_hasta, col_coord, col_servicio, col_superv, col_agente = st.columns(6)
+    col_desde, col_hasta, col_estado, col_coord, col_servicio, col_superv, col_agente = st.columns(
+        [1.0, 1.0, 1.1, 1.3, 1.3, 1.3, 1.6]
+    )
     with col_desde:
         st.date_input("Desde", key="desde", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
     with col_hasta:
         st.date_input("Hasta", key="hasta", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
+    with col_estado:
+        st.selectbox("Estado", ["Activos", "Retiros", "Todos"], index=0, key="estado_laboral_sel")
     
     col_rango1, col_rango2, col_rango3, col_rango4, _, col_caption = st.columns([1, 1, 1, 1, 1, 4])
     def set_rango(dias):
@@ -889,8 +895,15 @@ with tab_historico:
         st.stop()
     
     df = cargar_rango(fecha_desde, fecha_hasta)
+    if "estado_laboral" in df.columns:
+        sel_estado = st.session_state.get("estado_laboral_sel", "Activos")
+        if sel_estado == "Activos":
+            df = df[df["estado_laboral"].str.upper() == "ACTIVO"]
+        elif sel_estado == "Retiros":
+            df = df[df["estado_laboral"].str.upper() == "RETIRO"]
+
     if df.empty:
-        st.info("Sin tramos para este rango.")
+        st.info("Sin tramos para este rango y estado laboral seleccionado.")
         st.stop()
     
     FILTROS = [
