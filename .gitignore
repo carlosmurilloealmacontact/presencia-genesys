@@ -4,3 +4,4 @@ scripts/google_oauth_client.json
 scripts/google_token.json
 scripts/genesys_token.txt
 data/presencia_master.db
+data/turnos_semanales/*.xlsx
