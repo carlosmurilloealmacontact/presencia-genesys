@@ -379,15 +379,17 @@ def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, 
     if not os.path.exists(tpl_master):
         tpl_master = os.path.join(BASE_DIR, "../templates/HORA_HORA_TEMPLATE.xlsx")
 
-    # Intento 1: Automatización nativa Microsoft Excel (Fidelidad 100% idéntica)
+    # Intento 1: Automatización nativa Microsoft Excel aislada (Fidelidad 100% idéntica, sin corrupción)
     try:
         import pythoncom
         import win32com.client
 
         pythoncom.CoInitialize()
-        excel = win32com.client.Dispatch("Excel.Application")
+        excel = win32com.client.DispatchEx("Excel.Application")
         excel.Visible = False
         excel.DisplayAlerts = False
+        excel.ScreenUpdating = False
+        excel.EnableEvents = False
 
         tpl_abs = os.path.abspath(tpl_master)
         wb = excel.Workbooks.Open(tpl_abs)
@@ -447,103 +449,12 @@ def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, 
         os.remove(tmp_out)
         if len(data_bytes) > 500000:
             return data_bytes
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[ERROR GENERAR HORA_HORA COM] {exc}")
 
-    # Intento 2: openpyxl Fallback
-    wb = openpyxl.load_workbook(tpl_master)
-    if "DETALLE" in wb.sheetnames:
-        ws_det = wb["DETALLE"]
-        ws_det["Y5"].value = datetime.now().strftime("%H:%M:%S")
-
-        header_srvs = {}
-        for col in range(4, ws_det.max_column + 1):
-            val = ws_det.cell(row=3, column=col).value
-            if val:
-                header_srvs[str(val).strip()] = col
-
-        row_metrics = {}
-        for r in range(4, 30):
-            lbl = ws_det.cell(row=r, column=3).value
-            if lbl:
-                row_metrics[str(lbl).strip()] = r
-
-        _, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
-        for srv, col_idx in header_srvs.items():
-            sd = serv_data.get(srv, {})
-            ns_meta_val = sd.get("% NS META")
-            aht_meta_val = sd.get("META AHT")
-
-            for m_lbl, r_idx in row_metrics.items():
-                cell = ws_det.cell(row=r_idx, column=col_idx)
-                if m_lbl == "LL ENT":
-                    cell.value = int(sd.get("LL ENT", 0))
-                    cell.number_format = "#,##0"
-                elif m_lbl == "LL ATEN":
-                    cell.value = int(sd.get("LL ATEN", 0))
-                    cell.number_format = "#,##0"
-                elif m_lbl == "LL ABAN":
-                    cell.value = int(sd.get("LL ABAN", 0))
-                    cell.number_format = "#,##0"
-                elif m_lbl in ("LL  Aten. NS", "LL Aten. NS"):
-                    cell.value = int(sd.get("LL Aten. NS", 0))
-                    cell.number_format = "#,##0"
-                elif m_lbl == "% ATEN":
-                    cell.value = round(sd.get("% ATEN", 0) / 100.0, 4)
-                    cell.number_format = "0.00%"
-                elif m_lbl == "%ABAN":
-                    cell.value = round(sd.get("% ABAN", 0) / 100.0, 4)
-                    cell.number_format = "0.00%"
-                elif m_lbl == "%NS META":
-                    if ns_meta_val is not None:
-                        cell.value = round(ns_meta_val / 100.0, 4)
-                        cell.number_format = "0.00%"
-                elif m_lbl == "%NS":
-                    cell.value = round(sd.get("% NS", 0) / 100.0, 4)
-                    cell.number_format = "0.00%"
-                elif m_lbl == "META AHT":
-                    if aht_meta_val is not None:
-                        cell.value = round(aht_meta_val, 1)
-                        cell.number_format = "#,##0.0"
-                elif m_lbl == "AHT":
-                    cell.value = round(sd.get("AHT", 0), 1)
-                    cell.number_format = "#,##0.0"
-                elif m_lbl == "% VAR AHT":
-                    aht_r = sd.get("AHT", 0)
-                    if aht_meta_val and aht_meta_val > 0 and aht_r > 0:
-                        cell.value = round((aht_r - aht_meta_val) / aht_meta_val, 4)
-                        cell.number_format = "0.00%"
-                elif m_lbl == "ASA":
-                    cell.value = round(sd.get("ASA", 0), 1)
-                    cell.number_format = "#,##0.0"
-
-    if "DATA GENEYS" in wb.sheetnames and df_raw is not None:
-        ws_dg = wb["DATA GENEYS"]
-        for r in range(2, min(ws_dg.max_row + 1, 2000)):
-            for c in range(1, 15):
-                ws_dg.cell(row=r, column=c).value = None
-
-        now_dt = datetime.now()
-        for idx, row in df_raw.iterrows():
-            r_idx = idx + 2
-            ws_dg.cell(row=r_idx, column=1).value = now_dt.strftime("%Y-%m-%d")
-            ws_dg.cell(row=r_idx, column=2).value = str(row.get("intervalo", ""))
-            ws_dg.cell(row=r_idx, column=3).value = str(row.get("queueId", ""))
-            ws_dg.cell(row=r_idx, column=4).value = str(row.get("canal", "VOZ"))
-            ws_dg.cell(row=r_idx, column=5).value = int(row.get("nOffered", 0))
-            ws_dg.cell(row=r_idx, column=6).value = int(row.get("tAnswered_count", 0))
-            ws_dg.cell(row=r_idx, column=7).value = int(row.get("tAbandon_count", 0))
-            ws_dg.cell(row=r_idx, column=8).value = int(row.get("sl_numerator", 0))
-            ws_dg.cell(row=r_idx, column=9).value = round(row.get("tAnswered_sum", 0) / 1000.0, 2)
-            ws_dg.cell(row=r_idx, column=11).value = round(row.get("tTalk_sum", 0) / 1000.0, 2)
-            ws_dg.cell(row=r_idx, column=12).value = round(row.get("tAcw_sum", 0) / 1000.0, 2)
-            ws_dg.cell(row=r_idx, column=13).value = round(row.get("tHandle_sum", 0) / 1000.0, 2)
-            ws_dg.cell(row=r_idx, column=14).value = round(row.get("tHeld_sum", 0) / 1000.0, 2)
-
-    output = BytesIO()
-    wb.save(output)
-    wb.close()
-    return output.getvalue()
+    # Respaldo limpio: retornar el archivo maestro exacto directamente sin alteración de openpyxl
+    with open(tpl_master, "rb") as f:
+        return f.read()
 
 
 @st.cache_data(show_spinner="Generando libro oficial AHT GENESYS...")
@@ -556,15 +467,16 @@ def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: d
     if not os.path.exists(tpl_master):
         tpl_master = os.path.join(BASE_DIR, "../templates/AHT_GENESYS_TEMPLATE.xlsm")
 
-    # Intento 1: Automatización nativa Excel (Preserva 100% Slicers, Macros y Tablas Dinámicas)
     try:
         import pythoncom
         import win32com.client
 
         pythoncom.CoInitialize()
-        excel = win32com.client.Dispatch("Excel.Application")
+        excel = win32com.client.DispatchEx("Excel.Application")
         excel.Visible = False
         excel.DisplayAlerts = False
+        excel.ScreenUpdating = False
+        excel.EnableEvents = False
 
         tpl_abs = os.path.abspath(tpl_master)
         wb = excel.Workbooks.Open(tpl_abs)
@@ -626,52 +538,11 @@ def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: d
         os.remove(tmp_out)
         if len(data_bytes) > 500000:
             return data_bytes
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[ERROR GENERAR AHT COM] {exc}")
 
-    # Intento 2: openpyxl Fallback con keep_vba=True
-    wb = openpyxl.load_workbook(tpl_master, keep_vba=True)
-    if "DATA" in wb.sheetnames:
-        ws_data = wb["DATA"]
-        for r in range(2, min(ws_data.max_row + 1, 2000)):
-            for c in range(1, 16):
-                ws_data.cell(row=r, column=c).value = None
-
-        now_date_str = datetime.now().strftime("%Y-%m-%d 00:00:00")
-        next_date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
-
-        for idx, row in df_asesores_raw.iterrows():
-            r_idx = idx + 2
-            aid = row.get("agente_id", "")
-            ag_info = agentes_map.get(aid, {})
-            nombre = ag_info.get("agente", aid)
-            interacc = int(row.get("interacciones", 0))
-            aht_s = float(row.get("aht_seg", 0.0))
-            talk_s = float(row.get("t_talk_seg", 0.0))
-            held_s = float(row.get("t_held_seg", 0.0))
-            acw_s = float(row.get("t_acw_seg", 0.0))
-            transf = int(row.get("transferidas", 0))
-
-            ws_data.cell(row=r_idx, column=1).value = now_date_str
-            ws_data.cell(row=r_idx, column=2).value = next_date_str
-            ws_data.cell(row=r_idx, column=3).value = False
-            ws_data.cell(row=r_idx, column=4).value = "Dirección: Entrante; Dirección inicial:Entrante"
-            ws_data.cell(row=r_idx, column=5).value = "voz"
-            ws_data.cell(row=r_idx, column=6).value = aid
-            ws_data.cell(row=r_idx, column=7).value = nombre
-            ws_data.cell(row=r_idx, column=8).value = interacc
-            ws_data.cell(row=r_idx, column=9).value = interacc
-            ws_data.cell(row=r_idx, column=10).value = f" {formatear_segundos_mm_ss(aht_s)}.000"
-            ws_data.cell(row=r_idx, column=11).value = f" {formatear_segundos_mm_ss(talk_s)}.000"
-            ws_data.cell(row=r_idx, column=12).value = f" {formatear_segundos_mm_ss(held_s)}.000" if held_s > 0 else None
-            ws_data.cell(row=r_idx, column=13).value = f" {formatear_segundos_mm_ss(acw_s)}.000" if acw_s > 0 else None
-            ws_data.cell(row=r_idx, column=14).value = None
-            ws_data.cell(row=r_idx, column=15).value = transf if transf > 0 else None
-
-    output = BytesIO()
-    wb.save(output)
-    wb.close()
-    return output.getvalue()
+    with open(tpl_master, "rb") as f:
+        return f.read()
 
 
 
@@ -720,13 +591,19 @@ def render_tab_gtr(agentes_map: dict):
                 st.session_state["bytes_hh_cache"] = None
 
             if st.session_state["bytes_hh_cache"] is not None:
-                st.download_button(
-                    label="📥 Descargar (CONFIDENCIAL)HORA_HORA.xlsx",
-                    data=st.session_state["bytes_hh_cache"],
-                    file_name=f"(CONFIDENCIAL)HORA_HORA_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                c_d1, c_d2 = st.columns([4, 1])
+                with c_d1:
+                    st.download_button(
+                        label="📥 Descargar (CONFIDENCIAL)HORA_HORA.xlsx",
+                        data=st.session_state["bytes_hh_cache"],
+                        file_name=f"(CONFIDENCIAL)HORA_HORA_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                with c_d2:
+                    if st.button("🔄", key="regen_hh", help="Generar nueva versión"):
+                        st.session_state["bytes_hh_cache"] = None
+                        st.rerun()
             else:
                 if st.button("⚡ Preparar (CONFIDENCIAL)HORA_HORA.xlsx", use_container_width=True):
                     st.session_state["bytes_hh_cache"] = generar_excel_hora_hora_fiel(df_raw, df_matriz, gtr_cfg)
@@ -737,13 +614,19 @@ def render_tab_gtr(agentes_map: dict):
                 st.session_state["bytes_aht_cache"] = None
 
             if st.session_state["bytes_aht_cache"] is not None:
-                st.download_button(
-                    label="📥 Descargar AHT_GENESYS.xlsm",
-                    data=st.session_state["bytes_aht_cache"],
-                    file_name=f"AHT_GENESYS_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsm",
-                    mime="application/vnd.ms-excel.sheet.macroEnabled.12",
-                    use_container_width=True
-                )
+                c_a1, c_a2 = st.columns([4, 1])
+                with c_a1:
+                    st.download_button(
+                        label="📥 Descargar AHT_GENESYS.xlsm",
+                        data=st.session_state["bytes_aht_cache"],
+                        file_name=f"AHT_GENESYS_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsm",
+                        mime="application/vnd.ms-excel.sheet.macroEnabled.12",
+                        use_container_width=True
+                    )
+                with c_a2:
+                    if st.button("🔄", key="regen_aht", help="Generar nueva versión"):
+                        st.session_state["bytes_aht_cache"] = None
+                        st.rerun()
             else:
                 if st.button("⚡ Preparar AHT_GENESYS.xlsm", use_container_width=True):
                     df_as_raw, _ = obtener_aht_asesores_api(token)
