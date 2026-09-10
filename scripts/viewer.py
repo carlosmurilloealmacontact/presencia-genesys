@@ -15,6 +15,7 @@ from openpyxl.utils import get_column_letter
 from config import DB_PATH
 import os
 from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo
+from gtr_engine import render_tab_gtr
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
@@ -841,7 +842,11 @@ def cargar_agentes_map_base():
     return agentes_db.set_index("agente_id").to_dict(orient="index")
 
 
-tab_historico, tab_vivo = st.tabs(["📊 Análisis Histórico y Adherencia", "🔴 Monitoreo en Vivo (Piso)"])
+tab_historico, tab_vivo, tab_gtr = st.tabs([
+    "📊 Análisis Histórico y Adherencia",
+    "🔴 Monitoreo en Vivo (Piso)",
+    "📈 Monitor GTR y Niveles de Servicio"
+])
 
 with tab_historico:
     rango_disponible = cargar_rango_fechas()
@@ -1552,3 +1557,6 @@ with tab_historico:
 
 with tab_vivo:
     render_tab_en_vivo(cargar_agentes_map_base())
+
+with tab_gtr:
+    render_tab_gtr(cargar_agentes_map_base())
