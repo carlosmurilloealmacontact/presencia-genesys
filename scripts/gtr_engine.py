@@ -1,7 +1,9 @@
 """
 Motor GTR y Niveles de Servicio — Radar Genesys Cloud.
-Calcula métricas de Service Level (NS), AHT, Abandono y ASA
-con la estructura exacta del reporte oficial HORA A HORA (DETALLE) y AHT GENESYS.
+Incluye:
+1. Vista Gerencial Operativa (Alertas, semáforos de SLA y desvío de AHT ordenados por impacto).
+2. Vista Técnica GTR (Matriz horizontal idéntica a HORA A HORA y desglose por 30 min).
+3. Exportadores Fieles a Excel de los dos libros: (CONFIDENCIAL)HORA_HORA.xlsx y AHT_GENESYS.xlsx.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -13,7 +15,8 @@ import time
 
 import numpy as np
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -86,7 +89,6 @@ def obtener_metricas_gtr_api(token: str):
     services_cfg = gtr_cfg.get("services", {})
 
     now_utc = datetime.now(timezone.utc)
-    # 00:00 hora Colombia = 05:00 UTC
     today_col_start = now_utc.replace(hour=5, minute=0, second=0, microsecond=0)
     if now_utc < today_col_start:
         today_col_start -= timedelta(days=1)
@@ -326,9 +328,7 @@ def construir_matriz_ejecutiva_gtr(df_raw: pd.DataFrame, gtr_cfg: dict):
         ("ASA", "ASA (Tiempo Espera Segundos)"),
     ]
 
-    # Columnas que efectivamente tienen tráfico o están en el reporte oficial
     cols_servicios = [s for s in SERVICIOS_ORDEN_OFICIAL if s in serv_data]
-    # Agregar otras si hubiera tráfico fuera del orden estándar
     for s in sorted(serv_data.keys()):
         if s not in cols_servicios and serv_data[s]["LL ENT"] > 0:
             cols_servicios.append(s)
@@ -363,8 +363,116 @@ def construir_matriz_ejecutiva_gtr(df_raw: pd.DataFrame, gtr_cfg: dict):
     return df_matriz, serv_data
 
 
+# ── GENERADORES FIELES DE LIBROS EXCEL GTR ────────────────────────────────────
+
+def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, gtr_cfg: dict) -> bytes:
+    """
+    Recrea fielmente el libro (CONFIDENCIAL)HORA_HORA.xlsb en formato Excel (.xlsx).
+    Contiene DETALLE (Matriz arriba e Intradía abajo), Resumen y DATA GENEYS.
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        # 1. Hoja DETALLE
+        df_matriz.to_excel(writer, sheet_name="DETALLE", index=False, startrow=2)
+        
+        # 2. Hoja DATA GENEYS (Base cruda con la misma cabecera)
+        df_data_gen = df_raw.rename(columns={
+            "intervalo": "INICIO_del_Intervalo",
+            "queueId": "Cola",
+            "canal": "Tipo_medios",
+            "nOffered": "Ofrecidas",
+            "tAnswered_count": "Contestadas",
+            "tAbandon_count": "Abandonadas",
+            "sl_numerator": "CUMPLEN_SLA",
+            "tAnswered_sum": "ASA_sum",
+            "tHandle_sum": "Conversacion_sum"
+        })
+        cols_export_dg = [
+            "servicio", "INICIO_del_Intervalo", "Cola", "Tipo_medios",
+            "Ofrecidas", "Contestadas", "Abandonadas", "CUMPLEN_SLA"
+        ]
+        df_data_gen[[c for c in cols_export_dg if c in df_data_gen.columns]].to_excel(
+            writer, sheet_name="DATA GENEYS", index=False
+        )
+
+        # 3. Hoja Resumen
+        resumen_data = {
+            "Agrupador": ["NO VOZ", "VOZ", "TOTAL"],
+            "Entrante": [
+                int(df_raw[df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["nOffered"].sum()),
+                int(df_raw[~df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["nOffered"].sum()),
+                int(df_raw["nOffered"].sum())
+            ],
+            "Atendido": [
+                int(df_raw[df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAnswered_count"].sum()),
+                int(df_raw[~df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAnswered_count"].sum()),
+                int(df_raw["tAnswered_count"].sum())
+            ],
+            "Abandono": [
+                int(df_raw[df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAbandon_count"].sum()),
+                int(df_raw[~df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAbandon_count"].sum()),
+                int(df_raw["tAbandon_count"].sum())
+            ]
+        }
+        pd.DataFrame(resumen_data).to_excel(writer, sheet_name="Resumen", index=False)
+
+    return output.getvalue()
+
+
+def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: dict, gtr_cfg: dict) -> bytes:
+    """
+    Recrea fielmente el libro AHT GENESYS.xlsm en formato Excel (.xlsx).
+    Contiene DATA (Cruce individual completo), SUPERVISORES y AGENTES.
+    """
+    aht_metas = gtr_cfg.get("aht_metas", {})
+
+    def cruzar_info(row):
+        aid = row["agente_id"]
+        info = agentes_map.get(aid, {})
+        nombre = info.get("agente", aid)
+        bp = nombre.split("-")[0].strip() if "-" in nombre else aid[:7]
+        serv = info.get("servicio", "General")
+        sup = info.get("jefe_inmediato", "-")
+        coord = info.get("coordinador", "-")
+        meta = aht_metas.get(serv, None)
+        return pd.Series([bp, nombre, serv, sup, coord, meta])
+
+    df_base = df_asesores_raw.copy()
+    cols_cruzadas = ["BP", "NOMBRE AGENTE", "SERVICIO", "SUPERVISOR", "COORDINADOR", "META"]
+    df_base[cols_cruzadas] = df_base.apply(cruzar_info, axis=1)
+
+    df_base["AHT REAL"] = df_base["aht_seg"]
+    df_base["CONVER TOTAL"] = (df_base["interacciones"] * df_base["aht_seg"]).round(0)
+    df_base["DESVÍO"] = ((df_base["AHT REAL"] - df_base["META"]) / df_base["META"]).round(3)
+
+    # 1. Resumen Supervisores
+    df_sup = df_base[df_base["SUPERVISOR"] != "-"].groupby("SUPERVISOR").agg({
+        "interacciones": "sum",
+        "META": "mean",
+        "AHT REAL": "mean",
+        "t_talk_seg": "mean",
+        "t_held_seg": "mean",
+        "t_acw_seg": "mean"
+    }).reset_index()
+    df_sup["DESVÍO"] = ((df_sup["AHT REAL"] - df_sup["META"]) / df_sup["META"]).round(3)
+    df_sup = df_sup.rename(columns={"interacciones": ".Interacciones", "META": ".META", "AHT REAL": ".AHT REAL"})
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_sup.to_excel(writer, sheet_name="SUPERVISORES", index=False, startrow=3)
+        df_base.to_excel(writer, sheet_name="DATA", index=False)
+        # Resumen general agentes
+        df_base[["BP", "NOMBRE AGENTE", "SERVICIO", "SUPERVISOR", "interacciones", "META", "AHT REAL", "DESVÍO"]].to_excel(
+            writer, sheet_name="AGENTES", index=False, startrow=3
+        )
+
+    return output.getvalue()
+
+
+# ── RENDER PRINCIPAL DEL COMPONENTE GTR ───────────────────────────────────────
+
 def render_tab_gtr(agentes_map: dict):
-    """Renderiza la pestaña oficial de Monitor GTR y Niveles de Servicio."""
+    """Renderiza la pestaña principal de Monitor GTR con alternador de vista."""
     token = obtener_token_genesys()
     if not token:
         st.warning("⚠️ No se encontró token activo de Genesys Cloud. Conéctalo en Neon Postgres o revisa las credenciales.")
@@ -372,8 +480,8 @@ def render_tab_gtr(agentes_map: dict):
 
     col_h1, col_h2 = st.columns([4, 1])
     with col_h1:
-        st.subheader("📈 Monitor GTR — Reporte Oficial Hora a Hora & AHT")
-        st.caption("Replicación oficial de los reportes GTR `(CONFIDENCIAL)HORA_HORA.xlsb` y `AHT GENESYS.xlsm` directamente desde Genesys Cloud Analytics.")
+        st.subheader("📈 Monitor GTR — Gestión en Tiempo Real & Niveles de Servicio")
+        st.caption("Replicación en vivo de los reportes oficiales `HORA A HORA` y `AHT GENESYS` directamente desde la API de Genesys Cloud.")
     with col_h2:
         if st.button("🔄 Actualizar Datos GTR", use_container_width=True):
             st.cache_data.clear()
@@ -388,306 +496,271 @@ def render_tab_gtr(agentes_map: dict):
         st.error(f"No fue posible cargar las métricas de Genesys: {err}")
         return
 
-    # Construir Matriz Ejecutiva Horizontal
     df_matriz, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
 
-    # ── KPIs Resumen Global (TT_LATAM + TT_EQUIPAJES) ────────────────────────
-    tt_l = serv_data.get("TT_LATAM", {})
-    tt_e = serv_data.get("TT_EQUIPAJES", {})
-
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    with k1:
-        st.metric("Total Entrantes", f"{int(tt_l.get('LL ENT', 0) + tt_e.get('LL ENT', 0)):,}")
-    with k2:
-        st.metric("Total Atendidas", f"{int(tt_l.get('LL ATEN', 0) + tt_e.get('LL ATEN', 0)):,}")
-    with k3:
-        st.metric("NS TT_LATAM", f"{tt_l.get('% NS', 0):.1f}%", delta=f"Meta {tt_l.get('% NS META', 75):.0f}%")
-    with k4:
-        st.metric("AHT TT_LATAM", f"{int(tt_l.get('AHT', 0))}s", delta=formatear_segundos_mm_ss(tt_l.get("AHT", 0)))
-    with k5:
-        st.metric("NS TT_EQUIPAJES", f"{tt_e.get('% NS', 0):.1f}%", delta=f"Meta {tt_e.get('% NS META', 78):.0f}%")
-    with k6:
-        st.metric("AHT TT_EQUIPAJES", f"{int(tt_e.get('AHT', 0))}s", delta=formatear_segundos_mm_ss(tt_e.get("AHT", 0)))
+    # ── BOTONES DE DESCARGA EXACTA GTR ───────────────────────────────────────
+    with st.expander("📦 Exportación Fiel a Archivos Oficiales de GTR (Excel Automático)", expanded=False):
+        st.markdown(
+            "Estos botones recrean **los mismos libros Excel que el equipo de GTR genera cada hora**, listos para archivar o enviar:"
+        )
+        col_exp1, col_exp2 = st.columns(2)
+        with col_exp1:
+            bytes_hh = generar_excel_hora_hora_fiel(df_raw, df_matriz, gtr_cfg)
+            st.download_button(
+                label="📥 Descargar (CONFIDENCIAL)HORA_HORA.xlsx",
+                data=bytes_hh,
+                file_name=f"(CONFIDENCIAL)HORA_HORA_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        with col_exp2:
+            # Traer asesores si está disponible
+            df_as_raw, _ = obtener_aht_asesores_api(token)
+            if not df_as_raw.empty:
+                bytes_aht = generar_excel_aht_genesys_fiel(df_as_raw, agentes_map, gtr_cfg)
+                st.download_button(
+                    label="📥 Descargar AHT_GENESYS.xlsx",
+                    data=bytes_aht,
+                    file_name=f"AHT_GENESYS_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
 
     st.markdown("---")
 
-    # ── 1. MATRIZ OFICIAL HORA A HORA (DETALLE) ──────────────────────────────
-    st.markdown("### 📋 Matriz Ejecutiva Consolidada por Servicio (Formato Oficial HORA A HORA)")
-    st.caption("Estructura de columnas por servicio y filas por indicador (LL ENT, LL ATEN, LL ABAN, % ATEN, % NS, META AHT, AHT, ASA).")
-
-    # Controles de vista de la matriz
-    opciones_columnas = [c for c in df_matriz.columns if c != "Concepto / Métrica"]
-    cols_seleccionadas = st.multiselect(
-        "Filtrar columnas de servicios a visualizar:",
-        opciones_columnas,
-        default=[c for c in opciones_columnas if c in SERVICIOS_ORDEN_OFICIAL[:10] or c in ("TT_EQUIPAJES", "WPP EQUIPAJES AMC")]
+    # ── SELECTOR DE MODO DE VISTA ────────────────────────────────────────────
+    modo_vista = st.radio(
+        "Modalidad de Tablero:",
+        ["🎯 Vista Gerencial de Operaciones (Semáforos y Diagnóstico)", "📋 Vista Técnica GTR (Matriz Horizontal Hora a Hora)"],
+        horizontal=True
     )
 
-    cols_a_mostrar = ["Concepto / Métrica"] + (cols_seleccionadas if cols_seleccionadas else opciones_columnas)
-    st.dataframe(
-        df_matriz[cols_a_mostrar],
-        use_container_width=True,
-        hide_index=True
-    )
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODO 1: VISTA GERENCIAL DE OPERACIONES
+    # ══════════════════════════════════════════════════════════════════════════
+    if "Gerencial" in modo_vista:
+        # 1. Transformar serv_data a DataFrame Gerencial Vertical
+        filas_ger = []
+        for s, d in serv_data.items():
+            if s in ("TT_LATAM", "TT_EQUIPAJES") or d["LL ENT"] > 0:
+                ns_r = d["% NS"]
+                ns_m = d["% NS META"]
+                aht_r = d["AHT"]
+                aht_m = d["META AHT"]
+                dif_ns = (ns_r - ns_m) if ns_m is not None else None
+                desv_aht = ((aht_r - aht_m) / aht_m * 100.0) if (aht_m and aht_m > 0 and aht_r > 0) else None
 
-    # ── 2. SELECCIÓN DE SERVICIO Y TABLA INTRADÍA (CORTES 30 MIN) ────────────
-    st.markdown("---")
-    st.markdown("### ⏱️ Detalle Intradía por Servicio (Intervalos de 30 Minutos y Acumulados)")
-    st.caption("Visualiza el corte de cada media hora exactamente como la tabla horaria de la hoja `DETALLE` de GTR.")
+                if ns_m is None:
+                    estado = "⚪ Sin Meta"
+                elif ns_r >= ns_m:
+                    estado = "🟢 Cumple SLA"
+                elif ns_r >= ns_m - 5.0:
+                    estado = "🟡 En Riesgo (-5%)"
+                else:
+                    estado = "🔴 Crítico (< SLA)"
 
-    servicios_intradia = [s for s in SERVICIOS_ORDEN_OFICIAL if s in serv_data and serv_data[s]["LL ENT"] > 0]
-    col_sel_srv, col_espacio = st.columns([2, 3])
-    with col_sel_srv:
-        servicio_activo = st.selectbox("Seleccione el Servicio a Analizar:", servicios_intradia, index=1 if len(servicios_intradia) > 1 else 0)
+                filas_ger.append({
+                    "Servicio": s,
+                    "Estado": estado,
+                    "Entrantes": int(d["LL ENT"]),
+                    "Atendidas": int(d["LL ATEN"]),
+                    "% Aband": d["% ABAN"],
+                    "NS Real": ns_r,
+                    "NS Meta": ns_m,
+                    "Dif NS (pp)": dif_ns,
+                    "AHT Real (s)": int(round(aht_r)) if aht_r else 0,
+                    "AHT Meta (s)": int(round(aht_m)) if aht_m else None,
+                    "Desv AHT (%)": desv_aht,
+                    "ASA (s)": d["ASA"]
+                })
 
-    # Filtrar datos del servicio seleccionado
-    if servicio_activo == "TT_LATAM":
-        df_srv = df_raw[df_raw["servicio"].isin(SERVICIOS_TT_LATAM)].copy()
-    elif servicio_activo == "TT_EQUIPAJES":
-        df_srv = df_raw[df_raw["servicio"].isin(SERVICIOS_TT_EQUIPAJES)].copy()
-    else:
-        df_srv = df_raw[df_raw["servicio"] == servicio_activo].copy()
+        df_ger = pd.DataFrame(filas_ger).sort_values(by=["Entrantes"], ascending=False)
 
-    # Agrupar por intervalo cronológico
-    intra_srv = df_srv.groupby("intervalo").agg({
-        "nOffered": "sum",
-        "tAnswered_count": "sum",
-        "tAbandon_count": "sum",
-        "sl_numerator": "sum",
-        "sl_denominator": "sum",
-        "tHandle_sum": "sum",
-        "tHandle_count": "sum",
-        "tAnswered_sum": "sum"
-    }).reset_index().sort_values("intervalo")
+        # 2. Alertas por Excepción (Servicios Críticos)
+        criticos = df_ger[df_ger["Estado"] == "🔴 Crítico (< SLA)"]
+        en_riesgo = df_ger[df_ger["Estado"] == "🟡 En Riesgo (-5%)"]
 
-    # Acumulados
-    intra_srv["cum_offered"] = intra_srv["nOffered"].cumsum()
-    intra_srv["cum_answered"] = intra_srv["tAnswered_count"].cumsum()
-    intra_srv["cum_abandon"] = intra_srv["tAbandon_count"].cumsum()
-    intra_srv["cum_sl_num"] = intra_srv["sl_numerator"].cumsum()
-    intra_srv["cum_sl_den"] = intra_srv["sl_denominator"].cumsum()
-    intra_srv["cum_h_sum"] = intra_srv["tHandle_sum"].cumsum()
-    intra_srv["cum_h_cnt"] = intra_srv["tHandle_count"].cumsum()
-    intra_srv["cum_ans_sum"] = intra_srv["tAnswered_sum"].cumsum()
+        if not criticos.empty:
+            srv_nombres = ", ".join(criticos["Servicio"].tolist())
+            st.error(f"🚨 **ALERTA CRÍTICA SLA:** Hay **{len(criticos)} servicios** con caída severa en Nivel de Servicio: **{srv_nombres}**.")
+        elif not en_riesgo.empty:
+            st.warning(f"⚠️ **ATENCIÓN:** {len(en_riesgo)} servicios en riesgo de incumplimiento (a menos de 5pp de la meta).")
+        else:
+            st.success("✅ **OPERACIÓN ESTABLE:** Todos los macro-servicios principales están cumpliendo con el SLA contractual.")
 
-    # Tasas Intradía del Intervalo
-    intra_srv["% Atenc"] = (intra_srv["tAnswered_count"] / intra_srv["nOffered"] * 100.0).fillna(0).round(1)
-    intra_srv["% Aband"] = (intra_srv["tAbandon_count"] / intra_srv["nOffered"] * 100.0).fillna(0).round(1)
-    intra_srv["% NS"] = (intra_srv["sl_numerator"] / intra_srv["sl_denominator"] * 100.0).fillna(0).round(1)
-    intra_srv["AHT (s)"] = (intra_srv["tHandle_sum"] / intra_srv["tHandle_count"] / 1000.0).fillna(0).round(0)
-    intra_srv["ASA (s)"] = (intra_srv["tAnswered_sum"] / intra_srv["tAnswered_count"] / 1000.0).fillna(0).round(1)
+        # 3. KPIs Ejecutivos Macro
+        tt_l = serv_data.get("TT_LATAM", {})
+        tt_e = serv_data.get("TT_EQUIPAJES", {})
 
-    # Tasas Acumuladas al Corte
-    intra_srv["% NS Acum"] = (intra_srv["cum_sl_num"] / intra_srv["cum_sl_den"] * 100.0).fillna(0).round(1)
-    intra_srv["AHT Acum (s)"] = (intra_srv["cum_h_sum"] / intra_srv["cum_h_cnt"] / 1000.0).fillna(0).round(0)
-    intra_srv["ASA Acum (s)"] = (intra_srv["cum_ans_sum"] / intra_srv["cum_answered"] / 1000.0).fillna(0).round(1)
+        k1, k2, k3, k4, k5 = st.columns(5)
+        with k1:
+            st.metric("Entrantes Totales", f"{int(df_raw['nOffered'].sum()):,}")
+        with k2:
+            st.metric("Atendidas Totales", f"{int(df_raw['tAnswered_count'].sum()):,}")
+        with k3:
+            st.metric("Abandono Global", f"{df_raw['tAbandon_count'].sum() / df_raw['nOffered'].sum() * 100:.1f}%")
+        with k4:
+            st.metric("NS Consolidado LATAM", f"{tt_l.get('% NS', 0):.1f}%", delta=f"{tt_l.get('% NS', 0) - tt_l.get('% NS META', 75):+.1f}pp")
+        with k5:
+            st.metric("AHT Consolidado LATAM", f"{int(tt_l.get('AHT', 0))}s", delta=formatear_segundos_mm_ss(tt_l.get("AHT", 0)))
 
-    meta_ns_srv = serv_data.get(servicio_activo, {}).get("% NS META", 80.0) or 80.0
-    meta_aht_srv = serv_data.get(servicio_activo, {}).get("META AHT", None)
+        # 4. Tabla Ejecutiva Vertical Ordenada por Impacto
+        st.markdown("#### 📊 Desempeño Operativo por Servicio (Priorizado por Volumen e Impacto)")
+        st.caption("Filas ordenadas por número de llamadas. Permite detectar en 3 segundos desviaciones de SLA y excesos de AHT.")
 
-    # Gráficos de Curva Horaria
-    tab_g1, tab_g2 = st.tabs(["Curva Intradía: NS vs NS Acumulado", "Curva Intradía: AHT vs Meta"])
-    with tab_g1:
-        fig_curva_ns = go.Figure()
-        fig_curva_ns.add_trace(go.Scatter(
-            x=intra_srv["intervalo"], y=intra_srv["% NS"],
-            mode="lines+markers", name="% NS del Intervalo", line=dict(color="#378ADD", width=2)
-        ))
-        fig_curva_ns.add_trace(go.Scatter(
-            x=intra_srv["intervalo"], y=intra_srv["% NS Acum"],
-            mode="lines+markers", name="% NS Acumulado", line=dict(color="#1baf7a", width=3)
-        ))
-        fig_curva_ns.add_hline(y=meta_ns_srv, line_dash="dash", line_color="orange", annotation_text=f"Meta: {meta_ns_srv:.0f}%")
-        fig_curva_ns.update_layout(title=f"Evolución de Nivel de Servicio — {servicio_activo}", height=380, yaxis_range=[0, 105])
-        st.plotly_chart(fig_curva_ns, use_container_width=True)
+        st.dataframe(
+            df_ger,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
+                "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
+                "% Aband": st.column_config.NumberColumn("% Aband.", format="%.1f%%"),
+                "NS Real": st.column_config.NumberColumn("NS Real", format="%.1f%%"),
+                "NS Meta": st.column_config.NumberColumn("NS Meta", format="%.1f%%"),
+                "Dif NS (pp)": st.column_config.NumberColumn("Dif SLA (pp)", format="%+.1f%%"),
+                "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+                "AHT Meta (s)": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
+                "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
+                "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%.1f s"),
+            }
+        )
 
-    with tab_g2:
-        fig_curva_aht = go.Figure()
-        fig_curva_aht.add_trace(go.Scatter(
-            x=intra_srv["intervalo"], y=intra_srv["AHT (s)"],
-            mode="lines+markers", name="AHT del Intervalo (s)", line=dict(color="#e24b4a", width=2)
-        ))
-        fig_curva_aht.add_trace(go.Scatter(
-            x=intra_srv["intervalo"], y=intra_srv["AHT Acum (s)"],
-            mode="lines+markers", name="AHT Acumulado (s)", line=dict(color="#9b51e0", width=3)
-        ))
-        if meta_aht_srv:
-            fig_curva_aht.add_hline(y=meta_aht_srv, line_dash="dash", line_color="green", annotation_text=f"Meta: {int(meta_aht_srv)}s")
-        fig_curva_aht.update_layout(title=f"Evolución de AHT (Segundos) — {servicio_activo}", height=380)
-        st.plotly_chart(fig_curva_aht, use_container_width=True)
+        # 5. Causalidad y Desglose por Supervisor
+        st.markdown("#### 🔍 Diagnóstico Causa-Raíz por Supervisor")
+        st.caption("Identifica qué equipos de supervisión presentan mayor volumen o sobregiro en tiempo de conversación/retención.")
 
-    # Tabla Horaria idéntica a DETALLE
-    cols_tabla_intra = [
-        "intervalo", "nOffered", "tAnswered_count", "tAbandon_count", "sl_numerator",
-        "% Atenc", "% Aband", "% NS", "% NS Acum", "AHT (s)", "AHT Acum (s)", "ASA (s)"
-    ]
-    df_presentar_intra = intra_srv[cols_tabla_intra].rename(columns={
-        "intervalo": "Hora (Intv)",
-        "nOffered": "Llam Ent",
-        "tAnswered_count": "Llam Aten",
-        "tAbandon_count": "Llam Aban",
-        "sl_numerator": "Atend. NS",
-        "% Atenc": "% Atenc.",
-        "% Aband": "% Aband.",
-        "% NS": "% NS",
-        "% NS Acum": "% NS Acum.",
-        "AHT (s)": "AHT (s)",
-        "AHT Acum (s)": "AHT Acum (s)",
-        "ASA (s)": "ASA (s)"
-    })
+        df_as_raw, _ = obtener_aht_asesores_api(token)
+        if not df_as_raw.empty:
+            aht_metas = gtr_cfg.get("aht_metas", {})
 
-    st.dataframe(
-        df_presentar_intra,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Llam Ent": st.column_config.NumberColumn("Llam Ent", format="%d"),
-            "Llam Aten": st.column_config.NumberColumn("Llam Aten", format="%d"),
-            "Llam Aban": st.column_config.NumberColumn("Llam Aban", format="%d"),
-            "Atend. NS": st.column_config.NumberColumn("Atend. NS", format="%d"),
-            "% Atenc.": st.column_config.NumberColumn("% Atenc.", format="%.1f%%"),
-            "% Aband.": st.column_config.NumberColumn("% Aband.", format="%.1f%%"),
-            "% NS": st.column_config.NumberColumn("% NS", format="%.1f%%"),
-            "% NS Acum.": st.column_config.NumberColumn("% NS Acum.", format="%.1f%%"),
-            "AHT (s)": st.column_config.NumberColumn("AHT (s)", format="%.0f s"),
-            "AHT Acum (s)": st.column_config.NumberColumn("AHT Acum (s)", format="%.0f s"),
-            "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%.1f s"),
-        }
-    )
+            def cruzar_sup(row):
+                aid = row["agente_id"]
+                info = agentes_map.get(aid, {})
+                serv = info.get("servicio", "General")
+                sup = info.get("jefe_inmediato", "-")
+                meta = aht_metas.get(serv, None)
+                return pd.Series([serv, sup, meta])
 
-    # ── 3. AHT POR SUPERVISOR Y ASESOR (AHT GENESYS) ─────────────────────────
-    st.markdown("---")
-    st.markdown("### 👤 Reporte AHT Asesores y Supervisores (AHT GENESYS Oficial)")
-    st.caption("Consolidado por asesor y supervisor con metas contractuales, desvíos y tiempos de operación.")
+            df_as_ger = df_as_raw.copy()
+            df_as_ger[["Servicio", "Supervisor", "Meta AHT"]] = df_as_ger.apply(cruzar_sup, axis=1)
+            df_as_ger = df_as_ger[df_as_ger["Supervisor"] != "-"]
 
-    with st.spinner("Consultando AHT por asesor en Genesys..."):
-        df_asesores_raw, err_as = obtener_aht_asesores_api(token)
-
-    if not err_as and not df_asesores_raw.empty:
-        aht_metas = gtr_cfg.get("aht_metas", {})
-
-        def enriquecer_agente(row):
-            aid = row["agente_id"]
-            info = agentes_map.get(aid, {})
-            nombre = info.get("agente", aid)
-            cargo = info.get("cargo", "ASESOR")
-            serv = info.get("servicio", "General")
-            sup = info.get("jefe_inmediato", "-")
-            coord = info.get("coordinador", "-")
-            meta_a = aht_metas.get(serv, None)
-            return pd.Series([nombre, cargo, serv, sup, coord, meta_a])
-
-        cols_extra = ["Nombre Agente", "Cargo", "Servicio", "Supervisor", "Coordinador", "Meta AHT (s)"]
-        df_asesores_raw[cols_extra] = df_asesores_raw.apply(enriquecer_agente, axis=1)
-
-        # Filtrar solo asesores
-        df_asesores = df_asesores_raw[df_asesores_raw["Cargo"].str.upper().str.contains("ASESOR", na=False)].copy()
-
-        df_asesores["Dif vs Meta (s)"] = df_asesores["aht_seg"] - df_asesores["Meta AHT (s)"]
-        df_asesores["% Desv AHT"] = (df_asesores["Dif vs Meta (s)"] / df_asesores["Meta AHT (s)"] * 100.0).round(1)
-        df_asesores["AHT (mm:ss)"] = df_asesores["aht_seg"].apply(formatear_segundos_mm_ss)
-        df_asesores["Meta (mm:ss)"] = df_asesores["Meta AHT (s)"].apply(formatear_segundos_mm_ss)
-
-        # Pestañas para Asesores y Supervisores
-        tab_as_ind, tab_as_sup = st.tabs(["Detalle Individual por Asesor", "Consolidado por Supervisor"])
-
-        with tab_as_sup:
-            # Resumen por supervisor
-            df_sup = df_asesores.groupby("Supervisor").agg({
+            sup_grp = df_as_ger.groupby(["Supervisor", "Servicio"]).agg({
                 "interacciones": "sum",
                 "aht_seg": "mean",
-                "Meta AHT (s)": "mean",
+                "Meta AHT": "mean",
                 "t_talk_seg": "mean",
                 "t_held_seg": "mean",
                 "t_acw_seg": "mean"
-            }).reset_index().dropna(subset=["Supervisor"])
-            df_sup = df_sup[df_sup["Supervisor"] != "-"]
-            df_sup["Desv AHT (%)"] = ((df_sup["aht_seg"] - df_sup["Meta AHT (s)"]) / df_sup["Meta AHT (s)"] * 100.0).round(1)
-            df_sup["AHT Real"] = df_sup["aht_seg"].apply(lambda s: f"{int(s)}s ({formatear_segundos_mm_ss(s)})")
-            df_sup["Meta AHT"] = df_sup["Meta AHT (s)"].apply(lambda s: f"{int(s)}s ({formatear_segundos_mm_ss(s)})" if pd.notna(s) else "-")
-            df_sup = df_sup.sort_values(by="interacciones", ascending=False)
+            }).reset_index()
+
+            sup_grp["Desvío (%)"] = ((sup_grp["aht_seg"] - sup_grp["Meta AHT"]) / sup_grp["Meta AHT"] * 100.0).round(1)
+            sup_grp = sup_grp.sort_values(by="interacciones", ascending=False)
 
             st.dataframe(
-                df_sup[["Supervisor", "interacciones", "AHT Real", "Meta AHT", "Desv AHT (%)", "t_talk_seg", "t_held_seg", "t_acw_seg"]].rename(columns={
+                sup_grp.rename(columns={
                     "interacciones": "Interacciones",
-                    "t_talk_seg": "Talk Prom (s)",
-                    "t_held_seg": "Hold Prom (s)",
-                    "t_acw_seg": "ACW Prom (s)"
+                    "aht_seg": "AHT Promedio (s)",
+                    "Meta AHT": "Meta (s)",
+                    "t_talk_seg": "Talk (s)",
+                    "t_held_seg": "Hold (s)",
+                    "t_acw_seg": "ACW (s)"
                 }),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
                     "Interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
-                    "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
-                    "Talk Prom (s)": st.column_config.NumberColumn("Talk Prom (s)", format="%.0f s"),
-                    "Hold Prom (s)": st.column_config.NumberColumn("Hold Prom (s)", format="%.0f s"),
-                    "ACW Prom (s)": st.column_config.NumberColumn("ACW Prom (s)", format="%.0f s"),
-                }
-            )
-
-        with tab_as_ind:
-            col_as1, col_as2 = st.columns([2, 2])
-            with col_as1:
-                busq_asesor = st.text_input("🔍 Buscar por Nombre o Supervisor:", placeholder="Ej: Perez...")
-            with col_as2:
-                servicios_as = ["Todos"] + sorted(df_asesores["Servicio"].unique())
-                serv_as_sel = st.selectbox("Filtrar servicio del asesor:", servicios_as)
-
-            df_as_mostrar = df_asesores.copy()
-            if busq_asesor:
-                m = (
-                    df_as_mostrar["Nombre Agente"].str.contains(busq_asesor, case=False, na=False) |
-                    df_as_mostrar["Supervisor"].str.contains(busq_asesor, case=False, na=False)
-                )
-                df_as_mostrar = df_as_mostrar[m]
-            if serv_as_sel != "Todos":
-                df_as_mostrar = df_as_mostrar[df_as_mostrar["Servicio"] == serv_as_sel]
-
-            df_as_mostrar = df_as_mostrar.sort_values(by="interacciones", ascending=False)
-
-            cols_tabla_as = [
-                "Nombre Agente", "Servicio", "Supervisor", "interacciones",
-                "aht_seg", "AHT (mm:ss)", "Meta AHT (s)", "Meta (mm:ss)",
-                "% Desv AHT", "t_talk_seg", "t_held_seg", "t_acw_seg"
-            ]
-            df_as_presentar = df_as_mostrar[cols_tabla_as].rename(columns={
-                "interacciones": "Interacciones",
-                "aht_seg": "AHT Real (s)",
-                "Meta AHT (s)": "Meta (s)",
-                "% Desv AHT": "Desv (%)",
-                "t_talk_seg": "Talk (s)",
-                "t_held_seg": "Hold (s)",
-                "t_acw_seg": "ACW (s)"
-            })
-
-            st.dataframe(
-                df_as_presentar,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
-                    "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+                    "AHT Promedio (s)": st.column_config.NumberColumn("AHT Promedio (s)", format="%.0f s"),
                     "Meta (s)": st.column_config.NumberColumn("Meta (s)", format="%.0f s"),
-                    "Desv (%)": st.column_config.NumberColumn("Desv (%)", format="%+.1f%%"),
+                    "Desvío (%)": st.column_config.NumberColumn("Desvío (%)", format="%+.1f%%"),
                     "Talk (s)": st.column_config.NumberColumn("Talk (s)", format="%.0f s"),
                     "Hold (s)": st.column_config.NumberColumn("Hold (s)", format="%.0f s"),
                     "ACW (s)": st.column_config.NumberColumn("ACW (s)", format="%.0f s"),
                 }
             )
 
-        # ── EXPORTACIÓN A EXCEL ──────────────────────────────────────────────
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_matriz.to_excel(writer, sheet_name="Matriz HORA A HORA", index=False)
-            df_presentar_intra.to_excel(writer, sheet_name="Detalle Intradia", index=False)
-            df_as_presentar.to_excel(writer, sheet_name="AHT Asesores", index=False)
-
-        st.download_button(
-            label="📥 Descargar Reporte Completo en Excel (.xlsx)",
-            data=output.getvalue(),
-            file_name=f"Reporte_HORA_HORA_Genesys_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=False
-        )
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODO 2: VISTA TÉCNICA GTR (HORA A HORA Y MATRIZ HORIZONTAL)
+    # ══════════════════════════════════════════════════════════════════════════
     else:
-        st.info("No se registraron interacciones de asesores en el período consultado.")
+        st.markdown("### 📋 Matriz Ejecutiva Consolidada (Formato Oficial HORA A HORA)")
+        st.caption("Estructura exacta del archivo de GTR: Macro-Servicios en columnas e indicadores en filas.")
+
+        opciones_columnas = [c for c in df_matriz.columns if c != "Concepto / Métrica"]
+        cols_seleccionadas = st.multiselect(
+            "Filtrar columnas de servicios a visualizar:",
+            opciones_columnas,
+            default=[c for c in opciones_columnas if c in SERVICIOS_ORDEN_OFICIAL[:10] or c in ("TT_EQUIPAJES", "WPP EQUIPAJES AMC")]
+        )
+
+        cols_a_mostrar = ["Concepto / Métrica"] + (cols_seleccionadas if cols_seleccionadas else opciones_columnas)
+        st.dataframe(
+            df_matriz[cols_a_mostrar],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Intradía por 30 minutos
+        st.markdown("---")
+        st.markdown("### ⏱️ Detalle Intradía por Servicio (Intervalos 30 Minutos y Acumulados)")
+        servicios_intradia = [s for s in SERVICIOS_ORDEN_OFICIAL if s in serv_data and serv_data[s]["LL ENT"] > 0]
+        servicio_activo = st.selectbox("Seleccione el Servicio a Analizar:", servicios_intradia, index=1 if len(servicios_intradia) > 1 else 0)
+
+        if servicio_activo == "TT_LATAM":
+            df_srv = df_raw[df_raw["servicio"].isin(SERVICIOS_TT_LATAM)].copy()
+        elif servicio_activo == "TT_EQUIPAJES":
+            df_srv = df_raw[df_raw["servicio"].isin(SERVICIOS_TT_EQUIPAJES)].copy()
+        else:
+            df_srv = df_raw[df_raw["servicio"] == servicio_activo].copy()
+
+        intra_srv = df_srv.groupby("intervalo").agg({
+            "nOffered": "sum",
+            "tAnswered_count": "sum",
+            "tAbandon_count": "sum",
+            "sl_numerator": "sum",
+            "sl_denominator": "sum",
+            "tHandle_sum": "sum",
+            "tHandle_count": "sum",
+            "tAnswered_sum": "sum"
+        }).reset_index().sort_values("intervalo")
+
+        intra_srv["cum_sl_num"] = intra_srv["sl_numerator"].cumsum()
+        intra_srv["cum_sl_den"] = intra_srv["sl_denominator"].cumsum()
+        intra_srv["cum_h_sum"] = intra_srv["tHandle_sum"].cumsum()
+        intra_srv["cum_h_cnt"] = intra_srv["tHandle_count"].cumsum()
+        intra_srv["cum_ans_sum"] = intra_srv["tAnswered_sum"].cumsum()
+        intra_srv["cum_answered"] = intra_srv["tAnswered_count"].cumsum()
+
+        intra_srv["% Atenc"] = (intra_srv["tAnswered_count"] / intra_srv["nOffered"] * 100.0).fillna(0).round(1)
+        intra_srv["% Aband"] = (intra_srv["tAbandon_count"] / intra_srv["nOffered"] * 100.0).fillna(0).round(1)
+        intra_srv["% NS"] = (intra_srv["sl_numerator"] / intra_srv["sl_denominator"] * 100.0).fillna(0).round(1)
+        intra_srv["AHT (s)"] = (intra_srv["tHandle_sum"] / intra_srv["tHandle_count"] / 1000.0).fillna(0).round(0)
+        intra_srv["ASA (s)"] = (intra_srv["tAnswered_sum"] / intra_srv["tAnswered_count"] / 1000.0).fillna(0).round(1)
+
+        intra_srv["% NS Acum"] = (intra_srv["cum_sl_num"] / intra_srv["cum_sl_den"] * 100.0).fillna(0).round(1)
+        intra_srv["AHT Acum (s)"] = (intra_srv["cum_h_sum"] / intra_srv["cum_h_cnt"] / 1000.0).fillna(0).round(0)
+        intra_srv["ASA Acum (s)"] = (intra_srv["cum_ans_sum"] / intra_srv["cum_answered"] / 1000.0).fillna(0).round(1)
+
+        cols_tabla_intra = [
+            "intervalo", "nOffered", "tAnswered_count", "tAbandon_count", "sl_numerator",
+            "% Atenc", "% Aband", "% NS", "% NS Acum", "AHT (s)", "AHT Acum (s)", "ASA (s)"
+        ]
+        st.dataframe(
+            intra_srv[cols_tabla_intra].rename(columns={
+                "intervalo": "Hora (Intv)",
+                "nOffered": "Llam Ent",
+                "tAnswered_count": "Llam Aten",
+                "tAbandon_count": "Llam Aban",
+                "sl_numerator": "Atend. NS",
+                "% Atenc": "% Atenc.",
+                "% Aband": "% Aband.",
+                "% NS": "% NS",
+                "% NS Acum": "% NS Acum.",
+                "AHT (s)": "AHT (s)",
+                "AHT Acum (s)": "AHT Acum (s)",
+                "ASA (s)": "ASA (s)"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
