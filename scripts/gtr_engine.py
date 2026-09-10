@@ -579,8 +579,9 @@ def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: d
 
 # ── RENDER PRINCIPAL DEL COMPONENTE GTR ───────────────────────────────────────
 
+@st.fragment(run_every=60)
 def render_tab_gtr(agentes_map: dict):
-    """Renderiza la pestaña principal de Monitor GTR con alternador de vista."""
+    """Renderiza la pestaña principal de Monitor GTR con auto-actualización cada 60s."""
     token = obtener_token_genesys()
     if not token:
         st.warning("⚠️ No se encontró token activo de Genesys Cloud. Conéctalo en Neon Postgres o revisa las credenciales.")
@@ -598,13 +599,13 @@ def render_tab_gtr(agentes_map: dict):
     col_h1, col_h2 = st.columns([3, 2])
     with col_h1:
         st.subheader("📈 Monitor GTR — Gestión en Tiempo Real & Niveles de Servicio")
-        st.caption(f"Replicación en vivo de los reportes oficiales `HORA A HORA` y `AHT GENESYS` • **Última actualización:** `{hora_act}` (Hora Col)")
+        st.caption(f"Replicación en vivo de los reportes oficiales `HORA A HORA` y `AHT GENESYS` • **Auto-actualización cada 60 segundos** (Hora Col: `{hora_act}`)")
     with col_h2:
         btn_c1, btn_c2 = st.columns([1, 1])
         with btn_c1:
-            st.metric("Último Corte", hora_act if hora_act else "--:--", delta="En Vivo")
+            st.metric("Último Corte", hora_act if hora_act else "--:--", delta="En Vivo (60s)")
         with btn_c2:
-            if st.button("🔄 Actualizar Datos", use_container_width=True):
+            if st.button("🔄 Actualizar Ahora", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
 
