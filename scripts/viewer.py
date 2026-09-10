@@ -1,5 +1,6 @@
 # Radar Genesys — Pausas y Adherencia de Turno.
 # Uso: streamlit run viewer.py
+import gc
 import numpy as np
 
 import sqlite3
@@ -379,7 +380,7 @@ def score_graduado(usado: pd.Series, meta: float) -> pd.Series:
 
 # ── Datos ────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600)
 def cargar_rango_fechas() -> tuple[str, str] | None:
     db_path = Path(__file__).parent / DB_PATH
     if not db_path.exists():
@@ -389,25 +390,27 @@ def cargar_rango_fechas() -> tuple[str, str] | None:
     return row if row and row[0] else None
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600)
 def cargar_rango(fecha_min: str, fecha_max: str) -> pd.DataFrame:
     db_path = Path(__file__).parent / DB_PATH
     with sqlite3.connect(db_path) as conn:
         df = pd.read_sql_query(
-            "SELECT * FROM segments WHERE fecha BETWEEN ? AND ?", conn, params=(fecha_min, fecha_max)
+            "SELECT * FROM segments WHERE fecha BETWEEN ? AND ? AND UPPER(cargo) LIKE '%ASESOR%'",
+            conn,
+            params=(fecha_min, fecha_max)
         )
-    if "cargo" in df.columns:
-        df = df[df["cargo"].str.upper().str.contains("ASESOR", na=False)]
     return df
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600)
 def cargar_turnos(fecha_min: str, fecha_max: str) -> pd.DataFrame:
     db_path = Path(__file__).parent / DB_PATH
     with sqlite3.connect(db_path) as conn:
         try:
             df = pd.read_sql_query(
-                "SELECT * FROM turnos WHERE fecha BETWEEN ? AND ?", conn, params=(fecha_min, fecha_max)
+                "SELECT bp, fecha, hora_inicio, hora_fin FROM turnos WHERE fecha BETWEEN ? AND ?",
+                conn,
+                params=(fecha_min, fecha_max)
             )
         except pd.errors.DatabaseError:
             df = pd.DataFrame(columns=["bp", "fecha", "hora_inicio", "hora_fin"])
@@ -859,7 +862,7 @@ with tab_historico:
     fecha_min_disp_d = pd.Timestamp(fecha_min_disp).date()
     
     if "desde" not in st.session_state:
-        st.session_state["desde"] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=13))
+        st.session_state["desde"] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=6))
         st.session_state["hasta"] = fecha_max_disp_d
     
     col_desde, col_hasta, col_estado, col_coord, col_servicio, col_superv, col_agente = st.columns(
@@ -1553,6 +1556,7 @@ with tab_historico:
             hide_index=True,
             column_config={"Duración (min)": st.column_config.NumberColumn("Duración (min)", format="%.1f")},
         )
+        gc.collect()
 
 
 with tab_vivo:
