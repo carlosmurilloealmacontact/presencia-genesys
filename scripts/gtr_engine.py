@@ -674,8 +674,48 @@ def render_tab_gtr(agentes_map: dict):
         st.markdown("#### 📊 Desempeño Operativo por Servicio (Priorizado por Volumen e Impacto)")
         st.caption("Filas ordenadas por número de llamadas. Permite detectar en 3 segundos desviaciones de SLA y excesos de AHT.")
 
+        # Estilos de formato condicional (Semáforos ejecutivos)
+        def estilo_dif_sla(val):
+            if pd.isna(val):
+                return ""
+            if val >= 0:
+                color = "#1baf7a"  # verde
+            elif val >= -5.0:
+                color = "#eda100"  # amarillo
+            else:
+                color = "#e24b4a"  # rojo
+            return f"background-color: {color}22; color: {color}; font-weight: 600;"
+
+        def estilo_desv_aht(val):
+            if pd.isna(val):
+                return ""
+            if val <= 0:
+                color = "#1baf7a"  # verde (a tiempo o bajo meta)
+            elif val <= 10.0:
+                color = "#eda100"  # amarillo (riesgo leve de tiempo)
+            else:
+                color = "#e24b4a"  # rojo (sobregiro crítico)
+            return f"background-color: {color}22; color: {color}; font-weight: 600;"
+
+        def estilo_hold(val):
+            if pd.isna(val) or val == 0:
+                return ""
+            if val > 240.0:
+                color = "#e24b4a"
+                return f"background-color: {color}22; color: {color}; font-weight: 600;"
+            elif val > 120.0:
+                color = "#eda100"
+                return f"background-color: {color}22; color: {color}; font-weight: 600;"
+            return ""
+
+        styler_ger = (
+            df_ger.style
+            .map(estilo_dif_sla, subset=["Dif NS (pp)"])
+            .map(estilo_desv_aht, subset=["Desv AHT (%)"])
+        )
+
         st.dataframe(
-            df_ger,
+            styler_ger,
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -694,57 +734,161 @@ def render_tab_gtr(agentes_map: dict):
 
         # 5. Causalidad y Desglose por Supervisor
         st.markdown("#### 🔍 Diagnóstico Causa-Raíz por Supervisor")
-        st.caption("Identifica qué equipos de supervisión presentan mayor volumen o sobregiro en tiempo de conversación/retención.")
+        st.caption("Cálculo ponderado por interacciones para evaluar impacto real en AHT, Talk, Hold y ACW de cada equipo.")
 
         df_as_raw, _ = obtener_aht_asesores_api(token)
         if not df_as_raw.empty:
             aht_metas = gtr_cfg.get("aht_metas", {})
+            metas_upper = {k.strip().upper(): v for k, v in aht_metas.items()}
+
+            ALIAS_SERVICIOS_AHT = {
+                "DT FFP AMC": "DREAM TEAMS VOZ",
+                "DT FFP AMC ING": "DREAM TEAMS ENG",
+                "EQUIPAJES AMC": "Equipajes AMC",
+                "EQUIPAJES AMC ING": "Equipajes AMC ING",
+                "VENTAS AMC": "Ventas AMC",
+                "WPP VENTAS AMC": "WPP Ventas AMC",
+                "CHAT VENTAS AMC": "CHAT Ventas AMC",
+                "SOPORTE LUA AMC": "Soporte LUA AMC",
+                "LATAM TRAVEL AMC": "Latam Travel AMC",
+                "BO EQUIPAJES AMC": "EQUIPAJE BO",
+                "AG CORPORATE CHAT": "AGENCIAS CHAT CORPORATE",
+                "AGY N1 ESP VOZ": "AGENCIAS TARGET ES",
+                "AGY N1 ENG VOZ": "AGENCIAS TARGET ENG",
+                "AGY N1 ESP CHAT": "CHAT AGENCIAS ESP",
+                "AGY N3 ESP VOZ": "AGENCIAS TARGET ES",
+                "AGY N3 ESP CHAT": "CHAT AGENCIAS ESP",
+                "RRSS AMC": "CHAT DREAM TEAMS ES",
+                "RRSS AMC ING": "DREAM TEAMS ENG",
+                "RRSS PORT AMC": "CHAT DREAM TEAMS ES",
+            }
+
+            def resolver_meta_aht(s_name: str):
+                if not s_name:
+                    return None
+                s_clean = s_name.strip()
+                if s_clean in aht_metas:
+                    return aht_metas[s_clean]
+                if s_clean.upper() in metas_upper:
+                    return metas_upper[s_clean.upper()]
+                if s_clean.upper() in ALIAS_SERVICIOS_AHT:
+                    canon = ALIAS_SERVICIOS_AHT[s_clean.upper()]
+                    return aht_metas.get(canon, metas_upper.get(canon.upper()))
+                return None
 
             def cruzar_sup(row):
                 aid = row["agente_id"]
                 info = agentes_map.get(aid, {})
-                serv = info.get("servicio", "General")
+                nombre = info.get("agente", aid)
+                serv = info.get("servicio", "Sin Asignar")
                 sup = info.get("jefe_inmediato", "-")
-                meta = aht_metas.get(serv, None)
-                return pd.Series([serv, sup, meta])
+                coord = info.get("coordinador", "-")
+                meta = resolver_meta_aht(serv)
+                return pd.Series([nombre, serv, sup, coord, meta])
 
             df_as_ger = df_as_raw.copy()
-            df_as_ger[["Servicio", "Supervisor", "Meta AHT"]] = df_as_ger.apply(cruzar_sup, axis=1)
+            df_as_ger[["Asesor", "Servicio", "Supervisor", "Coordinador", "Meta AHT"]] = df_as_ger.apply(cruzar_sup, axis=1)
             df_as_ger = df_as_ger[df_as_ger["Supervisor"] != "-"]
 
-            sup_grp = df_as_ger.groupby(["Supervisor", "Servicio"]).agg({
-                "interacciones": "sum",
-                "aht_seg": "mean",
-                "Meta AHT": "mean",
-                "t_talk_seg": "mean",
-                "t_held_seg": "mean",
-                "t_acw_seg": "mean"
-            }).reset_index()
+            # Selector de agrupación
+            col_diag1, col_diag2 = st.columns([2, 3])
+            with col_diag1:
+                nivel_sup = st.radio(
+                    "Nivel de Vista:",
+                    ["👤 Consolidado por Supervisor", "👥 Desglose por Supervisor y Servicio"],
+                    horizontal=True
+                )
 
-            sup_grp["Desvío (%)"] = ((sup_grp["aht_seg"] - sup_grp["Meta AHT"]) / sup_grp["Meta AHT"] * 100.0).round(1)
-            sup_grp = sup_grp.sort_values(by="interacciones", ascending=False)
+            group_cols = ["Supervisor"] if "Consolidado" in nivel_sup else ["Supervisor", "Servicio"]
+
+            def agg_sup_ponderado(grp):
+                tot_int = grp["interacciones"].sum()
+                if tot_int == 0:
+                    return pd.Series({})
+                aht_p = (grp["aht_seg"] * grp["interacciones"]).sum() / tot_int
+                talk_p = (grp["t_talk_seg"] * grp["interacciones"]).sum() / tot_int
+                hold_p = (grp["t_held_seg"] * grp["interacciones"]).sum() / tot_int
+                acw_p = (grp["t_acw_seg"] * grp["interacciones"]).sum() / tot_int
+                
+                valid_m = grp[grp["Meta AHT"].notna()]
+                if not valid_m.empty and valid_m["interacciones"].sum() > 0:
+                    meta_p = (valid_m["Meta AHT"] * valid_m["interacciones"]).sum() / valid_m["interacciones"].sum()
+                else:
+                    meta_p = None
+
+                return pd.Series({
+                    "Asesores Activos": int(grp["agente_id"].nunique()),
+                    "Interacciones": int(tot_int),
+                    "AHT Real (s)": round(aht_p, 0),
+                    "Meta AHT (s)": round(meta_p, 0) if meta_p else None,
+                    "Talk (s)": round(talk_p, 0),
+                    "Hold (s)": round(hold_p, 0),
+                    "ACW (s)": round(acw_p, 0),
+                })
+
+            sup_grp = df_as_ger.groupby(group_cols).apply(agg_sup_ponderado, include_groups=False).reset_index()
+
+            def calc_desv(r):
+                if pd.notna(r["Meta AHT (s)"]) and r["Meta AHT (s)"] > 0 and pd.notna(r["AHT Real (s)"]):
+                    return round((r["AHT Real (s)"] - r["Meta AHT (s)"]) / r["Meta AHT (s)"] * 100.0, 1)
+                return None
+
+            sup_grp["Desv AHT (%)"] = sup_grp.apply(calc_desv, axis=1)
+            sup_grp = sup_grp.sort_values(by=["Desv AHT (%)", "Interacciones"], ascending=[False, False])
+
+            styler_sup = (
+                sup_grp.style
+                .map(estilo_desv_aht, subset=["Desv AHT (%)"])
+                .map(estilo_hold, subset=["Hold (s)"])
+            )
 
             st.dataframe(
-                sup_grp.rename(columns={
-                    "interacciones": "Interacciones",
-                    "aht_seg": "AHT Promedio (s)",
-                    "Meta AHT": "Meta (s)",
-                    "t_talk_seg": "Talk (s)",
-                    "t_held_seg": "Hold (s)",
-                    "t_acw_seg": "ACW (s)"
-                }),
+                styler_sup,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "Asesores Activos": st.column_config.NumberColumn("Asesores Activos", format="%d"),
                     "Interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
-                    "AHT Promedio (s)": st.column_config.NumberColumn("AHT Promedio (s)", format="%.0f s"),
-                    "Meta (s)": st.column_config.NumberColumn("Meta (s)", format="%.0f s"),
-                    "Desvío (%)": st.column_config.NumberColumn("Desvío (%)", format="%+.1f%%"),
+                    "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+                    "Meta AHT (s)": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
+                    "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
                     "Talk (s)": st.column_config.NumberColumn("Talk (s)", format="%.0f s"),
-                    "Hold (s)": st.column_config.NumberColumn("Hold (s)", format="%.0f s"),
+                    "Hold (s)": st.column_config.NumberColumn("Hold / Retención (s)", format="%.0f s"),
                     "ACW (s)": st.column_config.NumberColumn("ACW (s)", format="%.0f s"),
                 }
             )
+
+            # Detalle Drill-down por Asesor dentro del supervisor
+            with st.expander("🔎 Ver detalle de asesores por Supervisor seleccionado", expanded=False):
+                lista_supervisores = sorted(df_as_ger["Supervisor"].unique().tolist())
+                sup_seleccionado = st.selectbox("Selecciona un Supervisor:", lista_supervisores)
+                if sup_seleccionado:
+                    df_asesores_sup = df_as_ger[df_as_ger["Supervisor"] == sup_seleccionado].copy()
+                    df_asesores_sup["Desv AHT (%)"] = df_asesores_sup.apply(
+                        lambda r: round((r["aht_seg"] - r["Meta AHT"]) / r["Meta AHT"] * 100.0, 1) if pd.notna(r["Meta AHT"]) and r["Meta AHT"] > 0 else None,
+                        axis=1
+                    )
+                    df_asesores_sup = df_asesores_sup.sort_values(by="aht_seg", ascending=False)
+                    styler_asesores = (
+                        df_asesores_sup[["Asesor", "Servicio", "interacciones", "aht_seg", "Meta AHT", "Desv AHT (%)", "t_talk_seg", "t_held_seg", "t_acw_seg"]]
+                        .style
+                        .map(estilo_desv_aht, subset=["Desv AHT (%)"])
+                        .map(estilo_hold, subset=["t_held_seg"])
+                    )
+                    st.dataframe(
+                        styler_asesores,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
+                            "aht_seg": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+                            "Meta AHT": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
+                            "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
+                            "t_talk_seg": st.column_config.NumberColumn("Talk (s)", format="%.0f s"),
+                            "t_held_seg": st.column_config.NumberColumn("Hold (s)", format="%.0f s"),
+                            "t_acw_seg": st.column_config.NumberColumn("ACW (s)", format="%.0f s"),
+                        }
+                    )
 
     # ══════════════════════════════════════════════════════════════════════════
     # MODO 2: VISTA TÉCNICA GTR (HORA A HORA Y MATRIZ HORIZONTAL)
