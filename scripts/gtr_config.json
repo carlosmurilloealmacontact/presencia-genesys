@@ -3,704 +3,368 @@
     "6a823da5-df9f-44ac-9916-c44b4a96b960": {
       "nombre_cola": "AMC_WSP_BAG_EN",
       "servicio": "WPP EQUIPAJES AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "7ed52052-d104-47fb-b96f-7cedfb2e234a": {
       "nombre_cola": "AMC_WSP_BAG_ES",
       "servicio": "WPP EQUIPAJES AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "52705272-aaf8-46e4-a67d-bfd799124492": {
       "nombre_cola": "AMC_SERVICIO_PAQUETES_FFP",
       "servicio": "Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "9e5f5424-1afc-4fac-9b5f-00640b0fc09d": {
       "nombre_cola": "AMC_SERVICIO_PAQUETES_GOLD",
       "servicio": "Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "3d8e7f82-a6c7-4637-b38c-6fd20f99dd7c": {
       "nombre_cola": "AMC_SERVICIO_PAQUETES_NFFP",
       "servicio": "Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "7c4d8cdc-54f8-497b-9bae-67aaaa6e4898": {
       "nombre_cola": "AMC_VENTAS_ES",
       "servicio": "Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "754bcd5d-8d68-4efa-8571-e1ab1850ad32": {
       "nombre_cola": "AMC_PAX_SOS_TRAVEL_ES",
       "servicio": "Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "bda11651-8cdf-4f8c-a3c8-7ad3ef18a63e": {
-      "nombre_cola": "AMC_CASO_TRAVEL_ES",
-      "servicio": "Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "509fd480-179a-43ea-9b68-f55ec03a8700": {
       "nombre_cola": "AMC_LUA_INGLES_EN",
       "servicio": "LUA AMC ING",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "cba81c25-5f10-4774-977c-980433e53fdc": {
-      "nombre_cola": "AMC_HUB_RECONTACTO_LUA_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "e69bc0dd-0cb1-4e66-af1d-2b9b932e5617": {
-      "nombre_cola": "AMC_CAMBIOS",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "d2ad0061-7e95-40d0-bff6-43993b8997a1": {
-      "nombre_cola": "AMC_LUA_DT_DEVOLUCIONES_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "e72cd0d2-58b3-4eb5-8d1a-6a4c77a18e35": {
-      "nombre_cola": "AMC_LUA_DT_FFP_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "668c2f1c-f13e-4ea3-90ba-20748c60fab3": {
-      "nombre_cola": "AMC_MULTIPLUS_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "315cdcff-e56f-478b-8066-858cf970fa29": {
-      "nombre_cola": "AMC_PROBLEMAS_EQUIPAJE_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "927c6a4d-4dfd-498c-bc38-e0e3e37382a5": {
-      "nombre_cola": "AMC_SSEE",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "9b6acd79-97e6-4c07-87d2-2e78daf71842": {
-      "nombre_cola": "AMC_OTROS_AGENTE_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "2389284c-efab-4d6e-9ba2-3780e647a896": {
-      "nombre_cola": "AMC_CONTINGENCIA_WSP_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "bdab88bc-6620-4ce6-8c33-2c1283962bca": {
       "nombre_cola": "AMC_GOLD_ES",
       "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "040c7c60-11ff-4d12-a21f-79fd57b4aa9f": {
       "nombre_cola": "AMC_GOLD_PLUS_ES",
       "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "49476a58-73cf-4bf1-99b3-f4339e4e8d88": {
-      "nombre_cola": "AMC_CASO_ELITE_ES",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "9b2c2298-861a-4210-bf1a-7fa20af05995": {
-      "nombre_cola": "AMC_RECONTACTO_BLACK_SIGNATURE_ES",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "641e0a5a-a16f-4ae4-87aa-098b7a57ebcb": {
-      "nombre_cola": "AMC_RECONTACTO_BLACK_ES",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "1c12141f-27d7-4576-a6b2-4945c61c33b0": {
-      "nombre_cola": "AMC_RECONTACTO_PLATINUM_ES",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "4d8a94cc-bf35-472a-b41f-d04a10281460": {
-      "nombre_cola": "AMC_RECONTACTO_GOLD_ES",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "d84d29c9-2897-4223-8227-bfaebcf7d876": {
-      "nombre_cola": "AMC_RECONTACTO_GOLD_PLUS_ES",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "271e858f-a276-4f3d-ab02-983004a8758d": {
       "nombre_cola": "AMC_CASO_EQUIPAJE_EN",
       "servicio": "Equipajes AMC ING",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "3cfcdade-67de-4233-a6b9-bd409d0fd5cf": {
       "nombre_cola": "AMC_TRANSFER_EQUIPAJE_EN",
       "servicio": "Equipajes AMC ING",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "65a957f2-6570-40e5-b5d6-3f54d44887cd": {
-      "nombre_cola": "AMC_HUB_QUIEBRE_EQUIPAJE_EN",
-      "servicio": "Equipajes AMC ING",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "e4da969f-7d8b-4aea-b9cb-605a1c176eec": {
       "nombre_cola": "AMC_CASO_EQUIPAJE_ES",
       "servicio": "Equipajes AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "ed216b99-7253-4d20-a596-36ede5ed4c6f": {
       "nombre_cola": "AMC_TRANSFER_EQUIPAJE_ES",
       "servicio": "Equipajes AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "4b654295-3869-4d59-93eb-2953f0fbc968": {
-      "nombre_cola": "AMC_HUB_QUIEBRE_EQUIPAJE_ES",
-      "servicio": "Equipajes AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "2986a008-3a57-4d21-9733-12831de051d5": {
-      "nombre_cola": "AMC_LUA_ES",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "f3ae0a3d-fbe6-4c71-8f85-1276cf5a2393": {
-      "nombre_cola": "AMC_POC_VOICE_BOT",
-      "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "8584168a-24a9-48cd-a2ea-767239b844f4": {
-      "nombre_cola": "AMC_HUB_QUIEBRE_DT_FFP_ES",
-      "servicio": "DREAM TEAMS VOZ",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "522ab74d-1bf6-4d51-8da0-a52cf2f72dc1": {
-      "nombre_cola": "AMC_HUB_QUIEBRE_LUA_ES",
-      "servicio": "DREAM TEAMS VOZ",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "d13c0966-1a6c-4f48-8e65-e1376f8b26bb": {
       "nombre_cola": "AMC_DT_FFP_ES",
-      "servicio": "DREAM TEAMS VOZ",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "DT FFP AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "1e382b71-d58f-43f4-bd8f-b28fc468966e": {
       "nombre_cola": "AMC_DT_FFP_TRANSFERENCIA_AMC_ES",
-      "servicio": "DREAM TEAMS VOZ",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "DT FFP AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "fe143be4-6a64-4a6a-bc8e-1de5fe20ebc3": {
       "nombre_cola": "AMC_DT_FFP_TRANSFERENCIA_KON_ES",
-      "servicio": "DREAM TEAMS VOZ",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "DT FFP AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "90a9fb53-57ba-46c8-8606-17d47fcd5776": {
       "nombre_cola": "AMC_SOPORTE_LUA_ES",
       "servicio": "Soporte LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "fd681816-030f-487d-a19d-10db40070b0e": {
-      "nombre_cola": "AMC_OUTBOUND",
-      "servicio": "Sin Servicio / General",
-      "consolidado": "",
-      "estado": "Inactivo"
-    },
-    "cb3891b7-db6e-4e70-b230-72c627278ce9": {
-      "nombre_cola": "MONITOREO_ALMACONTACT",
-      "servicio": "Sin Servicio / General",
-      "consolidado": "",
-      "estado": "Inactivo"
-    },
-    "01e8bb94-cb2c-4f96-8303-75cc7aa1949b": {
-      "nombre_cola": "AMC_WSP_BAG_OUTBOUND",
-      "servicio": "Sin Servicio / General",
-      "consolidado": "",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "0af5a71d-14d1-45ff-9f4b-0ed98ad804df": {
       "nombre_cola": "AMC_CHAT_CAMBIO_EN",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "b95a9ed2-1715-4841-879c-4c2dbea1e763": {
       "nombre_cola": "AMC_CHAT_CAMBIO_INVOL_FCI_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "5d08e422-9af7-4505-a10c-a21503859b84": {
       "nombre_cola": "AMC_CHAT_CAMBIO_VOL_FCI_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "7ecd6352-aee5-42bf-bbbe-0fbf56a1d94b": {
-      "nombre_cola": "AMC_CHAT_GBM_ES",
-      "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "e2577d4d-4db2-4a63-84ca-888e68c56ed7": {
       "nombre_cola": "AMC_CHAT_SDFC_SEAT_FCI_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "c7b974ab-f010-4d58-981d-7495dbed9856": {
       "nombre_cola": "AMC_CHAT_VENTAS_FCI_ES",
-      "servicio": "CHAT Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "CHAT VENTAS AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "3e74e11a-12ab-4d18-ba46-3d641d5ea5fc": {
       "nombre_cola": "AMC_CHAT_ANC_FCI_ES",
-      "servicio": "CHAT Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "CHAT VENTAS AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "d41d2df8-e2d8-4083-a3f1-4ecf0eedad4d": {
       "nombre_cola": "AMC_DREAM_TEAM_TRANSFERENCIA_EN",
-      "servicio": "DREAM TEAMS ENG",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "f254d58b-49b1-4fc2-8d21-0b067cd827e4": {
-      "nombre_cola": "AMC_CASO_DT_EN",
-      "servicio": "DREAM TEAMS ENG",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "servicio": "DT FFP AMC ING",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "3747e72a-6cec-42b2-ae8f-f13de55e8221": {
       "nombre_cola": "AMC_CHAT_CHECKIN_FCI_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "dc1e96a0-6885-4b7d-9d87-38570f8ab867": {
-      "nombre_cola": "AMC_SSEE_GOLD",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "578e8ba6-4331-4766-aa29-f062539e7ba0": {
-      "nombre_cola": "AMC_CHAT_DEV_FCI_EN",
-      "servicio": "CHAT DREAM TEAMS ES",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "d68073f7-22af-4df7-a2bd-556d4feeda1d": {
       "nombre_cola": "AMC_POC_AWS_DT_EQU_ES",
       "servicio": "Equipajes AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "2cf4385a-cc92-477d-b4b5-005e6a9f53f9": {
       "nombre_cola": "AMC_POC_AWS_DT_FFP_ES",
-      "servicio": "DREAM TEAMS VOZ",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "DT FFP AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "0290b94e-1867-48ca-b05c-4d346d315dc5": {
       "nombre_cola": "AMC_POC_AWS_VTA_ES",
       "servicio": "Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "fc67c5df-9abd-4265-a32f-3ab52aa2077e": {
       "nombre_cola": "AMC_CHAT_DEFAULT_ERROR_EN",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "0e49e8bc-6117-4c4a-9be1-73a52254aceb": {
       "nombre_cola": "AMC_CHAT_DEFAULT_ERROR_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "dc1149a1-5e09-4500-b1ad-8fc31140a2dc": {
       "nombre_cola": "AMC_POC_AWS_LUA_ES",
       "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "452f3339-5d65-49a0-a718-9b99b7910c73": {
       "nombre_cola": "AMC_WSP_VENTAS_ES",
-      "servicio": "WPP Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "WPP VENTAS AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "595226ca-58d5-46ca-bf08-f033db2a4097": {
       "nombre_cola": "AMC_WSP_DEFAULT_ES",
       "servicio": "WPP LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "7c4082c9-5b71-45b9-9592-fbd9275ccfcb": {
       "nombre_cola": "AMC_WSP_DT_FFP_ES",
-      "servicio": "DREAM TEAMS WA",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "DREAM TEAM WP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "1dc5b5b8-3390-4b35-a66c-1f22845ac57e": {
       "nombre_cola": "AMC_WSP_LUA_ES",
       "servicio": "WPP LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "ba92c901-a258-4e35-92af-89a76caf9df0": {
       "nombre_cola": "AMC_WSP_TRANSFER_DT_FFP_ES",
-      "servicio": "DREAM TEAMS WA",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "DREAM TEAM WP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "a66d1b34-58ce-4892-8d30-f9b2d6026958": {
       "nombre_cola": "AMC_WSP_TRANSFER_LUA_ES",
       "servicio": "WPP LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "d2afc156-dbdc-4b00-921a-86b116eb5937": {
       "nombre_cola": "AMC_CHAT_VENTAS_MILLAS_FCI_ES",
-      "servicio": "CHAT DREAM TEAMS ES",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "CHAT DT FFP AMC ESP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "de482112-9367-485c-bdd0-6b8756ae365c": {
       "nombre_cola": "AMC_HUB_RECONTACTO_GOLD_GOLDPLUS_ES",
       "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "afe3035f-5c4c-4ada-b121-2f812cbf4f13": {
       "nombre_cola": "AMC_CHAT_SSEE_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "d5ebc587-ea99-4267-a619-0053043e3891": {
-      "nombre_cola": "AMC_CHAT_FFP_TRANSFER_CDA_ES",
-      "servicio": "CHAT DREAM TEAMS ES",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "ced60ada-e347-4ab1-8656-fe81fcf3061b": {
-      "nombre_cola": "AMC_CHAT_LUA_TRANSFER_CDA_ES",
-      "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "6113e759-854f-4bd5-805f-8e5b40969cff": {
       "nombre_cola": "AMC_WSP_PAX_SOS_TRAVEL_ES",
       "servicio": "TRAVEL WP AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "bf87bf05-0229-4f55-b86a-494c46585586": {
-      "nombre_cola": "AMC_WSP_HVC_SOLIX_DOCS_ES",
-      "servicio": "Sin Servicio / General",
-      "consolidado": "",
-      "estado": "Inactivo"
-    },
-    "838945e2-558f-4649-a070-efdeaf31025a": {
-      "nombre_cola": "AMC_WSP_LUA_SOLIX_DOCS_ES",
-      "servicio": "Sin Servicio / General",
-      "consolidado": "",
-      "estado": "Inactivo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "5a392003-43e1-44c8-aeab-65a3c65dcd0d": {
       "nombre_cola": "AMC_CHAT_APOYO_LUA_PT",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "a5549703-e010-4d96-9616-782f5bc819c7": {
-      "nombre_cola": "AMC_WSP_BLACK_SIGNATURE_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "b84bcc15-f96d-41a8-bc9f-d4401f872045": {
-      "nombre_cola": "AMC_WSP_BLACK_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "66584ce8-5f71-4066-b4f1-99ac3c62b3f9": {
-      "nombre_cola": "AMC_WSP_PLATINUM_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "e941c863-a5dc-4ae7-bff7-c15843a193b1": {
-      "nombre_cola": "AMC_WSP_GOLD_PLUS_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "cdc442bf-2bbe-4aa0-a5ed-5a41aa6bb180": {
-      "nombre_cola": "AMC_WSP_GOLD_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "6d37a4c4-099e-4b21-bc5f-fb846f14ad59": {
-      "nombre_cola": "AMC_CHAT_BLACK_SIGNATURE_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "cd88184e-50d2-4549-a606-c120ccffffca": {
-      "nombre_cola": "AMC_CHAT_BLACK_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "7b5016e6-6813-49d5-866a-f772f1de45e5": {
-      "nombre_cola": "AMC_CHAT_PLATINUM_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "e66f018d-8cf3-4d92-b851-67a9f4468cd0": {
-      "nombre_cola": "AMC_CHAT_GOLD_PLUS_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "dca866a6-f31a-4e98-982f-c06197444f0e": {
-      "nombre_cola": "AMC_CHAT_GOLD_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "5989e7db-a8ae-4a9b-8035-73739303aacd": {
-      "nombre_cola": "AMC_CHAT_HVC_DEFAULT_ERROR_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "79d4d24c-5676-47fc-b5c0-9df0e32bb32a": {
-      "nombre_cola": "AMC_WSP_TRANSFER_HVC_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "40552065-c2f7-44bc-accd-3f6910e08de9": {
       "nombre_cola": "AMC_CHAT_LUA_CDA_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "0d1ff1eb-d2b1-4a78-a3fa-de9e712a3d88": {
       "nombre_cola": "AMC_CHAT_LUA_TRANSFER_EN",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "c90ab69f-3b01-4730-8ac7-fbc2c672e227": {
       "nombre_cola": "AMC_CHAT_DT_FFP_TRANSFER_ES",
-      "servicio": "CHAT DREAM TEAMS ES",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "CHAT DT FFP AMC ESP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "782ef9bd-a04d-4d2c-ae86-b4938a1955ff": {
       "nombre_cola": "AMC_CHAT_LUA_TRANSFER_ES",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "872599b0-8cb5-44c1-88c9-b8e1e7f6ea0c": {
-      "nombre_cola": "AMC_CHAT_HVC_TRANSFER_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "c656981a-13a3-4051-844f-e0e0597a28f5": {
       "nombre_cola": "AMC_CHAT_DT_FFP_TRANSFER_EN",
-      "servicio": "CHAT DREAM TEAMS ES",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "CHAT DT FFP AMC ESP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "dee2597e-c908-40e5-9f02-fc7ce7124de2": {
       "nombre_cola": "AMC_WSP_BAG_PROACTIVE_ES",
       "servicio": "WPP EQUIPAJES AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "58208341-db91-4153-8739-80a4d3127bc8": {
       "nombre_cola": "AMC_WSP_BAG_PROACTIVE_EN",
       "servicio": "WPP EQUIPAJES AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "84dd2692-5fba-4706-902a-000b24b321ec": {
       "nombre_cola": "AMC_CHAT_APOYO_VENTAS_PT",
-      "servicio": "CHAT Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "22ac26f1-9587-44df-a047-51396668f6fe": {
-      "nombre_cola": "AMC_CHAT_APOYO_HVC_PT",
-      "servicio": "CHAT HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "servicio": "CHAT VENTAS AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "4fd02273-7217-4172-a11d-87338db3d017": {
       "nombre_cola": "AMC_CHAT_CAMBIO_VOL_FCI_EN",
       "servicio": "CHAT LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "6e142a2c-0f26-4f8c-93cc-576335de92cc": {
       "nombre_cola": "AMC_CHAT_DT_FFP_CDA_ES",
-      "servicio": "CHAT DREAM TEAMS ES",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "CHAT DT FFP AMC ESP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "12f8f203-0590-4353-8460-2556b5c5172c": {
       "nombre_cola": "AMC_VOZ_GOLD_ES",
       "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "665d9625-8ad2-4c14-833b-a1ff552cfb30": {
       "nombre_cola": "AMC_VOZ_GOLD_PLUS_ES",
       "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "a7af237d-9b37-4239-8ed1-be1e720cdaa7": {
-      "nombre_cola": "AMC_VOZ_HUB_RECONTACTO_GOLD_GOLDPLUS_ES",
-      "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "c36a4d02-b002-4df9-bf0d-e779e85e8e0f": {
       "nombre_cola": "AMC_VOZ_AWS_LUA_EN",
       "servicio": "LUA AMC ING",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "ded82447-527c-4b89-bc14-fcabda1b0992": {
       "nombre_cola": "AMC_WSP_AWS_DT_FFP_ES",
-      "servicio": "DREAM TEAMS WA",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "322f8122-1a88-4bee-ad40-1f502ab2713a": {
-      "nombre_cola": "AMC_WSP_AWS_LUA_ES",
-      "servicio": "WPP LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "86d0cdde-95e6-40b5-91d4-4c5ed4670cec": {
-      "nombre_cola": "AMC_WSP_AWS_DEFAULT_ES",
-      "servicio": "WPP LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "servicio": "DREAM TEAM WP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "6ce9bda4-dfa3-4aa7-942e-acd0bbe61f2b": {
       "nombre_cola": "AMC_WSP_AWS_VENTAS_ES",
-      "servicio": "WPP Ventas AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "ab3ba6d7-40f4-457b-9183-bf4a3d947f0d": {
-      "nombre_cola": "AMC_WSP_AWS_BLACK_SIGNATURE_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "e1bbae04-dffc-4300-8673-008168d68f08": {
-      "nombre_cola": "AMC_WSP_AWS_BLACK_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "70cdbc15-dedb-4757-a458-cfe63415b3d8": {
-      "nombre_cola": "AMC_WSP_AWS_PLATINUM_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "9d3d86e3-27fa-4cce-b876-7573f503adb1": {
-      "nombre_cola": "AMC_WSP_AWS_GOLD_PLUS_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
-    },
-    "0a4ed0e3-600d-4304-b20e-6bca5c2cee29": {
-      "nombre_cola": "AMC_WSP_AWS_GOLD_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "servicio": "WPP VENTAS AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "1067fc2e-18a8-4818-84b3-ad8d62a3c14d": {
       "nombre_cola": "AMC_CHAT_DT_FFP_CDA_EN",
-      "servicio": "CHAT DREAM TEAMS ES",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "servicio": "CHAT DT FFP AMC ESP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
     },
     "be050e95-df1d-4dee-bf00-bc2b678e4fed": {
       "nombre_cola": "AMC_VOZ_LUA_TRANSFER_ES",
       "servicio": "LUA AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
-    },
-    "460002ea-2eb0-4ec6-8de3-ec8f4b8f02e8": {
-      "nombre_cola": "AMC_WSP_CONCIERGE_REBALSE_PT",
-      "servicio": "WPP HVC PORT AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Inactivo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     },
     "fddbc4c9-229b-4321-82a7-ed18af8d9c1d": {
       "nombre_cola": "AMC_VOZ_APOYO_HVC_ES",
       "servicio": "HVC AMC",
-      "consolidado": "TT_LATAM",
-      "estado": "Activo"
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     }
   },
   "services": {
@@ -885,5 +549,112 @@
     "BO AG LTRADE": 1200.0,
     "HVC CASOS": 1663.0,
     "DREAM TEAMS CASOS": 1150.0
+  },
+  "ponderaciones": {
+    "LUA AMC": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "WPP LUA AMC": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "CHAT LUA AMC": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "Ventas AMC": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "WPP VENTAS AMC": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "CHAT VENTAS AMC": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "HVC AMC": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "LUA AMC ING": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "CHAT LUA AMC ING": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "Equipajes AMC": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "Equipajes AMC ING": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "WPP EQUIPAJES AMC": {
+      "ponderacion": 4.5,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "WPP EQUIPAJES AMC ING": {
+      "ponderacion": 4.5,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "DT FFP AMC": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "DREAM TEAM WP": {
+      "ponderacion": 2.6,
+      "data_unicos": false,
+      "umbral": 120
+    },
+    "DT FFP AMC ING": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "CHAT DT FFP AMC ING": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "Soporte LUA AMC": {
+      "ponderacion": 1.0,
+      "data_unicos": false,
+      "umbral": 20
+    },
+    "WPP HVC PORT AMC": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "CHAT DT FFP AMC ESP": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    },
+    "TRAVEL WP AMC": {
+      "ponderacion": 2.6,
+      "data_unicos": true,
+      "umbral": 120
+    }
   }
 }

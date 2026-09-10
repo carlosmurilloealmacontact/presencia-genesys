@@ -28,7 +28,7 @@ from live_engine import obtener_token_genesys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_GTR_PATH = os.path.join(BASE_DIR, "gtr_config.json")
 
-# Orden oficial de columnas de servicios según HORA A HORA (DETALLE)
+# Orden oficial de columnas de servicios según HORA A HORA (DETALLE fila 3)
 SERVICIOS_ORDEN_OFICIAL = [
     "TT_LATAM",
     "LUA AMC",
@@ -36,14 +36,14 @@ SERVICIOS_ORDEN_OFICIAL = [
     "WPP LUA AMC",
     "HVC AMC",
     "Ventas AMC",
-    "WPP Ventas AMC",
-    "CHAT Ventas AMC",
+    "WPP VENTAS AMC",
+    "CHAT VENTAS AMC",
     "TRAVEL WP AMC",
     "LUA AMC ING",
-    "DREAM TEAMS VOZ",
-    "DREAM TEAMS ENG",
-    "CHAT DREAM TEAMS ES",
-    "DREAM TEAMS WA",
+    "DT FFP AMC",
+    "DT FFP AMC ING",
+    "CHAT DT FFP AMC ESP",
+    "DREAM TEAM WP",
     "TT_EQUIPAJES",
     "Equipajes AMC",
     "Equipajes AMC ING",
@@ -52,8 +52,8 @@ SERVICIOS_ORDEN_OFICIAL = [
 
 SERVICIOS_TT_LATAM = [
     "LUA AMC", "Soporte LUA AMC", "WPP LUA AMC", "HVC AMC",
-    "Ventas AMC", "WPP Ventas AMC", "CHAT Ventas AMC", "TRAVEL WP AMC",
-    "LUA AMC ING", "DREAM TEAMS VOZ", "DREAM TEAMS ENG", "CHAT DREAM TEAMS ES", "DREAM TEAMS WA"
+    "Ventas AMC", "WPP VENTAS AMC", "CHAT VENTAS AMC", "TRAVEL WP AMC",
+    "LUA AMC ING", "DT FFP AMC", "DT FFP AMC ING", "CHAT DT FFP AMC ESP", "DREAM TEAM WP"
 ]
 
 SERVICIOS_TT_EQUIPAJES = [
@@ -382,6 +382,17 @@ def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, 
     # 1. Inyectar Matriz en hoja DETALLE
     if "DETALLE" in wb.sheetnames:
         ws_det = wb["DETALLE"]
+
+        # Estilos visuales de semáforo nativos de Excel (suaves y legibles)
+        fill_green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        font_green = Font(color="006100", name="Calibri", size=11, bold=True)
+
+        fill_yellow = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        font_yellow = Font(color="9C6500", name="Calibri", size=11, bold=True)
+
+        fill_red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        font_red = Font(color="9C0006", name="Calibri", size=11, bold=True)
+
         # Mapear columnas de servicios
         header_srvs = {}
         for col in range(4, ws_det.max_column + 1):
@@ -399,48 +410,99 @@ def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, 
         _, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
         for srv, col_idx in header_srvs.items():
             sd = serv_data.get(srv, {})
+            ns_meta_val = sd.get("% NS META")
+            aht_meta_val = sd.get("META AHT")
+
             for m_lbl, r_idx in row_metrics.items():
+                cell = ws_det.cell(row=r_idx, column=col_idx)
+
                 if m_lbl == "LL ENT":
-                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL ENT", 0))
+                    cell.value = int(sd.get("LL ENT", 0))
+                    cell.number_format = "#,##0"
                 elif m_lbl == "LL ATEN":
-                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL ATEN", 0))
+                    cell.value = int(sd.get("LL ATEN", 0))
+                    cell.number_format = "#,##0"
                 elif m_lbl == "LL ABAN":
-                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL ABAN", 0))
+                    cell.value = int(sd.get("LL ABAN", 0))
+                    cell.number_format = "#,##0"
                 elif m_lbl in ("LL  Aten. NS", "LL Aten. NS"):
-                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL Aten. NS", 0))
+                    cell.value = int(sd.get("LL Aten. NS", 0))
+                    cell.number_format = "#,##0"
                 elif m_lbl == "% ATEN":
-                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("% ATEN", 0) / 100.0, 4)
+                    cell.value = round(sd.get("% ATEN", 0) / 100.0, 4)
+                    cell.number_format = "0.00%"
                 elif m_lbl == "%ABAN":
-                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("% ABAN", 0) / 100.0, 4)
+                    cell.value = round(sd.get("% ABAN", 0) / 100.0, 4)
+                    cell.number_format = "0.00%"
                 elif m_lbl == "%NS META":
-                    v = sd.get("% NS META")
-                    ws_det.cell(row=r_idx, column=col_idx).value = round(v / 100.0, 4) if v else None
+                    if ns_meta_val is not None:
+                        cell.value = round(ns_meta_val / 100.0, 4)
+                        cell.number_format = "0.00%"
+                    else:
+                        cell.value = "-"
                 elif m_lbl == "%NS":
-                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("% NS", 0) / 100.0, 4)
+                    ns_real = sd.get("% NS", 0)
+                    cell.value = round(ns_real / 100.0, 4)
+                    cell.number_format = "0.00%"
+
+                    # Semáforo de color de Nivel de Servicio
+                    if ns_meta_val is not None:
+                        dif = ns_real - ns_meta_val
+                        if dif >= 0:
+                            cell.fill = fill_green
+                            cell.font = font_green
+                        elif dif >= -5.0:
+                            cell.fill = fill_yellow
+                            cell.font = font_yellow
+                        else:
+                            cell.fill = fill_red
+                            cell.font = font_red
+
                 elif m_lbl == "META AHT":
-                    ws_det.cell(row=r_idx, column=col_idx).value = sd.get("META AHT")
+                    if aht_meta_val is not None:
+                        cell.value = round(aht_meta_val, 1)
+                        cell.number_format = "#,##0.0"
+                    else:
+                        cell.value = "-"
                 elif m_lbl == "AHT":
-                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("AHT", 0), 1)
+                    cell.value = round(sd.get("AHT", 0), 1)
+                    cell.number_format = "#,##0.0"
                 elif m_lbl == "% VAR AHT":
                     aht_r = sd.get("AHT", 0)
-                    aht_m = sd.get("META AHT")
-                    if aht_m and aht_m > 0 and aht_r > 0:
-                        ws_det.cell(row=r_idx, column=col_idx).value = round((aht_r - aht_m) / aht_m, 4)
-                elif m_lbl == "ASA":
-                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("ASA", 0), 1)
+                    if aht_meta_val and aht_meta_val > 0 and aht_r > 0:
+                        desv = (aht_r - aht_meta_val) / aht_meta_val
+                        cell.value = round(desv, 4)
+                        cell.number_format = "0.00%"
 
-    # 2. Inyectar datos crudos en DATA GENEYS
+                        # Semáforo de color de Variación AHT
+                        if desv <= 0:
+                            cell.fill = fill_green
+                            cell.font = font_green
+                        elif desv <= 0.10:
+                            cell.fill = fill_yellow
+                            cell.font = font_yellow
+                        else:
+                            cell.fill = fill_red
+                            cell.font = font_red
+                    else:
+                        cell.value = "-"
+                elif m_lbl == "ASA":
+                    cell.value = round(sd.get("ASA", 0), 1)
+                    cell.number_format = "#,##0.0"
+
+    # 2. Inyectar datos crudos en DATA GENEYS (reemplazo limpio y completo)
     if "DATA GENEYS" in wb.sheetnames:
         ws_dg = wb["DATA GENEYS"]
-        # Limpiar filas existentes a partir de fila 2
-        for r in range(2, min(ws_dg.max_row + 1, 3000)):
+        # Limpiar todas las filas de datos anteriores para evitar residuos
+        for r in range(2, ws_dg.max_row + 1):
             for c in range(1, 13):
                 ws_dg.cell(row=r, column=c).value = None
 
-        # Escribir nuevos datos de Genesys
+        # Escribir nuevos datos de Genesys con formato estándar de fecha e intervalos
+        now_dt = datetime.now()
         for idx, row in df_raw.iterrows():
             r_idx = idx + 2
-            ws_dg.cell(row=r_idx, column=1).value = datetime.now().strftime("%Y-%m-%d")
+            ws_dg.cell(row=r_idx, column=1).value = now_dt.strftime("%Y-%m-%d")
             ws_dg.cell(row=r_idx, column=2).value = str(row.get("intervalo", ""))
             ws_dg.cell(row=r_idx, column=3).value = str(row.get("queueId", ""))
             ws_dg.cell(row=r_idx, column=4).value = str(row.get("canal", "VOZ"))
