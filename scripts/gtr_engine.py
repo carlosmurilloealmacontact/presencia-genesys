@@ -363,110 +363,152 @@ def construir_matriz_ejecutiva_gtr(df_raw: pd.DataFrame, gtr_cfg: dict):
     return df_matriz, serv_data
 
 
-# ── GENERADORES FIELES DE LIBROS EXCEL GTR ────────────────────────────────────
+# ── GENERADORES FIELES DE LIBROS EXCEL GTR CON PLANTILLAS MAESTRAS ──────────
 
 def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, gtr_cfg: dict) -> bytes:
     """
-    Recrea fielmente el libro (CONFIDENCIAL)HORA_HORA.xlsb en formato Excel (.xlsx).
-    Contiene DETALLE (Matriz arriba e Intradía abajo), Resumen y DATA GENEYS.
+    Recrea fielmente el libro HORA A HORA usando la plantilla maestra templates/HORA_HORA_TEMPLATE.xlsx
+    conservando todas las hojas, formatos originales, columnas y estilos.
     """
+    tpl_path = os.path.join(BASE_DIR, "../templates/HORA_HORA_TEMPLATE.xlsx")
+    if os.path.exists(tpl_path):
+        wb = openpyxl.load_workbook(tpl_path)
+    else:
+        wb = openpyxl.Workbook()
+
+    # 1. Inyectar Matriz en hoja DETALLE
+    if "DETALLE" in wb.sheetnames:
+        ws_det = wb["DETALLE"]
+        # Mapear columnas de servicios
+        header_srvs = {}
+        for col in range(4, ws_det.max_column + 1):
+            val = ws_det.cell(row=3, column=col).value
+            if val:
+                header_srvs[str(val).strip()] = col
+
+        # Mapear filas por métrica
+        row_metrics = {}
+        for r in range(4, 30):
+            lbl = ws_det.cell(row=r, column=3).value
+            if lbl:
+                row_metrics[str(lbl).strip()] = r
+
+        _, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
+        for srv, col_idx in header_srvs.items():
+            sd = serv_data.get(srv, {})
+            for m_lbl, r_idx in row_metrics.items():
+                if m_lbl == "LL ENT":
+                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL ENT", 0))
+                elif m_lbl == "LL ATEN":
+                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL ATEN", 0))
+                elif m_lbl == "LL ABAN":
+                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL ABAN", 0))
+                elif m_lbl in ("LL  Aten. NS", "LL Aten. NS"):
+                    ws_det.cell(row=r_idx, column=col_idx).value = int(sd.get("LL Aten. NS", 0))
+                elif m_lbl == "% ATEN":
+                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("% ATEN", 0) / 100.0, 4)
+                elif m_lbl == "%ABAN":
+                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("% ABAN", 0) / 100.0, 4)
+                elif m_lbl == "%NS META":
+                    v = sd.get("% NS META")
+                    ws_det.cell(row=r_idx, column=col_idx).value = round(v / 100.0, 4) if v else None
+                elif m_lbl == "%NS":
+                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("% NS", 0) / 100.0, 4)
+                elif m_lbl == "META AHT":
+                    ws_det.cell(row=r_idx, column=col_idx).value = sd.get("META AHT")
+                elif m_lbl == "AHT":
+                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("AHT", 0), 1)
+                elif m_lbl == "% VAR AHT":
+                    aht_r = sd.get("AHT", 0)
+                    aht_m = sd.get("META AHT")
+                    if aht_m and aht_m > 0 and aht_r > 0:
+                        ws_det.cell(row=r_idx, column=col_idx).value = round((aht_r - aht_m) / aht_m, 4)
+                elif m_lbl == "ASA":
+                    ws_det.cell(row=r_idx, column=col_idx).value = round(sd.get("ASA", 0), 1)
+
+    # 2. Inyectar datos crudos en DATA GENEYS
+    if "DATA GENEYS" in wb.sheetnames:
+        ws_dg = wb["DATA GENEYS"]
+        # Limpiar filas existentes a partir de fila 2
+        for r in range(2, min(ws_dg.max_row + 1, 3000)):
+            for c in range(1, 13):
+                ws_dg.cell(row=r, column=c).value = None
+
+        # Escribir nuevos datos de Genesys
+        for idx, row in df_raw.iterrows():
+            r_idx = idx + 2
+            ws_dg.cell(row=r_idx, column=1).value = datetime.now().strftime("%Y-%m-%d")
+            ws_dg.cell(row=r_idx, column=2).value = str(row.get("intervalo", ""))
+            ws_dg.cell(row=r_idx, column=3).value = str(row.get("queueId", ""))
+            ws_dg.cell(row=r_idx, column=4).value = str(row.get("canal", "VOZ"))
+            ws_dg.cell(row=r_idx, column=5).value = int(row.get("nOffered", 0))
+            ws_dg.cell(row=r_idx, column=6).value = int(row.get("tAnswered_count", 0))
+            ws_dg.cell(row=r_idx, column=7).value = int(row.get("tAbandon_count", 0))
+            ws_dg.cell(row=r_idx, column=8).value = int(row.get("sl_numerator", 0))
+            ws_dg.cell(row=r_idx, column=9).value = round(row.get("tAnswered_sum", 0) / 1000.0, 2)
+            ws_dg.cell(row=r_idx, column=11).value = round(row.get("tHandle_sum", 0) / 1000.0, 2)
+
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        # 1. Hoja DETALLE
-        df_matriz.to_excel(writer, sheet_name="DETALLE", index=False, startrow=2)
-        
-        # 2. Hoja DATA GENEYS (Base cruda con la misma cabecera)
-        df_data_gen = df_raw.rename(columns={
-            "intervalo": "INICIO_del_Intervalo",
-            "queueId": "Cola",
-            "canal": "Tipo_medios",
-            "nOffered": "Ofrecidas",
-            "tAnswered_count": "Contestadas",
-            "tAbandon_count": "Abandonadas",
-            "sl_numerator": "CUMPLEN_SLA",
-            "tAnswered_sum": "ASA_sum",
-            "tHandle_sum": "Conversacion_sum"
-        })
-        cols_export_dg = [
-            "servicio", "INICIO_del_Intervalo", "Cola", "Tipo_medios",
-            "Ofrecidas", "Contestadas", "Abandonadas", "CUMPLEN_SLA"
-        ]
-        df_data_gen[[c for c in cols_export_dg if c in df_data_gen.columns]].to_excel(
-            writer, sheet_name="DATA GENEYS", index=False
-        )
-
-        # 3. Hoja Resumen
-        resumen_data = {
-            "Agrupador": ["NO VOZ", "VOZ", "TOTAL"],
-            "Entrante": [
-                int(df_raw[df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["nOffered"].sum()),
-                int(df_raw[~df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["nOffered"].sum()),
-                int(df_raw["nOffered"].sum())
-            ],
-            "Atendido": [
-                int(df_raw[df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAnswered_count"].sum()),
-                int(df_raw[~df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAnswered_count"].sum()),
-                int(df_raw["tAnswered_count"].sum())
-            ],
-            "Abandono": [
-                int(df_raw[df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAbandon_count"].sum()),
-                int(df_raw[~df_raw["servicio"].str.contains("WPP|CHAT", case=False, na=False)]["tAbandon_count"].sum()),
-                int(df_raw["tAbandon_count"].sum())
-            ]
-        }
-        pd.DataFrame(resumen_data).to_excel(writer, sheet_name="Resumen", index=False)
-
+    wb.save(output)
+    wb.close()
     return output.getvalue()
 
 
 def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: dict, gtr_cfg: dict) -> bytes:
     """
-    Recrea fielmente el libro AHT GENESYS.xlsm en formato Excel (.xlsx).
-    Contiene DATA (Cruce individual completo), SUPERVISORES y AGENTES.
+    Recrea fielmente el libro AHT GENESYS.xlsm inyectando datos directamente en
+    templates/AHT_GENESYS_TEMPLATE.xlsm preservando imágenes, macros, tablas dinámicas y formatos.
     """
-    aht_metas = gtr_cfg.get("aht_metas", {})
+    tpl_path = os.path.join(BASE_DIR, "../templates/AHT_GENESYS_TEMPLATE.xlsm")
+    if os.path.exists(tpl_path):
+        wb = openpyxl.load_workbook(tpl_path, keep_vba=True)
+    else:
+        wb = openpyxl.Workbook()
 
-    def cruzar_info(row):
-        aid = row["agente_id"]
-        info = agentes_map.get(aid, {})
-        nombre = info.get("agente", aid)
-        bp = nombre.split("-")[0].strip() if "-" in nombre else aid[:7]
-        serv = info.get("servicio", "General")
-        sup = info.get("jefe_inmediato", "-")
-        coord = info.get("coordinador", "-")
-        meta = aht_metas.get(serv, None)
-        return pd.Series([bp, nombre, serv, sup, coord, meta])
+    if "DATA" in wb.sheetnames:
+        ws_data = wb["DATA"]
+        # Limpiar filas existentes de datos crudos (columnas A a O)
+        for r in range(2, min(ws_data.max_row + 1, 2000)):
+            for c in range(1, 16):
+                ws_data.cell(row=r, column=c).value = None
 
-    df_base = df_asesores_raw.copy()
-    cols_cruzadas = ["BP", "NOMBRE AGENTE", "SERVICIO", "SUPERVISOR", "COORDINADOR", "META"]
-    df_base[cols_cruzadas] = df_base.apply(cruzar_info, axis=1)
+        now_date_str = datetime.now().strftime("%Y-%m-%d 00:00:00")
+        next_date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
 
-    df_base["AHT REAL"] = df_base["aht_seg"]
-    df_base["CONVER TOTAL"] = (df_base["interacciones"] * df_base["aht_seg"]).round(0)
-    df_base["DESVÍO"] = ((df_base["AHT REAL"] - df_base["META"]) / df_base["META"]).round(3)
+        # Inyectar datos reales de cada asesor en columnas A-O
+        for idx, row in df_asesores_raw.reset_index(drop=True).iterrows():
+            r_idx = idx + 2
+            aid = row["agente_id"]
+            info = agentes_map.get(aid, {})
+            nombre = info.get("agente", aid)
+            interacc = int(row.get("interacciones", 0))
+            aht_s = float(row.get("aht_seg", 0.0))
+            talk_s = float(row.get("t_talk_seg", 0.0))
+            held_s = float(row.get("t_held_seg", 0.0))
+            acw_s = float(row.get("t_acw_seg", 0.0))
+            transf = int(row.get("transferidas", 0))
 
-    # 1. Resumen Supervisores
-    df_sup = df_base[df_base["SUPERVISOR"] != "-"].groupby("SUPERVISOR").agg({
-        "interacciones": "sum",
-        "META": "mean",
-        "AHT REAL": "mean",
-        "t_talk_seg": "mean",
-        "t_held_seg": "mean",
-        "t_acw_seg": "mean"
-    }).reset_index()
-    df_sup["DESVÍO"] = ((df_sup["AHT REAL"] - df_sup["META"]) / df_sup["META"]).round(3)
-    df_sup = df_sup.rename(columns={"interacciones": ".Interacciones", "META": ".META", "AHT REAL": ".AHT REAL"})
+            ws_data.cell(row=r_idx, column=1).value = now_date_str
+            ws_data.cell(row=r_idx, column=2).value = next_date_str
+            ws_data.cell(row=r_idx, column=3).value = False
+            ws_data.cell(row=r_idx, column=4).value = "Dirección: Entrante; Dirección inicial:Entrante"
+            ws_data.cell(row=r_idx, column=5).value = "voz"
+            ws_data.cell(row=r_idx, column=6).value = aid
+            ws_data.cell(row=r_idx, column=7).value = nombre
+            ws_data.cell(row=r_idx, column=8).value = interacc
+            ws_data.cell(row=r_idx, column=9).value = interacc
+            ws_data.cell(row=r_idx, column=10).value = f" {formatear_segundos_mm_ss(aht_s)}.000"
+            ws_data.cell(row=r_idx, column=11).value = f" {formatear_segundos_mm_ss(talk_s)}.000"
+            ws_data.cell(row=r_idx, column=12).value = f" {formatear_segundos_mm_ss(held_s)}.000" if held_s > 0 else None
+            ws_data.cell(row=r_idx, column=13).value = f" {formatear_segundos_mm_ss(acw_s)}.000" if acw_s > 0 else None
+            ws_data.cell(row=r_idx, column=14).value = None
+            ws_data.cell(row=r_idx, column=15).value = transf if transf > 0 else None
 
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_sup.to_excel(writer, sheet_name="SUPERVISORES", index=False, startrow=3)
-        df_base.to_excel(writer, sheet_name="DATA", index=False)
-        # Resumen general agentes
-        df_base[["BP", "NOMBRE AGENTE", "SERVICIO", "SUPERVISOR", "interacciones", "META", "AHT REAL", "DESVÍO"]].to_excel(
-            writer, sheet_name="AGENTES", index=False, startrow=3
-        )
-
+    wb.save(output)
+    wb.close()
     return output.getvalue()
+
 
 
 # ── RENDER PRINCIPAL DEL COMPONENTE GTR ───────────────────────────────────────
