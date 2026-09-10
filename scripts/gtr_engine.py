@@ -367,6 +367,7 @@ def construir_matriz_ejecutiva_gtr(df_raw: pd.DataFrame, gtr_cfg: dict):
 
 # ── GENERADORES FIELES DE LIBROS EXCEL GTR CON PLANTILLAS MAESTRAS ──────────
 
+@st.cache_data(show_spinner="Generando libro oficial HORA A HORA...")
 def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, gtr_cfg: dict) -> bytes:
     """
     Recrea fielmente el libro HORA A HORA usando la plantilla maestra templates/HORA_HORA_TEMPLATE.xlsx
@@ -456,6 +457,7 @@ def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, 
     return output.getvalue()
 
 
+@st.cache_data(show_spinner="Generando libro oficial AHT GENESYS...")
 def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: dict, gtr_cfg: dict) -> bytes:
     """
     Recrea fielmente el libro AHT GENESYS.xlsm inyectando datos directamente en
@@ -478,11 +480,11 @@ def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: d
         next_date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
 
         # Inyectar datos reales de cada asesor en columnas A-O
-        for idx, row in df_asesores_raw.reset_index(drop=True).iterrows():
+        for idx, row in df_asesores_raw.iterrows():
             r_idx = idx + 2
-            aid = row["agente_id"]
-            info = agentes_map.get(aid, {})
-            nombre = info.get("agente", aid)
+            aid = row.get("agente_id", "")
+            ag_info = agentes_map.get(aid, {})
+            nombre = ag_info.get("agente", aid)
             interacc = int(row.get("interacciones", 0))
             aht_s = float(row.get("aht_seg", 0.0))
             talk_s = float(row.get("t_talk_seg", 0.0))
@@ -553,26 +555,42 @@ def render_tab_gtr(agentes_map: dict):
         )
         col_exp1, col_exp2 = st.columns(2)
         with col_exp1:
-            bytes_hh = generar_excel_hora_hora_fiel(df_raw, df_matriz, gtr_cfg)
-            st.download_button(
-                label="📥 Descargar (CONFIDENCIAL)HORA_HORA.xlsx",
-                data=bytes_hh,
-                file_name=f"(CONFIDENCIAL)HORA_HORA_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            if "bytes_hh_cache" not in st.session_state:
+                st.session_state["bytes_hh_cache"] = None
+
+            if st.session_state["bytes_hh_cache"] is not None:
+                st.download_button(
+                    label="📥 Descargar (CONFIDENCIAL)HORA_HORA.xlsx",
+                    data=st.session_state["bytes_hh_cache"],
+                    file_name=f"(CONFIDENCIAL)HORA_HORA_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            else:
+                if st.button("⚡ Preparar (CONFIDENCIAL)HORA_HORA.xlsx", use_container_width=True):
+                    st.session_state["bytes_hh_cache"] = generar_excel_hora_hora_fiel(df_raw, df_matriz, gtr_cfg)
+                    st.rerun()
+
         with col_exp2:
-            # Traer asesores si está disponible
-            df_as_raw, _ = obtener_aht_asesores_api(token)
-            if not df_as_raw.empty:
-                bytes_aht = generar_excel_aht_genesys_fiel(df_as_raw, agentes_map, gtr_cfg)
+            if "bytes_aht_cache" not in st.session_state:
+                st.session_state["bytes_aht_cache"] = None
+
+            if st.session_state["bytes_aht_cache"] is not None:
                 st.download_button(
                     label="📥 Descargar AHT_GENESYS.xlsx",
-                    data=bytes_aht,
+                    data=st.session_state["bytes_aht_cache"],
                     file_name=f"AHT_GENESYS_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
+            else:
+                if st.button("⚡ Preparar AHT_GENESYS.xlsx", use_container_width=True):
+                    df_as_raw, _ = obtener_aht_asesores_api(token)
+                    if not df_as_raw.empty:
+                        st.session_state["bytes_aht_cache"] = generar_excel_aht_genesys_fiel(df_as_raw, agentes_map, gtr_cfg)
+                        st.rerun()
+                    else:
+                        st.warning("No se encontraron registros de asesores para exportar.")
 
     st.markdown("---")
 

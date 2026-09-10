@@ -845,13 +845,22 @@ def cargar_agentes_map_base():
     return agentes_db.set_index("agente_id").to_dict(orient="index")
 
 
-tab_historico, tab_vivo, tab_gtr = st.tabs([
+SECCIONES_APP = [
     "📊 Análisis Histórico y Adherencia",
     "🔴 Monitoreo en Vivo (Piso)",
-    "📈 Monitor GTR y Niveles de Servicio"
-])
+    "📈 Monitor GTR y Niveles de Servicio",
+]
 
-with tab_historico:
+seccion_activa = st.segmented_control(
+    "Navegación del Tablero",
+    options=SECCIONES_APP,
+    default=SECCIONES_APP[0],
+    label_visibility="collapsed"
+)
+if not seccion_activa:
+    seccion_activa = SECCIONES_APP[0]
+
+if seccion_activa == "📊 Análisis Histórico y Adherencia":
     rango_disponible = cargar_rango_fechas()
     if not rango_disponible:
         st.warning("Todavía no hay datos extraídos. Corre `python extract_presencia.py` primero.")
@@ -1559,8 +1568,8 @@ with tab_historico:
         gc.collect()
 
 
-with tab_vivo:
+elif seccion_activa == "🔴 Monitoreo en Vivo (Piso)":
     render_tab_en_vivo(cargar_agentes_map_base())
 
-with tab_gtr:
+elif seccion_activa == "📈 Monitor GTR y Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())
