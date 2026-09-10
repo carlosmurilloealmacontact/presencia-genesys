@@ -109,10 +109,10 @@ def obtener_metricas_gtr_api(token: str):
     try:
         r = requests.post(url, headers=headers, json=body, timeout=25)
         if r.status_code != 200:
-            return pd.DataFrame(), f"Error API Genesys: {r.status_code} - {r.text[:200]}"
+            return pd.DataFrame(), f"Error API Genesys: {r.status_code} - {r.text[:200]}", ""
         res = r.json()
     except Exception as e:
-        return pd.DataFrame(), f"Error de conexión con Genesys: {str(e)}"
+        return pd.DataFrame(), f"Error de conexión con Genesys: {str(e)}", ""
 
     records = []
     for group in res.get("results", []):
@@ -166,7 +166,9 @@ def obtener_metricas_gtr_api(token: str):
                     row["sl_numerator"] = stats.get("numerator", int(round(ratio * denom)))
             records.append(row)
 
-    return pd.DataFrame(records), None
+    now_col = now_utc - timedelta(hours=5)
+    hora_actualizacion = now_col.strftime("%I:%M:%S %p")
+    return pd.DataFrame(records), None, hora_actualizacion
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -520,23 +522,27 @@ def render_tab_gtr(agentes_map: dict):
         st.warning("⚠️ No se encontró token activo de Genesys Cloud. Conéctalo en Neon Postgres o revisa las credenciales.")
         return
 
-    col_h1, col_h2 = st.columns([4, 1])
-    with col_h1:
-        st.subheader("📈 Monitor GTR — Gestión en Tiempo Real & Niveles de Servicio")
-        st.caption("Replicación en vivo de los reportes oficiales `HORA A HORA` y `AHT GENESYS` directamente desde la API de Genesys Cloud.")
-    with col_h2:
-        if st.button("🔄 Actualizar Datos GTR", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-
     gtr_cfg = cargar_config_gtr()
 
     with st.spinner("Consultando métricas en vivo de Genesys Cloud..."):
-        df_raw, err = obtener_metricas_gtr_api(token)
+        df_raw, err, hora_act = obtener_metricas_gtr_api(token)
 
     if err or df_raw.empty:
         st.error(f"No fue posible cargar las métricas de Genesys: {err}")
         return
+
+    col_h1, col_h2 = st.columns([3, 2])
+    with col_h1:
+        st.subheader("📈 Monitor GTR — Gestión en Tiempo Real & Niveles de Servicio")
+        st.caption(f"Replicación en vivo de los reportes oficiales `HORA A HORA` y `AHT GENESYS` • **Última actualización:** `{hora_act}` (Hora Col)")
+    with col_h2:
+        btn_c1, btn_c2 = st.columns([1, 1])
+        with btn_c1:
+            st.metric("Último Corte", hora_act if hora_act else "--:--", delta="En Vivo")
+        with btn_c2:
+            if st.button("🔄 Actualizar Datos", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
 
     df_matriz, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
 
