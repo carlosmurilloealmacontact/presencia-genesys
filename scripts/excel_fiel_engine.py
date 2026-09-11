@@ -117,6 +117,18 @@ def inyectar_datos_hora_hora(tpl_path: str, df_raw: pd.DataFrame, serv_data: dic
                                 v = etree.SubElement(c, f'{{{NS_MAIN}}}v')
                             v.text = str(date_serial)
 
+                        # C3 (fórmula ='DATA GENEYS'!AM3543, utilizada para validar =$C$3<>$Y$8)
+                        elif r_ref == 'C3':
+                            v = c.find(f'{{{NS_MAIN}}}v')
+                            if v is None:
+                                v = etree.SubElement(c, f'{{{NS_MAIN}}}v')
+                            v.text = str(date_serial)
+
+                        elif r_ref in ('D52', 'A54'):
+                            v = c.find(f'{{{NS_MAIN}}}v')
+                            if v is not None:
+                                v.text = str(date_serial)
+
                         # Celdas de la matriz ejecutiva (D8:W24)
                         elif len(r_ref) >= 2 and r_ref[0] in headers_map:
                             col_let = r_ref[0]
@@ -141,20 +153,74 @@ def inyectar_datos_hora_hora(tpl_path: str, df_raw: pd.DataFrame, serv_data: dic
 
                     content = etree.tostring(tree, xml_declaration=True, encoding='UTF-8', standalone='yes')
 
-                # 2. Modificar Hoja DATA GENEYS (sheet13.xml) si hay datos crudos
-                elif item.filename == 'xl/worksheets/sheet13.xml' and df_raw is not None and not df_raw.empty:
+                # 2. Modificar Hoja DATA GENEYS (sheet13.xml)
+                elif item.filename == 'xl/worksheets/sheet13.xml':
                     parser = etree.XMLParser(remove_blank_text=False)
                     tree = etree.fromstring(content, parser)
                     
-                    # Actualizar fecha en todas las filas de datos
+                    # Actualizar fecha en columna A (Fecha) y columna AM (FECHA2)
                     for c in tree.iter(f'{{{NS_MAIN}}}c'):
                         r_ref = c.get('r')
-                        # Solo columna A (A2, A3...), sin tocar columnas AA, AB, AC, etc.
-                        if r_ref and r_ref.startswith('A') and len(r_ref) > 1 and not r_ref[1].isalpha() and r_ref != 'A1':
+                        if not r_ref:
+                            continue
+                        # Columna A (A2, A3... pero no AA, AB...)
+                        if r_ref.startswith('A') and len(r_ref) > 1 and not r_ref[1].isalpha() and r_ref != 'A1':
+                            v = c.find(f'{{{NS_MAIN}}}v')
+                            if v is not None:
+                                v.text = str(date_serial)
+                        # Columna AM (AM2, AM3... FECHA2)
+                        elif r_ref.startswith('AM') and len(r_ref) > 2 and not r_ref[2].isalpha() and r_ref != 'AM1':
                             v = c.find(f'{{{NS_MAIN}}}v')
                             if v is not None:
                                 v.text = str(date_serial)
 
+                    content = etree.tostring(tree, xml_declaration=True, encoding='UTF-8', standalone='yes')
+
+                # 3. Modificar Hoja DATA GEN 2 (sheet14.xml)
+                elif item.filename == 'xl/worksheets/sheet14.xml':
+                    parser = etree.XMLParser(remove_blank_text=False)
+                    tree = etree.fromstring(content, parser)
+                    
+                    # Actualizar fecha en columna A (Fecha) y columna AI (FECHA2)
+                    for c in tree.iter(f'{{{NS_MAIN}}}c'):
+                        r_ref = c.get('r')
+                        if not r_ref:
+                            continue
+                        # Columna A (A2, A3...)
+                        if r_ref.startswith('A') and len(r_ref) > 1 and not r_ref[1].isalpha() and r_ref != 'A1':
+                            v = c.find(f'{{{NS_MAIN}}}v')
+                            if v is not None:
+                                v.text = str(date_serial)
+                        # Columna AI (AI2, AI3... FECHA2)
+                        elif r_ref.startswith('AI') and len(r_ref) > 2 and not r_ref[2].isalpha() and r_ref != 'AI1':
+                            v = c.find(f'{{{NS_MAIN}}}v')
+                            if v is not None:
+                                v.text = str(date_serial)
+
+                    content = etree.tostring(tree, xml_declaration=True, encoding='UTF-8', standalone='yes')
+
+                # 4. Actualizar fechas cacheadas en hojas de apoyo
+                elif item.filename in ('xl/worksheets/sheet7.xml', 'xl/worksheets/sheet8.xml', 'xl/worksheets/sheet11.xml'):
+                    parser = etree.XMLParser(remove_blank_text=False)
+                    tree = etree.fromstring(content, parser)
+                    
+                    for c in tree.iter(f'{{{NS_MAIN}}}c'):
+                        r_ref = c.get('r')
+                        if r_ref in ('A3', 'B1', 'AI7'):
+                            v = c.find(f'{{{NS_MAIN}}}v')
+                            if v is not None:
+                                v.text = str(date_serial)
+
+                    content = etree.tostring(tree, xml_declaration=True, encoding='UTF-8', standalone='yes')
+
+                # 5. Forzar recálculo completo de fórmulas en Excel al abrir
+                elif item.filename == 'xl/workbook.xml':
+                    parser = etree.XMLParser(remove_blank_text=False)
+                    tree = etree.fromstring(content, parser)
+                    calc_pr = tree.find(f'{{{NS_MAIN}}}calcPr')
+                    if calc_pr is not None:
+                        calc_pr.set('fullCalcOnLoad', '1')
+                        calc_pr.set('forceFullCalc', '1')
                     content = etree.tostring(tree, xml_declaration=True, encoding='UTF-8', standalone='yes')
 
                 zout.writestr(item, content)
