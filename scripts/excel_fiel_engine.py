@@ -149,7 +149,8 @@ def inyectar_datos_hora_hora(tpl_path: str, df_raw: pd.DataFrame, serv_data: dic
                     # Actualizar fecha en todas las filas de datos
                     for c in tree.iter(f'{{{NS_MAIN}}}c'):
                         r_ref = c.get('r')
-                        if r_ref and r_ref.startswith('A') and r_ref != 'A1':
+                        # Solo columna A (A2, A3...), sin tocar columnas AA, AB, AC, etc.
+                        if r_ref and r_ref.startswith('A') and len(r_ref) > 1 and not r_ref[1].isalpha() and r_ref != 'A1':
                             v = c.find(f'{{{NS_MAIN}}}v')
                             if v is not None:
                                 v.text = str(date_serial)
