@@ -194,15 +194,15 @@ def estilo_aut(val):
 
 
 def estilo_micro(val):
-    """Estilo para micro-estados (<= 15 seg): alerta si es recurrente."""
+    """Estilo para micro-estados / refrescos de cola (<= 30 seg): alerta si es recurrente."""
     if pd.isna(val) or val == 0:
         return ""
-    if val >= 20:
-        color = "#e24b4a"
+    if val >= 15:
+        color = "#e24b4a"  # Rojo: recurrencia crítica
     elif val >= 5:
-        color = "#eda100"
+        color = "#eda100"  # Amarillo: recurrencia moderada
     else:
-        color = "#378ADD"
+        color = "#378ADD"  # Azul: leve
     return f"background-color: {color}22; color: {color}; font-weight: 600;"
 
 
@@ -1176,7 +1176,7 @@ def render_tab_asesores_historico():
     micro_por_agente = (
         vista[
             (~vista["presence_label"].isin(ESTADOS_SISTEMA)) &
-            (vista["duracion_min"] <= 0.25)
+            (vista["duracion_min"] <= 0.50)  # Micro-estados <= 30 seg (refrescos de cola y micro-saltos)
         ]
         .groupby("agente_id")
         .size()
@@ -1191,7 +1191,26 @@ def render_tab_asesores_historico():
     )
     tabla["micro_estados"] = tabla["micro_estados"].fillna(0).astype(int)
     n_agentes = len(tabla)
-    st.caption(f"{n_agentes} agentes · ordenados por mayor % de fuga · % Fuga + % Productivo + % Pausas Aut. = 100% · clic en una fila para ver el detalle")
+
+    # ── Selector de Criterio de Ordenamiento de Asesores ────────────────────
+    c_ord1, c_ord2 = st.columns([3, 2])
+    with c_ord1:
+        criterio_orden = st.segmented_control(
+            "Criterio de Priorización de Asesores:",
+            options=["🔻 Por % de Fuga (Tiempo)", "⚡ Por Refrescos de Cola (Micro-saltos ≤30s)", "⏳ Por Exceso de Pausa (Minutos)"],
+            default="🔻 Por % de Fuga (Tiempo)",
+            key="criterio_orden_agentes"
+        )
+        if not criterio_orden:
+            criterio_orden = "🔻 Por % de Fuga (Tiempo)"
+
+    with c_ord2:
+        if "Refrescos" in criterio_orden:
+            st.caption("🔎 **Orden por Micro-saltos:** Muestra primero a quienes más alternan estados breves (≤30s) para reiniciar posición en cola.")
+        elif "Exceso" in criterio_orden:
+            st.caption("⏱️ **Orden por Minutos:** Prioriza asesores con mayor volumen neto de minutos excedidos en pausas.")
+        else:
+            st.caption(f"{n_agentes} agentes · % Fuga + % Productivo + % Pausas Aut. = 100% · Clic en fila para auditoría individual.")
 
     columnas_mostrar = [
         "agente", "coordinador", "servicio", "jefe_inmediato",
@@ -1210,12 +1229,18 @@ def render_tab_asesores_historico():
                 "pct_pausa_aut": "% Pausas Aut.",
                 "exceso_prom_min": "Exceso (min)",
                 "t_conectado_hrs": "Conectado (h)",
-                "micro_estados": "Micro (≤15s)", "horario": "Horario",
+                "micro_estados": "Refrescos (≤30s)", "horario": "Horario",
                 **{c["key"]: c["label"] for c in CARDS},
             }
         )
-        .sort_values(by=["% Fuga", "Exceso (min)"], ascending=[False, False])
     )
+
+    if "Refrescos" in criterio_orden:
+        tabla_mostrar = tabla_mostrar.sort_values(by=["Refrescos (≤30s)", "% Fuga"], ascending=[False, False])
+    elif "Exceso" in criterio_orden:
+        tabla_mostrar = tabla_mostrar.sort_values(by=["Exceso (min)", "% Fuga"], ascending=[False, False])
+    else:
+        tabla_mostrar = tabla_mostrar.sort_values(by=["% Fuga", "Exceso (min)"], ascending=[False, False])
 
     # Filtrado interactivo activado desde tarjetas KPI
     filtro_kpi_hist = st.session_state.get("hist_filtro_kpi", None)
@@ -1244,7 +1269,8 @@ def render_tab_asesores_historico():
         )
 
     pct_cols = ["% Fuga", "% Productivo", "% Pausas Aut.", "Horario"] + [c["label"] for c in CARDS if c["tipo"] != "conteo"]
-    conteo_cols = ["Micro (≤15s)"] + [c["label"] for c in CARDS if c["tipo"] == "conteo"]
+    conteo_cols = ["Refrescos (≤30s)"] + [c["label"] for c in CARDS if c["tipo"] == "conteo"]
+
 
 
     def estilo_pct(val):
@@ -1265,7 +1291,7 @@ def render_tab_asesores_historico():
         .map(estilo_fuga_celda, subset=["% Fuga"])
         .map(estilo_prod, subset=["% Productivo"])
         .map(estilo_aut, subset=["% Pausas Aut."])
-        .map(estilo_micro, subset=["Micro (≤15s)"])
+        .map(estilo_micro, subset=["Refrescos (≤30s)"])
     )
 
     column_config = {c: st.column_config.NumberColumn(c, format="%.1f%%") for c in pct_cols}
@@ -1275,10 +1301,10 @@ def render_tab_asesores_historico():
     column_config["% Pausas Aut."] = st.column_config.NumberColumn("% Pausas Aut.", format="%.1f%%", help="% del tiempo conectado en pausas reglamentarias dentro de meta")
     column_config["Exceso (min)"] = st.column_config.NumberColumn("Exceso (min)", format="%.1f m", help="Minutos diarios promedio de exceso sobre metas de pausas")
     column_config["Conectado (h)"] = st.column_config.NumberColumn("Conectado (h)", format="%.1f h", help="Horas promedio de conexión diaria")
-    column_config["Micro (≤15s)"] = st.column_config.NumberColumn(
-        "Micro (≤15s)",
+    column_config["Refrescos (≤30s)"] = st.column_config.NumberColumn(
+        "Refrescos (≤30s)",
         format="%d",
-        help="Tramos en pausas o gestiones con duración ≤ 15 seg. Ítem a revisar por posibles refrescos de cola o alternancia operativa.",
+        help="Eventos con duración ≤ 30 seg en pausas/gestiones auxiliares. Útil para identificar reinicios de cola de enrutamiento.",
     )
 
     evento = st.dataframe(
@@ -1379,9 +1405,9 @@ def render_tab_asesores_historico():
         bp_agente = fila_sel["agente"].split(" - ")[0].strip()
         conteo_por_estado = df_agente.groupby("presence_label").size()
     
-        # Micro-estados del asesor (tramos auxiliares <= 15 seg)
+        # Micro-estados del asesor (tramos auxiliares <= 30 seg)
         df_agente_valid = df_agente[~df_agente["presence_label"].isin(ESTADOS_SISTEMA)]
-        micro_agente = df_agente_valid[df_agente_valid["duracion_min"] <= 0.25]
+        micro_agente = df_agente_valid[df_agente_valid["duracion_min"] <= 0.50]
         conteo_micro = micro_agente.groupby("presence_label").size()
         total_micro = len(micro_agente)
     
@@ -1391,14 +1417,14 @@ def render_tab_asesores_historico():
         # Alerta amistosa de auditoría / ítem a revisar
         if total_micro > 0:
             st.info(
-                f"🔍 **Ítem a revisar:** Se identificaron **{total_micro} micro-estados (≤ 15 seg)** en el período. "
-                f"En servicios mixtos (voz y no-voz, como DT FFP / Trim Team) puede deberse a alternancia operativa entre canales, "
-                f"pero se sugiere validar con el asesor para descartar posibles refrescos de cola o evasión de turnos.",
-                icon="🔍",
+                f"⚡ **Ítem de Auditoría (Refrescos de Cola):** Se identificaron **{total_micro} micro-estados / transiciones breves (≤ 30 seg)** en el período. "
+                f"En servicios mixtos puede obedecer a cambios de canal, pero una alta concentración de eventos rápidos suele indicar "
+                f"reseteo intencional de la posición en cola de enrutamiento.",
+                icon="⚡",
             )
     
         # ── Tabla Maestra Unificada de Pausas y Gestiones ─────────────────
-        st.markdown(f"**Uso de Pausas y Gestiones — vs. Metas y Mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes en el servicio)")
+        st.markdown(f"**Uso de Pausas y Gestiones — vs. Metas y Mediana de «{fila_sel['servicio']}»** ({n_agentes_servicio} agentes in el servicio)")
     
         # Formatear duración: si promedio >= 0.1 min -> X.X min, si > 0 pero < 0.1 -> X seg, si 0 -> 0.0 min
         def format_duracion(prom_min, dur_total_min):
@@ -1471,7 +1497,7 @@ def render_tab_asesores_historico():
                 "Categoría": "Pausa Reglamentaria",
                 "Pausa / Estado": c["label"],
                 "Veces": veces,
-                "Micro (≤15s)": micro_c,
+                "Refrescos (≤30s)": micro_c,
                 "Min. promedio/día": format_duracion(prom_min, dur_total),
                 "% del Turno": round(pct_turno, 1),
                 "Meta / Referencia": meta_txt,
@@ -1505,7 +1531,7 @@ def render_tab_asesores_historico():
                     "Categoría": "Gestión Operativa",
                     "Pausa / Estado": label,
                     "Veces": int(conteo_por_estado.get(label, 0)),
-                    "Micro (≤15s)": micro_l,
+                    "Refrescos (≤30s)": micro_l,
                     "Min. promedio/día": format_duracion(prom_agente, dur_total),
                     "% del Turno": round(pct_turno, 1),
                     "Meta / Referencia": f"Mediana: {mediana_servicio:.1f} min",
@@ -1547,7 +1573,7 @@ def render_tab_asesores_historico():
         styler_unificado = (
             tabla_unificada.style
             .map(estilo_dif, subset=["Dif. vs Referencia"])
-            .map(estilo_micro, subset=["Micro (≤15s)"])
+            .map(estilo_micro, subset=["Refrescos (≤30s)"])
             .map(estilo_adh, subset=["Adherencia"])
         )
     
@@ -1559,10 +1585,10 @@ def render_tab_asesores_historico():
                 "Categoría": st.column_config.TextColumn("Categoría"),
                 "Pausa / Estado": st.column_config.TextColumn("Pausa / Estado"),
                 "Veces": st.column_config.NumberColumn("Veces", format="%d"),
-                "Micro (≤15s)": st.column_config.NumberColumn(
-                    "Micro (≤15s)",
+                "Refrescos (≤30s)": st.column_config.NumberColumn(
+                    "Refrescos (≤30s)",
                     format="%d",
-                    help="Tramos con duración ≤ 15 seg. Ítem a revisar por posibles refrescos de cola o alternancia operativa.",
+                    help="Eventos con duración ≤ 30 seg en este estado específico.",
                 ),
                 "Min. promedio/día": st.column_config.TextColumn("Min. promedio/día"),
                 "% del Turno": st.column_config.NumberColumn("% del Turno", format="%.1f%%"),
