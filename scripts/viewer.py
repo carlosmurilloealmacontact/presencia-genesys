@@ -24,7 +24,10 @@ st.set_page_config(page_title="Radar Genesys", layout="wide")
 from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, ADMINS_AUTORIZADOS
 
 # ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
-auth_configurado = "auth" in st.secrets
+try:
+    auth_configurado = "auth" in st.secrets
+except Exception:
+    auth_configurado = False
 
 if auth_configurado:
     # 1. Validar inicio de sesión
@@ -917,9 +920,9 @@ SECCIONES_APP = [
 ]
 
 # Pestaña de Capacidad y Diagnóstico Operativo (WFM SORE vs Real):
-# Habilitada en entorno local o para administradores para validación interna
-if not auth_configurado or current_email in ADMINS_AUTORIZADOS:
-    SECCIONES_APP.append("🧭 Capacidad y Diagnóstico (Local)")
+# Acceso exclusivo para administradores autorizados (Carlos Murillo)
+if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
+    SECCIONES_APP.append("🧭 Capacidad y Diagnóstico")
 
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
@@ -1692,7 +1695,7 @@ elif seccion_activa == "Control de Estados (en Vivo)":
 elif seccion_activa == "Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())
 
-elif seccion_activa == "🧭 Capacidad y Diagnóstico (Local)":
+elif seccion_activa == "🧭 Capacidad y Diagnóstico":
     render_tab_capacidad(cargar_agentes_map_base())
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
