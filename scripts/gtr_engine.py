@@ -394,9 +394,42 @@ def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, 
         tpl_abs = os.path.abspath(tpl_master)
         wb = excel.Workbooks.Open(tpl_abs)
 
-        # 1. Actualizar Hora de Reporte en DETALLE!Y5
+        # 1. Actualizar Hora de Reporte en DETALLE!Y5 y matriz de datos en vivo
         ws_det = wb.Sheets("DETALLE")
         ws_det.Range("Y5").Value = datetime.now().strftime("%H:%M:%S")
+
+        # Inyectar métricas en tiempo real directamente en la matriz de la hoja DETALLE (D8:W24)
+        _, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
+        headers = ws_det.Range("D3:W3").Value[0]
+        current_matrix = [list(r) for r in ws_det.Range("D8:W24").Value]
+
+        for col_i, srv in enumerate(headers):
+            if not srv:
+                continue
+            srv = str(srv).strip()
+            sd = serv_data.get(srv)
+            if not sd:
+                continue
+
+            current_matrix[0][col_i] = int(sd.get("LL ENT", 0))
+            current_matrix[1][col_i] = int(sd.get("LL ATEN", 0))
+            current_matrix[2][col_i] = int(sd.get("LL ABAN", 0))
+            current_matrix[3][col_i] = int(sd.get("LL Aten. NS", 0))
+            current_matrix[4][col_i] = round(float(sd.get("% ATEN", 0)) / 100.0, 4)
+            current_matrix[5][col_i] = round(float(sd.get("% ABAN", 0)) / 100.0, 4)
+            if sd.get("% NS META") is not None:
+                current_matrix[6][col_i] = round(float(sd.get("% NS META", 0)) / 100.0, 4)
+            current_matrix[7][col_i] = round(float(sd.get("% NS", 0)) / 100.0, 4)
+            if sd.get("META AHT") is not None:
+                current_matrix[8][col_i] = round(float(sd.get("META AHT", 0)), 1)
+            current_matrix[9][col_i] = round(float(sd.get("AHT", 0)), 1)
+            aht_r = float(sd.get("AHT", 0))
+            aht_m = float(sd.get("META AHT", 0)) if sd.get("META AHT") else None
+            if aht_m and aht_m > 0 and aht_r > 0:
+                current_matrix[10][col_i] = round((aht_r - aht_m) / aht_m, 4)
+            current_matrix[16][col_i] = round(float(sd.get("ASA", 0)), 1)
+
+        ws_det.Range("D8:W24").Value = current_matrix
 
         # 2. Inyectar intervalos en DATA GENEYS
         sheet_names = [s.Name for s in wb.Sheets]
