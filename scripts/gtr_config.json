@@ -404,7 +404,19 @@
       "canal": "WSP",
       "aht_meta": 1700.0
     },
+    "WPP VENTAS AMC": {
+      "ns_meta": 0.8,
+      "umbral_seg": 120.0,
+      "canal": "WSP",
+      "aht_meta": 1700.0
+    },
     "CHAT Ventas AMC": {
+      "ns_meta": 0.8,
+      "umbral_seg": 120.0,
+      "canal": "CHAT",
+      "aht_meta": 1411.891603743281
+    },
+    "CHAT VENTAS AMC": {
       "ns_meta": 0.8,
       "umbral_seg": 120.0,
       "canal": "CHAT",
@@ -416,7 +428,19 @@
       "canal": "VOZ",
       "aht_meta": 646.0
     },
+    "DT FFP AMC": {
+      "ns_meta": 0.7,
+      "umbral_seg": 20.0,
+      "canal": "VOZ",
+      "aht_meta": 646.0
+    },
     "DREAM TEAMS ENG": {
+      "ns_meta": 0.7,
+      "umbral_seg": 20.0,
+      "canal": "VOZ",
+      "aht_meta": 581.9941616455058
+    },
+    "DT FFP AMC ING": {
       "ns_meta": 0.7,
       "umbral_seg": 20.0,
       "canal": "VOZ",
@@ -428,11 +452,35 @@
       "canal": "WSP",
       "aht_meta": 1272.05
     },
+    "DREAM TEAM WP": {
+      "ns_meta": 0.8,
+      "umbral_seg": 120.0,
+      "canal": "WSP",
+      "aht_meta": 1272.05
+    },
     "CHAT DREAM TEAMS ES": {
       "ns_meta": 0.8,
       "umbral_seg": 120.0,
       "canal": "CHAT",
       "aht_meta": 1102.6519218593967
+    },
+    "CHAT DT FFP AMC ESP": {
+      "ns_meta": 0.8,
+      "umbral_seg": 120.0,
+      "canal": "CHAT",
+      "aht_meta": 1102.6519218593967
+    },
+    "CHAT LUA AMC": {
+      "ns_meta": 0.8,
+      "umbral_seg": 120.0,
+      "canal": "CHAT",
+      "aht_meta": 1700.0
+    },
+    "TRAVEL WP AMC": {
+      "ns_meta": 0.8,
+      "umbral_seg": 120.0,
+      "canal": "WSP",
+      "aht_meta": 0.0
     },
     "Equipajes AMC": {
       "ns_meta": 0.7,
@@ -548,7 +596,15 @@
     "Latam Travel AMC": 735.0,
     "BO AG LTRADE": 1200.0,
     "HVC CASOS": 1663.0,
-    "DREAM TEAMS CASOS": 1150.0
+    "DREAM TEAMS CASOS": 1150.0,
+    "WPP VENTAS AMC": 1700.0,
+    "CHAT VENTAS AMC": 1411.891603743281,
+    "DT FFP AMC": 646.0,
+    "DT FFP AMC ING": 581.9941616455058,
+    "DREAM TEAM WP": 1272.05,
+    "CHAT DT FFP AMC ESP": 1102.6519218593967,
+    "CHAT LUA AMC": 1700.0,
+    "TRAVEL WP AMC": 0.0
   },
   "ponderaciones": {
     "LUA AMC": {

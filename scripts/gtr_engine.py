@@ -6,6 +6,7 @@ Incluye:
 3. Exportadores Fieles a Excel de los dos libros: (CONFIDENCIAL)HORA_HORA.xlsx y AHT_GENESYS.xlsx.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import json
@@ -77,6 +78,37 @@ def formatear_segundos_mm_ss(segundos):
     m = int(segundos // 60)
     s = int(segundos % 60)
     return f"{m:02d}:{s:02d}"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def resolver_nombres_colas_genesys(token: str, queue_ids: tuple) -> dict:
+    """
+    Consulta a la API de Genesys Cloud el nombre legible de cada cola no mapeada.
+    Cacheado por 1 hora para máxima velocidad y evitar llamadas redundantes.
+    """
+    if not token or not queue_ids:
+        return {}
+
+    def fetch_single(qid):
+        if not qid or str(qid) == "nan" or not str(qid).strip():
+            return qid, "Directo / Sin Cola"
+        try:
+            r = requests.get(
+                f"https://api.mypurecloud.com/api/v2/routing/queues/{qid}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=4
+            )
+            if r.status_code == 200:
+                return qid, r.json().get("name", str(qid))
+            elif r.status_code == 403:
+                return qid, f"Cola Otra División ({str(qid)[:8]}...)"
+            return qid, str(qid)
+        except Exception:
+            return qid, str(qid)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = dict(pool.map(fetch_single, queue_ids))
+    return results
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -274,7 +306,19 @@ def construir_matriz_ejecutiva_gtr(df_raw: pd.DataFrame, gtr_cfg: dict):
         a_s = sub["tAnswered_sum"].sum()
 
         meta_ns = services_cfg.get(s, {}).get("ns_meta", None)
-        meta_ns_val = meta_ns * 100.0 if meta_ns else None
+        if meta_ns is None:
+            for k_srv, v_srv in services_cfg.items():
+                if k_srv.strip().upper() == s.strip().upper():
+                    meta_ns = v_srv.get("ns_meta", None)
+                    break
+        meta_ns_val = meta_ns * 100.0 if meta_ns is not None else None
+
+        meta_aht = aht_metas.get(s, None)
+        if meta_aht is None:
+            for k_aht, v_aht in aht_metas.items():
+                if k_aht.strip().upper() == s.strip().upper():
+                    meta_aht = v_aht
+                    break
 
         serv_data[s] = {
             "LL ENT": off,
@@ -285,7 +329,7 @@ def construir_matriz_ejecutiva_gtr(df_raw: pd.DataFrame, gtr_cfg: dict):
             "% ABAN": (abn / off * 100.0) if off > 0 else 0.0,
             "% NS META": meta_ns_val,
             "% NS": (sl_n / sl_d * 100.0) if sl_d > 0 else 0.0,
-            "META AHT": aht_metas.get(s, None),
+            "META AHT": meta_aht,
             "AHT": (h_s / h_c / 1000.0) if h_c > 0 else 0.0,
             "ASA": (a_s / ans / 1000.0) if ans > 0 else 0.0,
         }
@@ -809,6 +853,100 @@ def render_tab_gtr(agentes_map: dict):
             }
         )
 
+        # 4.1 Desglose interactivo de "Otras Colas / No Mapeado"
+        df_no_map = df_raw[df_raw["servicio"] == "Otras Colas / No Mapeado"]
+        if not df_no_map.empty:
+            total_off_nomap = int(df_no_map["nOffered"].sum())
+            total_ans_nomap = int(df_no_map["tAnswered_count"].sum())
+            total_abn_nomap = int(df_no_map["tAbandon_count"].sum())
+            qids_no_map = tuple(df_no_map["queueId"].dropna().unique())
+
+            with st.expander(
+                f"🔎 Desglose de 'Otras Colas / No Mapeado' ({len(qids_no_map)} colas activas • {total_off_nomap:,} interacciones)",
+                expanded=False
+            ):
+                st.markdown(
+                    """
+                    **¿Qué es 'Otras Colas / No Mapeado'?**
+                    Son interacciones procesadas en Genesys Cloud en colas que **no están catalogadas dentro de los servicios oficiales de GTR** (`gtr_config.json`).
+                    
+                    Típicamente corresponden a:
+                    - Colas operativas de soporte interno, remisiones o pruebas técnicas.
+                    - Colas de transferencias secundarias o células especializadas (ej. NDC, Reclamos, Backoffice).
+                    - Colas asignadas a divisiones con permisos restringidos en Genesys Cloud.
+                    
+                    A continuación se presenta el desglose detallado por cola con su volumen real de hoy:
+                    """
+                )
+
+                nombres_resueltos = resolver_nombres_colas_genesys(token, qids_no_map)
+
+                desglose = df_no_map.groupby(["queueId", "canal"]).agg({
+                    "nOffered": "sum",
+                    "tAnswered_count": "sum",
+                    "tAbandon_count": "sum",
+                    "sl_numerator": "sum",
+                    "sl_denominator": "sum",
+                    "tHandle_sum": "sum",
+                    "tHandle_count": "sum",
+                    "tAnswered_sum": "sum"
+                }).reset_index()
+
+                desglose["Nombre de Cola en Genesys"] = desglose["queueId"].map(
+                    lambda q: nombres_resueltos.get(q, str(q)) if q in nombres_resueltos else str(q)
+                )
+                desglose["% Abandono"] = desglose.apply(
+                    lambda r: (r["tAbandon_count"] / r["nOffered"] * 100.0) if r["nOffered"] > 0 else 0.0, axis=1
+                )
+                desglose["% NS"] = desglose.apply(
+                    lambda r: (r["sl_numerator"] / r["sl_denominator"] * 100.0) if r["sl_denominator"] > 0 else 0.0, axis=1
+                )
+                desglose["AHT (s)"] = desglose.apply(
+                    lambda r: (r["tHandle_sum"] / r["tHandle_count"] / 1000.0) if r["tHandle_count"] > 0 else 0.0, axis=1
+                )
+                desglose["ASA (s)"] = desglose.apply(
+                    lambda r: (r["tAnswered_sum"] / r["tAnswered_count"] / 1000.0) if r["tAnswered_count"] > 0 else 0.0, axis=1
+                )
+
+                desglose = desglose.rename(columns={
+                    "queueId": "ID de Cola (GUID)",
+                    "canal": "Canal",
+                    "nOffered": "Entrantes",
+                    "tAnswered_count": "Atendidas",
+                    "tAbandon_count": "Abandonadas"
+                })
+
+                desglose = desglose.sort_values(by=["Entrantes"], ascending=False)
+
+                cols_show = [
+                    "Nombre de Cola en Genesys",
+                    "Canal",
+                    "Entrantes",
+                    "Atendidas",
+                    "Abandonadas",
+                    "% Abandono",
+                    "% NS",
+                    "AHT (s)",
+                    "ASA (s)",
+                    "ID de Cola (GUID)"
+                ]
+
+                st.dataframe(
+                    desglose[cols_show],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
+                        "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
+                        "Abandonadas": st.column_config.NumberColumn("Abandonadas", format="%d"),
+                        "% Abandono": st.column_config.NumberColumn("% Abandono", format="%.1f%%"),
+                        "% NS": st.column_config.NumberColumn("% NS", format="%.1f%%"),
+                        "AHT (s)": st.column_config.NumberColumn("AHT (s)", format="%.0f s"),
+                        "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%.1f s"),
+                        "ID de Cola (GUID)": st.column_config.TextColumn("ID de Cola (GUID)", width="medium"),
+                    }
+                )
+
         # 5. Causalidad y Desglose por Supervisor
         st.markdown("#### 🔍 Diagnóstico Causa-Raíz por Supervisor")
         st.caption("Cálculo ponderado por interacciones para evaluar impacto real en AHT, Talk, Hold y ACW de cada equipo.")
@@ -1069,6 +1207,8 @@ $$\\text{AHT (Tiempo Total)} = \\text{Talk (Conversación)} + \\text{Hold (Esper
         st.markdown("---")
         st.markdown("### ⏱️ Detalle Intradía por Servicio (Intervalos 30 Minutos y Acumulados)")
         servicios_intradia = [s for s in SERVICIOS_ORDEN_OFICIAL if s in serv_data and serv_data[s]["LL ENT"] > 0]
+        if "Otras Colas / No Mapeado" in serv_data and serv_data["Otras Colas / No Mapeado"]["LL ENT"] > 0:
+            servicios_intradia.append("Otras Colas / No Mapeado")
         servicio_activo = st.selectbox("Seleccione el Servicio a Analizar:", servicios_intradia, index=1 if len(servicios_intradia) > 1 else 0)
 
         if servicio_activo == "TT_LATAM":
