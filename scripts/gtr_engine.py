@@ -662,8 +662,8 @@ def render_tab_gtr(agentes_map: dict):
         st.warning("⚠️ No se encontró token activo de Genesys Cloud. Conéctalo en Neon Postgres o revisa las credenciales.")
         return
 
-    gtr_cfg = cargar_config_gtr()
-    hoy_col = (datetime.now(timezone.utc) - timedelta(hours=5)).date()
+    ahora_col = datetime.now(timezone.utc) - timedelta(hours=5)
+    hoy_col = ahora_col.date()
     k_pfx = "gtr_"
 
     col_h1, col_h2 = st.columns([3, 2])
@@ -690,14 +690,14 @@ def render_tab_gtr(agentes_map: dict):
 
     with col_t2:
         if tipo_corte == "🔴 Hoy (En Vivo)":
-            st.info(f"🟢 Mostrando métricas de hoy en tiempo real (Corte a las: `{datetime.now().strftime('%I:%M %p')}`).")
+            st.info(f"🟢 Mostrando métricas de hoy en tiempo real (Corte a las: `{ahora_col.strftime('%I:%M %p')}`).")
             delta_tag = "En Vivo (60s)"
         elif tipo_corte == "📅 Fecha Específica":
             c_f1, c_f2 = st.columns([2, 1])
             with c_f1:
                 f_sel = st.date_input(
                     "Fecha a Analizar:",
-                    value=hoy_col - timedelta(days=1) if modo_historico else hoy_col,
+                    value=hoy_col,
                     max_value=hoy_col,
                     key=f"{k_pfx}dia_input"
                 )
