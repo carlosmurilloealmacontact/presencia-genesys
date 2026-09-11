@@ -3,3 +3,4 @@ plotly
 pandas
 openpyxl
 psycopg2-binary
+authlib>=1.3.2

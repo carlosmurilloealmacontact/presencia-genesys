@@ -27,6 +27,12 @@ import streamlit as st
 
 from live_engine import obtener_token_genesys
 
+try:
+    from audit_engine import registrar_evento
+except Exception:
+    def registrar_evento(*args, **kwargs):
+        pass
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_GTR_PATH = os.path.join(BASE_DIR, "gtr_config.json")
 
@@ -790,6 +796,12 @@ def render_tab_gtr(agentes_map: dict):
             else:
                 if st.button("⚡ Preparar (CONFIDENCIAL)HORA_HORA.xlsx", key=f"{k_pfx}prep_hh", use_container_width=True):
                     st.session_state["bytes_hh_cache"] = generar_excel_hora_hora_fiel(df_raw, df_matriz, gtr_cfg)
+                    try:
+                        u_mail = getattr(st.user, "email", "usuario") if hasattr(st, "user") else "usuario"
+                        u_nom = getattr(st.user, "name", u_mail) if hasattr(st, "user") else u_mail
+                        registrar_evento(u_mail, u_nom, "Niveles de Servicio", "descarga_hora_hora", f"HORA_HORA{suffix_file}.xlsx")
+                    except Exception:
+                        pass
                     st.rerun()
 
         with col_exp2:
@@ -815,6 +827,12 @@ def render_tab_gtr(agentes_map: dict):
                     df_as_raw, _ = obtener_aht_asesores_api(token, fecha_desde_str, fecha_hasta_str)
                     if not df_as_raw.empty:
                         st.session_state["bytes_aht_cache"] = generar_excel_aht_genesys_fiel(df_as_raw, agentes_map, gtr_cfg)
+                        try:
+                            u_mail = getattr(st.user, "email", "usuario") if hasattr(st, "user") else "usuario"
+                            u_nom = getattr(st.user, "name", u_mail) if hasattr(st, "user") else u_mail
+                            registrar_evento(u_mail, u_nom, "Niveles de Servicio", "descarga_aht", f"AHT_GENESYS{suffix_file}.xlsm")
+                        except Exception:
+                            pass
                         st.rerun()
                     else:
                         st.warning("No se encontraron registros de asesores para exportar.")

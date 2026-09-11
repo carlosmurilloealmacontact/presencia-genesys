@@ -20,6 +20,70 @@ from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_g
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
+from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, ADMINS_AUTORIZADOS
+
+# ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
+auth_configurado = "auth" in st.secrets
+
+if auth_configurado:
+    # 1. Validar inicio de sesión
+    if not getattr(st.user, "is_logged_in", False):
+        st.markdown(
+            """
+            <div style="max-width: 480px; margin: 40px auto 20px auto; padding: 35px 25px; background: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); text-align: center; border: 1px solid #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+                <div style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 15px;">
+                    🔒 Acceso Restringido
+                </div>
+                <h2 style="color: #0f172a; margin: 0 0 8px 0; font-size: 22px;">Panel de Gestión Operativa</h2>
+                <p style="color: #64748b; font-size: 13px; margin: 0 0 20px 0;">Almaexperience • Genesys Cloud & GTR</p>
+                <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 25px; border: 1px dashed #cbd5e1; font-size: 13px; color: #334155;">
+                    Acceso permitido exclusivamente a cuentas corporativas autorizadas <b>@outsourcing-account.com</b>.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        c_l1, c_l2, c_l3 = st.columns([1, 1.5, 1])
+        with c_l2:
+            if st.button("🔑 Iniciar Sesión con Google", type="primary", use_container_width=True):
+                st.login()
+        st.stop()
+
+    current_email = (getattr(st.user, "email", "") or "").strip().lower()
+    current_name = getattr(st.user, "name", "") or current_email
+
+    # 2. Validar que el dominio sea estrictamente @outsourcing-account.com
+    if not current_email.endswith(DOMINIO_CORPORATIVO):
+        st.markdown(
+            f"""
+            <div style="max-width: 500px; margin: 60px auto 20px auto; padding: 30px; background-color: #fef2f2; border-radius: 12px; border: 1px solid #f87171; text-align: center;">
+                <h3 style="color: #991b1b; margin-top: 0;">⛔ Acceso Denegado</h3>
+                <p style="color: #7f1d1d; font-size: 14px; margin-bottom: 10px;">
+                    Has iniciado sesión con el correo:<br><b>{current_email}</b>
+                </p>
+                <p style="color: #991b1b; font-size: 13px;">
+                    Este tablero es privado y solo admite colaboradores con cuenta corporativa <b>{DOMINIO_CORPORATIVO}</b>.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        c_b1, c_b2, c_b3 = st.columns([1, 1.5, 1])
+        with c_b2:
+            if st.button("Cerrar Sesión e Intentar con otra cuenta", use_container_width=True):
+                st.logout()
+        st.stop()
+
+    # 3. Auditoría: Registrar ingreso de sesión
+    if "audit_login_registrado" not in st.session_state:
+        st.session_state["audit_login_registrado"] = True
+        registrar_evento(current_email, current_name, "Sistema", "login", "Ingreso exitoso al panel")
+
+else:
+    # Modo local / sin secrets de OAuth configurados
+    current_email = "carlosmurilloe.almacontact@outsourcing-account.com"
+    current_name = "Carlos Murillo"
+
 PALETA_ESTADOS = px.colors.qualitative.Alphabet + px.colors.qualitative.Dark24
 
 # Tarjetas de cumplimiento.
@@ -851,14 +915,31 @@ SECCIONES_APP = [
     "Niveles de Servicio",
 ]
 
-seccion_activa = st.segmented_control(
-    "Navegación del Tablero",
-    options=SECCIONES_APP,
-    default=SECCIONES_APP[0],
-    label_visibility="collapsed"
-)
-if not seccion_activa:
-    seccion_activa = SECCIONES_APP[0]
+if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
+    SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
+
+col_nav, col_auth = st.columns([4, 1.2])
+with col_nav:
+    seccion_activa = st.segmented_control(
+        "Navegación del Tablero",
+        options=SECCIONES_APP,
+        default=SECCIONES_APP[0],
+        label_visibility="collapsed"
+    )
+    if not seccion_activa:
+        seccion_activa = SECCIONES_APP[0]
+
+with col_auth:
+    if auth_configurado and getattr(st.user, "is_logged_in", False):
+        c_alias = current_email.split('@')[0]
+        st.markdown(f"<div style='text-align: right; padding-top: 2px; font-size: 13px; color: #475569;'>👤 <b>{current_name.split()[0]}</b><br><span style='font-size: 11px; color: #94a3b8;'>{c_alias}</span></div>", unsafe_allow_html=True)
+        if st.button("Cerrar Sesión", key="btn_logout_top", use_container_width=True):
+            st.logout()
+
+# Auditoría: Registrar cambio de sección
+if "seccion_audit_actual" not in st.session_state or st.session_state["seccion_audit_actual"] != seccion_activa:
+    st.session_state["seccion_audit_actual"] = seccion_activa
+    registrar_evento(current_email, current_name, seccion_activa, "cambio_seccion")
 
 def render_tab_asesores_historico():
     rango_disponible = cargar_rango_fechas()
@@ -1578,3 +1659,6 @@ elif seccion_activa == "Control de Estados (en Vivo)":
 
 elif seccion_activa == "Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())
+
+elif seccion_activa == "📊 Estadísticas de Usabilidad":
+    render_panel_auditoria()
