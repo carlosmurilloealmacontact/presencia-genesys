@@ -17,6 +17,7 @@ from config import DB_PATH
 import os
 from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo, obtener_token_genesys
 from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_gtr
+from capacidad_engine import render_tab_capacidad
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
@@ -915,6 +916,11 @@ SECCIONES_APP = [
     "Niveles de Servicio",
 ]
 
+# Pestaña de Capacidad y Diagnóstico Operativo (WFM SORE vs Real):
+# Habilitada en entorno local o para administradores para validación interna
+if not auth_configurado or current_email in ADMINS_AUTORIZADOS:
+    SECCIONES_APP.append("🧭 Capacidad y Diagnóstico (Local)")
+
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
 
@@ -1685,6 +1691,9 @@ elif seccion_activa == "Control de Estados (en Vivo)":
 
 elif seccion_activa == "Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())
+
+elif seccion_activa == "🧭 Capacidad y Diagnóstico (Local)":
+    render_tab_capacidad(cargar_agentes_map_base())
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
     render_panel_auditoria()
