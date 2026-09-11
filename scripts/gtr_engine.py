@@ -112,27 +112,49 @@ def resolver_nombres_colas_genesys(token: str, queue_ids: tuple) -> dict:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def obtener_metricas_gtr_api(token: str):
+def obtener_metricas_gtr_api(token: str, fecha_desde: str = None, fecha_hasta: str = None):
     """
-    Consulta Genesys Cloud Analytics Conversation Aggregates para el día actual
-    en bloques de 30 minutos (PT30M).
+    Consulta Genesys Cloud Analytics Conversation Aggregates.
+    - Si fecha_desde es None: consulta el día actual en vivo (PT30M).
+    - Si fecha_desde es dada: consulta el día específico (PT30M) o rango de fechas.
     """
     gtr_cfg = cargar_config_gtr()
     queues_cfg = gtr_cfg.get("queues", {})
     services_cfg = gtr_cfg.get("services", {})
 
     now_utc = datetime.now(timezone.utc)
-    today_col_start = now_utc.replace(hour=5, minute=0, second=0, microsecond=0)
-    if now_utc < today_col_start:
-        today_col_start -= timedelta(days=1)
+    if not fecha_desde:
+        today_col_start = now_utc.replace(hour=5, minute=0, second=0, microsecond=0)
+        if now_utc < today_col_start:
+            today_col_start -= timedelta(days=1)
 
-    s_start = today_col_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    s_end = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    interval = f"{s_start}/{s_end}"
+        s_start = today_col_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        s_end = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        interval = f"{s_start}/{s_end}"
+        granularity = "PT30M"
+        now_col = now_utc - timedelta(hours=5)
+        hora_actualizacion = now_col.strftime("%I:%M:%S %p")
+    else:
+        try:
+            start_dt = pd.to_datetime(f"{fecha_desde} 05:00:00")
+            if not fecha_hasta or fecha_hasta == fecha_desde:
+                end_dt = start_dt + pd.Timedelta(days=1)
+                granularity = "PT30M"
+                hora_actualizacion = f"Cierre {fecha_desde}"
+            else:
+                end_dt = pd.to_datetime(f"{fecha_hasta} 05:00:00") + pd.Timedelta(days=1)
+                dias_diff = (end_dt - start_dt).days
+                granularity = "PT30M" if dias_diff <= 7 else "P1D"
+                hora_actualizacion = f"{fecha_desde} al {fecha_hasta}"
+            s_start = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            s_end = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            interval = f"{s_start}/{s_end}"
+        except Exception as e:
+            return pd.DataFrame(), f"Error en fechas: {e}", ""
 
     body = {
         "interval": interval,
-        "granularity": "PT30M",
+        "granularity": granularity,
         "groupBy": ["queueId"],
         "metrics": ["nOffered", "tAnswered", "tAbandon", "tHandle", "oServiceLevel"]
     }
@@ -140,7 +162,7 @@ def obtener_metricas_gtr_api(token: str):
     url = "https://api.mypurecloud.com/api/v2/analytics/conversations/aggregates/query"
 
     try:
-        r = requests.post(url, headers=headers, json=body, timeout=25)
+        r = requests.post(url, headers=headers, json=body, timeout=30)
         if r.status_code != 200:
             return pd.DataFrame(), f"Error API Genesys: {r.status_code} - {r.text[:200]}", ""
         res = r.json()
@@ -159,7 +181,7 @@ def obtener_metricas_gtr_api(token: str):
             int_str = interval_data.get("interval", "")
             start_utc = int_str.split("/")[0] if "/" in int_str else int_str
             dt_col = pd.to_datetime(start_utc) - pd.Timedelta(hours=5)
-            int_label = dt_col.strftime("%H:%M")
+            int_label = dt_col.strftime("%H:%M") if granularity == "PT30M" else dt_col.strftime("%Y-%m-%d")
 
             row = {
                 "queueId": qid,
@@ -199,23 +221,31 @@ def obtener_metricas_gtr_api(token: str):
                     row["sl_numerator"] = stats.get("numerator", int(round(ratio * denom)))
             records.append(row)
 
-    now_col = now_utc - timedelta(hours=5)
-    hora_actualizacion = now_col.strftime("%I:%M:%S %p")
     return pd.DataFrame(records), None, hora_actualizacion
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def obtener_aht_asesores_api(token: str):
+def obtener_aht_asesores_api(token: str, fecha_desde: str = None, fecha_hasta: str = None):
     """
-    Consulta métricas de manejo por agente (userId) para el día actual.
+    Consulta métricas de manejo por agente (userId) para hoy o para un período histórico.
     """
     now_utc = datetime.now(timezone.utc)
-    today_col_start = now_utc.replace(hour=5, minute=0, second=0, microsecond=0)
-    if now_utc < today_col_start:
-        today_col_start -= timedelta(days=1)
+    if not fecha_desde:
+        today_col_start = now_utc.replace(hour=5, minute=0, second=0, microsecond=0)
+        if now_utc < today_col_start:
+            today_col_start -= timedelta(days=1)
 
-    s_start = today_col_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    s_end = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        s_start = today_col_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        s_end = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    else:
+        start_dt = pd.to_datetime(f"{fecha_desde} 05:00:00")
+        if not fecha_hasta or fecha_hasta == fecha_desde:
+            end_dt = start_dt + pd.Timedelta(days=1)
+        else:
+            end_dt = pd.to_datetime(f"{fecha_hasta} 05:00:00") + pd.Timedelta(days=1)
+        s_start = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        s_end = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
     interval = f"{s_start}/{s_end}"
 
     body = {
@@ -233,7 +263,7 @@ def obtener_aht_asesores_api(token: str):
     url = "https://api.mypurecloud.com/api/v2/analytics/conversations/aggregates/query"
 
     try:
-        r = requests.post(url, headers=headers, json=body, timeout=25)
+        r = requests.post(url, headers=headers, json=body, timeout=30)
         if r.status_code != 200:
             return pd.DataFrame(), f"Error AHT Asesores: {r.status_code}"
         res = r.json()
@@ -625,39 +655,117 @@ def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: d
 
 # ── RENDER PRINCIPAL DEL COMPONENTE GTR ───────────────────────────────────────
 
-@st.fragment(run_every=60)
-def render_tab_gtr(agentes_map: dict):
-    """Renderiza la pestaña principal de Monitor GTR con auto-actualización cada 60s."""
+def render_tab_gtr(agentes_map: dict, modo_historico: bool = False):
+    """Renderiza la pestaña principal de Monitor GTR con soporte en vivo y selección de fechas."""
     token = obtener_token_genesys()
     if not token:
         st.warning("⚠️ No se encontró token activo de Genesys Cloud. Conéctalo en Neon Postgres o revisa las credenciales.")
         return
 
     gtr_cfg = cargar_config_gtr()
+    hoy_col = (datetime.now(timezone.utc) - timedelta(hours=5)).date()
+    k_pfx = "hist_gtr_" if modo_historico else "live_gtr_"
 
-    with st.spinner("Consultando métricas en vivo de Genesys Cloud..."):
-        df_raw, err, hora_act = obtener_metricas_gtr_api(token)
+    col_h1, col_h2 = st.columns([3, 2])
+    with col_h1:
+        st.subheader("📈 Monitor GTR — Gestión en Tiempo Real & Niveles de Servicio")
+        if modo_historico:
+            st.caption("Consolidado histórico y réplica de reportes oficiales `HORA A HORA` y `AHT GENESYS` por fecha.")
+        else:
+            st.caption("Replicación de reportes oficiales `HORA A HORA` y `AHT GENESYS` • En vivo o consulta por fechas.")
+
+    # ── BARRA DE SELECCIÓN DE TEMPORALIDAD / FECHA ───────────────────────────
+    col_t1, col_t2 = st.columns([2, 3])
+    with col_t1:
+        opciones_corte = ["🔴 Hoy (En Vivo)", "📅 Fecha Específica", "📊 Rango de Fechas"]
+        tipo_corte = st.segmented_control(
+            "Temporalidad a Visualizar:",
+            options=opciones_corte,
+            default="📅 Fecha Específica" if modo_historico else "🔴 Hoy (En Vivo)",
+            key=f"{k_pfx}tipo_corte"
+        )
+        if not tipo_corte:
+            tipo_corte = "📅 Fecha Específica" if modo_historico else "🔴 Hoy (En Vivo)"
+
+    fecha_desde_str = None
+    fecha_hasta_str = None
+    delta_tag = "En Vivo (60s)"
+
+    with col_t2:
+        if tipo_corte == "🔴 Hoy (En Vivo)":
+            st.info(f"🟢 Mostrando métricas de hoy en tiempo real (Corte a las: `{datetime.now().strftime('%I:%M %p')}`).")
+            delta_tag = "En Vivo (60s)"
+        elif tipo_corte == "📅 Fecha Específica":
+            c_f1, c_f2 = st.columns([2, 1])
+            with c_f1:
+                f_sel = st.date_input(
+                    "Fecha a Analizar:",
+                    value=hoy_col - timedelta(days=1) if modo_historico else hoy_col,
+                    max_value=hoy_col,
+                    key=f"{k_pfx}dia_input"
+                )
+                fecha_desde_str = str(f_sel)
+                fecha_hasta_str = str(f_sel)
+                delta_tag = f"Cierre {fecha_desde_str}"
+            with c_f2:
+                if st.button("Ayer", key=f"{k_pfx}btn_ayer", use_container_width=True):
+                    st.session_state[f"{k_pfx}dia_input"] = hoy_col - timedelta(days=1)
+                    st.rerun()
+        else:  # Rango de Fechas
+            c_p1, c_p2, c_p3 = st.columns([1, 1, 2])
+            with c_p1:
+                if st.button("7 días", key=f"{k_pfx}r7", use_container_width=True):
+                    st.session_state[f"{k_pfx}r_desde"] = hoy_col - timedelta(days=6)
+                    st.session_state[f"{k_pfx}r_hasta"] = hoy_col
+                    st.rerun()
+            with c_p2:
+                if st.button("14 días", key=f"{k_pfx}r14", use_container_width=True):
+                    st.session_state[f"{k_pfx}r_desde"] = hoy_col - timedelta(days=13)
+                    st.session_state[f"{k_pfx}r_hasta"] = hoy_col
+                    st.rerun()
+            with c_p3:
+                c_d_in1, c_d_in2 = st.columns(2)
+                with c_d_in1:
+                    if f"{k_pfx}r_desde" not in st.session_state:
+                        st.session_state[f"{k_pfx}r_desde"] = hoy_col - timedelta(days=6)
+                    f_r_d = st.date_input("Desde:", key=f"{k_pfx}r_desde", max_value=hoy_col)
+                with c_d_in2:
+                    if f"{k_pfx}r_hasta" not in st.session_state:
+                        st.session_state[f"{k_pfx}r_hasta"] = hoy_col
+                    f_r_h = st.date_input("Hasta:", key=f"{k_pfx}r_hasta", max_value=hoy_col)
+                fecha_desde_str = str(f_r_d)
+                fecha_hasta_str = str(f_r_h)
+                delta_tag = f"Período {fecha_desde_str} al {fecha_hasta_str}"
+
+    # Invalidar caché de Excel si cambió la fecha
+    curr_date_key = f"{fecha_desde_str}_{fecha_hasta_str}"
+    if st.session_state.get(f"{k_pfx}last_date_key") != curr_date_key:
+        st.session_state[f"{k_pfx}last_date_key"] = curr_date_key
+        st.session_state["bytes_hh_cache"] = None
+        st.session_state["bytes_aht_cache"] = None
+
+    with st.spinner(f"Consultando métricas de Genesys Cloud ({delta_tag})..."):
+        df_raw, err, hora_act = obtener_metricas_gtr_api(token, fecha_desde_str, fecha_hasta_str)
 
     if err or df_raw.empty:
         st.error(f"No fue posible cargar las métricas de Genesys: {err}")
         return
 
-    col_h1, col_h2 = st.columns([3, 2])
-    with col_h1:
-        st.subheader("📈 Monitor GTR — Gestión en Tiempo Real & Niveles de Servicio")
-        st.caption(f"Replicación en vivo de los reportes oficiales `HORA A HORA` y `AHT GENESYS` • **Auto-actualización cada 60 segundos** (Hora Col: `{hora_act}`)")
     with col_h2:
         btn_c1, btn_c2 = st.columns([1, 1])
         with btn_c1:
-            st.metric("Último Corte", hora_act if hora_act else "--:--", delta="En Vivo (60s)")
+            st.metric("Corte / Período", hora_act if hora_act else "--:--", delta=delta_tag)
         with btn_c2:
-            if st.button("🔄 Actualizar Ahora", use_container_width=True):
+            if st.button("🔄 Actualizar Ahora", key=f"{k_pfx}btn_refresh", use_container_width=True):
                 st.cache_data.clear()
+                st.session_state["bytes_hh_cache"] = None
+                st.session_state["bytes_aht_cache"] = None
                 st.rerun()
 
     df_matriz, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
 
     # ── BOTONES DE DESCARGA EXACTA GTR ───────────────────────────────────────
+    suffix_file = f"_{fecha_desde_str}" if fecha_desde_str else f"_{datetime.now().strftime('%d%m%Y_%H%M')}"
     with st.expander("📦 Exportación Fiel a Archivos Oficiales de GTR (Excel Automático)", expanded=False):
         st.markdown(
             "Estos botones recrean **los mismos libros Excel que el equipo de GTR genera cada hora**, listos para archivar o enviar:"
@@ -673,16 +781,16 @@ def render_tab_gtr(agentes_map: dict):
                     st.download_button(
                         label="📥 Descargar (CONFIDENCIAL)HORA_HORA.xlsx",
                         data=st.session_state["bytes_hh_cache"],
-                        file_name=f"(CONFIDENCIAL)HORA_HORA_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
+                        file_name=f"(CONFIDENCIAL)HORA_HORA{suffix_file}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 with c_d2:
-                    if st.button("🔄", key="regen_hh", help="Generar nueva versión"):
+                    if st.button("🔄", key=f"{k_pfx}regen_hh", help="Generar nueva versión"):
                         st.session_state["bytes_hh_cache"] = None
                         st.rerun()
             else:
-                if st.button("⚡ Preparar (CONFIDENCIAL)HORA_HORA.xlsx", use_container_width=True):
+                if st.button("⚡ Preparar (CONFIDENCIAL)HORA_HORA.xlsx", key=f"{k_pfx}prep_hh", use_container_width=True):
                     st.session_state["bytes_hh_cache"] = generar_excel_hora_hora_fiel(df_raw, df_matriz, gtr_cfg)
                     st.rerun()
 
@@ -696,17 +804,17 @@ def render_tab_gtr(agentes_map: dict):
                     st.download_button(
                         label="📥 Descargar AHT_GENESYS.xlsm",
                         data=st.session_state["bytes_aht_cache"],
-                        file_name=f"AHT_GENESYS_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsm",
+                        file_name=f"AHT_GENESYS{suffix_file}.xlsm",
                         mime="application/vnd.ms-excel.sheet.macroEnabled.12",
                         use_container_width=True
                     )
                 with c_a2:
-                    if st.button("🔄", key="regen_aht", help="Generar nueva versión"):
+                    if st.button("🔄", key=f"{k_pfx}regen_aht", help="Generar nueva versión"):
                         st.session_state["bytes_aht_cache"] = None
                         st.rerun()
             else:
-                if st.button("⚡ Preparar AHT_GENESYS.xlsm", use_container_width=True):
-                    df_as_raw, _ = obtener_aht_asesores_api(token)
+                if st.button("⚡ Preparar AHT_GENESYS.xlsm", key=f"{k_pfx}prep_aht", use_container_width=True):
+                    df_as_raw, _ = obtener_aht_asesores_api(token, fecha_desde_str, fecha_hasta_str)
                     if not df_as_raw.empty:
                         st.session_state["bytes_aht_cache"] = generar_excel_aht_genesys_fiel(df_as_raw, agentes_map, gtr_cfg)
                         st.rerun()
@@ -965,7 +1073,7 @@ $$\\text{AHT (Tiempo Total)} = \\text{Talk (Conversación)} + \\text{Hold (Esper
 👉 **Revisa la columna final "Acción Recomendada / Foco de Gestión" para saber exactamente qué intervenir con cada supervisor y con cada asesor en el desglose.**
 """)
 
-        df_as_raw, _ = obtener_aht_asesores_api(token)
+        df_as_raw, _ = obtener_aht_asesores_api(token, fecha_desde_str, fecha_hasta_str)
         if not df_as_raw.empty:
             aht_metas = gtr_cfg.get("aht_metas", {})
             metas_upper = {k.strip().upper(): v for k, v in aht_metas.items()}

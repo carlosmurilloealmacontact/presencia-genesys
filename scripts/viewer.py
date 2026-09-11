@@ -1580,12 +1580,7 @@ if seccion_activa == "📊 Análisis Histórico y Adherencia":
         render_tab_asesores_historico()
 
     with tab_gtr:
-        token = obtener_token_genesys()
-        if not token:
-            st.error("No se encontró token de Genesys Cloud para consultar métricas históricas.")
-        else:
-            gtr_cfg = cargar_config_gtr()
-            render_tab_gtr_historico(token, gtr_cfg)
+        render_tab_gtr(cargar_agentes_map_base(), modo_historico=True)
 
 
 elif seccion_activa == "🔴 Monitoreo en Vivo (Piso)":
