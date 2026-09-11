@@ -1268,3 +1268,617 @@ $$\\text{AHT (Tiempo Total)} = \\text{Talk (Conversación)} + \\text{Hold (Esper
             use_container_width=True,
             hide_index=True
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MOTOR HISTÓRICO DE NIVELES DE SERVICIO & GTR (GENESYS CLOUD ANALYTICS)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def obtener_metricas_gtr_historico_api(token: str, fecha_desde: str, fecha_hasta: str, granularidad: str = "P1D"):
+    """
+    Consulta métricas históricas de conversación a Genesys Cloud Analytics Conversation Aggregates.
+    Soporta granularidad P1D (día a día) o PT30M (intervalos de 30 min para un día específico).
+    """
+    gtr_cfg = cargar_config_gtr()
+    queues_cfg = gtr_cfg.get("queues", {})
+    services_cfg = gtr_cfg.get("services", {})
+
+    try:
+        start_dt = pd.to_datetime(f"{fecha_desde} 05:00:00")
+        end_dt = pd.to_datetime(f"{fecha_hasta} 05:00:00") + pd.Timedelta(days=1)
+        s_start = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        s_end = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        interval = f"{s_start}/{s_end}"
+    except Exception as e:
+        return pd.DataFrame(), f"Error en formato de fechas: {e}"
+
+    body = {
+        "interval": interval,
+        "granularity": granularidad,
+        "groupBy": ["queueId"],
+        "metrics": ["nOffered", "tAnswered", "tAbandon", "tHandle", "oServiceLevel"]
+    }
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = "https://api.mypurecloud.com/api/v2/analytics/conversations/aggregates/query"
+
+    try:
+        r = requests.post(url, headers=headers, json=body, timeout=35)
+        if r.status_code != 200:
+            return pd.DataFrame(), f"Error API Genesys ({r.status_code}): {r.text[:200]}"
+        res = r.json()
+    except Exception as e:
+        return pd.DataFrame(), f"Error de conexión con Genesys: {str(e)}"
+
+    records = []
+    for group in res.get("results", []):
+        qid = group.get("group", {}).get("queueId")
+        q_info = queues_cfg.get(qid, {})
+        srv = q_info.get("servicio", "Otras Colas / No Mapeado")
+        q_name = q_info.get("nombre_cola", qid or "Directo / Sin Cola")
+        canal = services_cfg.get(srv, {}).get("canal", "VOZ" if "WPP" not in srv and "CHAT" not in srv else "DIGITAL")
+
+        for d in group.get("data", []):
+            int_str = d.get("interval", "")
+            start_utc = int_str.split("/")[0] if "/" in int_str else int_str
+            dt_col = pd.to_datetime(start_utc) - pd.Timedelta(hours=5)
+            f_label = dt_col.strftime("%Y-%m-%d")
+            h_label = dt_col.strftime("%H:%M")
+
+            row = {
+                "fecha": f_label,
+                "intervalo": h_label,
+                "intervalo_dt": dt_col,
+                "queueId": qid,
+                "nombre_cola": q_name,
+                "servicio": srv,
+                "canal": canal,
+                "nOffered": 0,
+                "tAnswered_count": 0,
+                "tAnswered_sum": 0.0,
+                "tAbandon_count": 0,
+                "tAbandon_sum": 0.0,
+                "tHandle_count": 0,
+                "tHandle_sum": 0.0,
+                "sl_numerator": 0,
+                "sl_denominator": 0
+            }
+            for metric in d.get("metrics", []):
+                m_name = metric.get("metric")
+                stats = metric.get("stats", {})
+                if m_name == "nOffered":
+                    row["nOffered"] = stats.get("count", 0)
+                elif m_name == "tAnswered":
+                    row["tAnswered_count"] = stats.get("count", 0)
+                    row["tAnswered_sum"] = stats.get("sum", 0.0)
+                elif m_name == "tAbandon":
+                    row["tAbandon_count"] = stats.get("count", 0)
+                    row["tAbandon_sum"] = stats.get("sum", 0.0)
+                elif m_name == "tHandle":
+                    row["tHandle_count"] = stats.get("count", 0)
+                    row["tHandle_sum"] = stats.get("sum", 0.0)
+                elif m_name == "oServiceLevel":
+                    ratio = stats.get("ratio", 0.0)
+                    denom = stats.get("denominator", 0)
+                    row["sl_denominator"] = denom
+                    row["sl_numerator"] = stats.get("numerator", int(round(ratio * denom)))
+            records.append(row)
+
+    return pd.DataFrame(records), None
+
+
+def render_tab_gtr_historico(token: str, gtr_cfg: dict):
+    """
+    Renderiza la sección histórica de Niveles de Servicio y GTR en la pestaña Histórico.
+    Permite análisis de tendencias diarias, gráficos comparativos con metas y consolidado por servicio.
+    """
+    st.markdown("### 📈 Histórico de Niveles de Servicio & GTR")
+    st.caption("Consolidado histórico de volumen, abandono, SLA y AHT directo desde Genesys Cloud Analytics Conversation Aggregates.")
+
+    hoy = datetime.now(timezone.utc).date()
+    if "gtr_hist_hasta" not in st.session_state:
+        st.session_state["gtr_hist_hasta"] = hoy
+    if "gtr_hist_desde" not in st.session_state:
+        st.session_state["gtr_hist_desde"] = hoy - timedelta(days=6)
+
+    # 1. Controles de Rango de Fechas
+    col_d1, col_d2, col_srv_filter = st.columns([1.2, 1.2, 3.6])
+
+    def set_rango_gtr(dias):
+        st.session_state["gtr_hist_hasta"] = hoy
+        if dias:
+            st.session_state["gtr_hist_desde"] = hoy - timedelta(days=dias - 1)
+        else:
+            st.session_state["gtr_hist_desde"] = hoy.replace(day=1)
+
+    with col_d1:
+        f_desde = st.date_input(
+            "Desde",
+            value=st.session_state["gtr_hist_desde"],
+            max_value=hoy,
+            key="input_gtr_hist_desde"
+        )
+        st.session_state["gtr_hist_desde"] = f_desde
+    with col_d2:
+        f_hasta = st.date_input(
+            "Hasta",
+            value=st.session_state["gtr_hist_hasta"],
+            max_value=hoy,
+            key="input_gtr_hist_hasta"
+        )
+        st.session_state["gtr_hist_hasta"] = f_hasta
+
+    # Presets rápidos
+    col_p1, col_p2, col_p3, col_p4, _, col_btn_act = st.columns([1, 1, 1, 1, 1, 3])
+    with col_p1:
+        if st.button("7 días", key="btn_gtr_7d", use_container_width=True):
+            set_rango_gtr(7)
+            st.rerun()
+    with col_p2:
+        if st.button("14 días", key="btn_gtr_14d", use_container_width=True):
+            set_rango_gtr(14)
+            st.rerun()
+    with col_p3:
+        if st.button("30 días", key="btn_gtr_30d", use_container_width=True):
+            set_rango_gtr(30)
+            st.rerun()
+    with col_p4:
+        if st.button("Mes actual", key="btn_gtr_mes", use_container_width=True):
+            set_rango_gtr(None)
+            st.rerun()
+    with col_btn_act:
+        if st.button("🔄 Actualizar Datos Históricos", key="btn_gtr_refresh", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+    if f_desde > f_hasta:
+        st.error("La fecha 'Desde' no puede ser posterior a 'Hasta'.")
+        return
+
+    # Opciones de servicios
+    opciones_servicios = ["TT_LATAM (Consolidado)", "TT_EQUIPAJES (Consolidado)"] + [
+        s for s in SERVICIOS_ORDEN_OFICIAL if s not in ("TT_LATAM", "TT_EQUIPAJES")
+    ] + ["Otras Colas / No Mapeado"]
+
+    with col_srv_filter:
+        srv_seleccionados = st.multiselect(
+            "Filtrar Servicios:",
+            options=opciones_servicios,
+            default=["TT_LATAM (Consolidado)", "TT_EQUIPAJES (Consolidado)"]
+        )
+
+    # 2. Consultar datos históricos
+    with st.spinner(f"Consultando métricas de Genesys Cloud ({f_desde} al {f_hasta})..."):
+        df_hist_raw, err = obtener_metricas_gtr_historico_api(token, str(f_desde), str(f_hasta), "P1D")
+
+    if err or df_hist_raw.empty:
+        st.warning(f"No se encontraron métricas históricas para el rango seleccionado: {err or 'Sin datos'}")
+        return
+
+    st.markdown("---")
+
+    # 3. Construir métricas agregadas por día y por servicio
+    services_cfg = gtr_cfg.get("services", {})
+    aht_metas = gtr_cfg.get("aht_metas", {})
+
+    filas_macros = []
+    fechas_unicas = sorted(df_hist_raw["fecha"].unique())
+    for f in fechas_unicas:
+        sub_f = df_hist_raw[df_hist_raw["fecha"] == f]
+        # TT_LATAM
+        sub_latam = sub_f[sub_f["servicio"].isin(SERVICIOS_TT_LATAM)]
+        if not sub_latam.empty:
+            filas_macros.append({
+                "fecha": f,
+                "servicio": "TT_LATAM (Consolidado)",
+                "canal": "CONSOLIDADO",
+                "nOffered": sub_latam["nOffered"].sum(),
+                "tAnswered_count": sub_latam["tAnswered_count"].sum(),
+                "tAnswered_sum": sub_latam["tAnswered_sum"].sum(),
+                "tAbandon_count": sub_latam["tAbandon_count"].sum(),
+                "tAbandon_sum": sub_latam["tAbandon_sum"].sum(),
+                "tHandle_count": sub_latam["tHandle_count"].sum(),
+                "tHandle_sum": sub_latam["tHandle_sum"].sum(),
+                "sl_numerator": sub_latam["sl_numerator"].sum(),
+                "sl_denominator": sub_latam["sl_denominator"].sum()
+            })
+        # TT_EQUIPAJES
+        sub_equ = sub_f[sub_f["servicio"].isin(SERVICIOS_TT_EQUIPAJES)]
+        if not sub_equ.empty:
+            filas_macros.append({
+                "fecha": f,
+                "servicio": "TT_EQUIPAJES (Consolidado)",
+                "canal": "CONSOLIDADO",
+                "nOffered": sub_equ["nOffered"].sum(),
+                "tAnswered_count": sub_equ["tAnswered_count"].sum(),
+                "tAnswered_sum": sub_equ["tAnswered_sum"].sum(),
+                "tAbandon_count": sub_equ["tAbandon_count"].sum(),
+                "tAbandon_sum": sub_equ["tAbandon_sum"].sum(),
+                "tHandle_count": sub_equ["tHandle_count"].sum(),
+                "tHandle_sum": sub_equ["tHandle_sum"].sum(),
+                "sl_numerator": sub_equ["sl_numerator"].sum(),
+                "sl_denominator": sub_equ["sl_denominator"].sum()
+            })
+
+    df_macros = pd.DataFrame(filas_macros)
+    df_todos_hist = pd.concat([df_hist_raw, df_macros], ignore_index=True)
+
+    # 4. KPIs Macro del Período
+    tot_off = int(df_hist_raw["nOffered"].sum())
+    tot_ans = int(df_hist_raw["tAnswered_count"].sum())
+    tot_abn = int(df_hist_raw["tAbandon_count"].sum())
+    pct_abn = (tot_abn / tot_off * 100.0) if tot_off > 0 else 0.0
+
+    # Macro LATAM consolidado del período
+    df_latam_tot = df_hist_raw[df_hist_raw["servicio"].isin(SERVICIOS_TT_LATAM)]
+    latam_sl_n = df_latam_tot["sl_numerator"].sum()
+    latam_sl_d = df_latam_tot["sl_denominator"].sum()
+    pct_ns_latam = (latam_sl_n / latam_sl_d * 100.0) if latam_sl_d > 0 else 0.0
+    latam_h_s = df_latam_tot["tHandle_sum"].sum()
+    latam_h_c = df_latam_tot["tHandle_count"].sum()
+    aht_latam = (latam_h_s / latam_h_c / 1000.0) if latam_h_c > 0 else 0.0
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    with k1:
+        st.metric("Entrantes Período", f"{tot_off:,}")
+    with k2:
+        st.metric("Atendidas Período", f"{tot_ans:,}")
+    with k3:
+        st.metric("% Abandono Período", f"{pct_abn:.1f}%")
+    with k4:
+        st.metric("NS Acumulado LATAM", f"{pct_ns_latam:.1f}%", delta=f"{pct_ns_latam - 75.3:+.1f}pp vs 75.3% Meta")
+    with k5:
+        st.metric("AHT Promedio LATAM", f"{int(round(aht_latam))}s", delta=formatear_segundos_mm_ss(aht_latam))
+
+    st.markdown("---")
+
+    # 5. Gráficos Interactivos de Tendencia
+    st.markdown("#### 📊 Evolución Diaria de Niveles de Servicio y Volúmenes")
+
+    srv_filter = srv_seleccionados if srv_seleccionados else ["TT_LATAM (Consolidado)"]
+    df_plot = df_todos_hist[df_todos_hist["servicio"].isin(srv_filter)].copy()
+
+    df_diario_srv = df_plot.groupby(["fecha", "servicio"]).agg({
+        "nOffered": "sum",
+        "tAnswered_count": "sum",
+        "tAbandon_count": "sum",
+        "sl_numerator": "sum",
+        "sl_denominator": "sum",
+        "tHandle_sum": "sum",
+        "tHandle_count": "sum"
+    }).reset_index()
+
+    df_diario_srv["% NS"] = df_diario_srv.apply(
+        lambda r: (r["sl_numerator"] / r["sl_denominator"] * 100.0) if r["sl_denominator"] > 0 else 0.0, axis=1
+    ).round(1)
+    df_diario_srv["AHT (s)"] = df_diario_srv.apply(
+        lambda r: (r["tHandle_sum"] / r["tHandle_count"] / 1000.0) if r["tHandle_count"] > 0 else 0.0, axis=1
+    ).round(0)
+    df_diario_srv["% Abandono"] = df_diario_srv.apply(
+        lambda r: (r["tAbandon_count"] / r["nOffered"] * 100.0) if r["nOffered"] > 0 else 0.0, axis=1
+    ).round(1)
+
+    col_g1, col_g2 = st.columns(2)
+
+    with col_g1:
+        fig_ns = px.line(
+            df_diario_srv,
+            x="fecha",
+            y="% NS",
+            color="servicio",
+            markers=True,
+            title="📈 Tendencia Diaria de Nivel de Servicio (% NS)",
+            labels={"fecha": "Fecha", "% NS": "% Nivel de Servicio"},
+            color_discrete_sequence=px.colors.qualitative.Bold
+        )
+        fig_ns.add_hline(
+            y=75.3,
+            line_dash="dash",
+            line_color="#e24b4a",
+            annotation_text="Meta LATAM (75.3%)",
+            annotation_position="bottom right"
+        )
+        fig_ns.update_layout(
+            hovermode="x unified",
+            yaxis=dict(range=[max(0, df_diario_srv["% NS"].min() - 10), 100], ticksuffix="%"),
+            margin=dict(l=20, r=20, t=40, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+        )
+        st.plotly_chart(fig_ns, use_container_width=True)
+
+    with col_g2:
+        df_diario_tot = df_hist_raw.groupby("fecha").agg({
+            "nOffered": "sum",
+            "tAnswered_count": "sum",
+            "tAbandon_count": "sum"
+        }).reset_index()
+
+        fig_vol = go.Figure()
+        fig_vol.add_trace(go.Bar(
+            x=df_diario_tot["fecha"],
+            y=df_diario_tot["tAnswered_count"],
+            name="Atendidas",
+            marker_color="#1baf7a"
+        ))
+        fig_vol.add_trace(go.Bar(
+            x=df_diario_tot["fecha"],
+            y=df_diario_tot["tAbandon_count"],
+            name="Abandonadas",
+            marker_color="#e24b4a"
+        ))
+        fig_vol.add_trace(go.Scatter(
+            x=df_diario_tot["fecha"],
+            y=df_diario_tot["nOffered"],
+            name="Ofrecidas (Total)",
+            mode="lines+markers",
+            line=dict(color="#3b82f6", width=2)
+        ))
+        fig_vol.update_layout(
+            barmode="stack",
+            title="📊 Volumen Diario de Llamadas (Entrantes vs Atendidas vs Abandono)",
+            hovermode="x unified",
+            margin=dict(l=20, r=20, t=40, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+        )
+        st.plotly_chart(fig_vol, use_container_width=True)
+
+    # 6. Tabla Gerencial Consolidada del Período por Servicio
+    st.markdown("#### 📋 Consolidado Operativo del Período por Servicio")
+    st.caption("Métricas acumuladas entre las fechas seleccionadas. Permite auditar el cumplimiento global de SLA y AHT.")
+
+    filas_resumen_periodo = []
+    todos_srv = set(df_todos_hist["servicio"].unique())
+
+    for s in todos_srv:
+        sub = df_todos_hist[df_todos_hist["servicio"] == s]
+        off = sub["nOffered"].sum()
+        ans = sub["tAnswered_count"].sum()
+        abn = sub["tAbandon_count"].sum()
+        sl_n = sub["sl_numerator"].sum()
+        sl_d = sub["sl_denominator"].sum()
+        h_s = sub["tHandle_sum"].sum()
+        h_c = sub["tHandle_count"].sum()
+        a_s = sub["tAnswered_sum"].sum()
+
+        if off == 0:
+            continue
+
+        if s == "TT_LATAM (Consolidado)":
+            ns_m = 75.3
+            aht_m = 877.0
+        elif s == "TT_EQUIPAJES (Consolidado)":
+            ns_m = 78.1
+            aht_m = 993.0
+        else:
+            meta_ns_cfg = services_cfg.get(s, {}).get("ns_meta")
+            if meta_ns_cfg is None:
+                for k_s, v_s in services_cfg.items():
+                    if k_s.strip().upper() == s.strip().upper():
+                        meta_ns_cfg = v_s.get("ns_meta")
+                        break
+            ns_m = meta_ns_cfg * 100.0 if meta_ns_cfg is not None else None
+
+            aht_m = aht_metas.get(s)
+            if aht_m is None:
+                for k_a, v_a in aht_metas.items():
+                    if k_a.strip().upper() == s.strip().upper():
+                        aht_m = v_a
+                        break
+
+        ns_r = (sl_n / sl_d * 100.0) if sl_d > 0 else 0.0
+        aht_r = (h_s / h_c / 1000.0) if h_c > 0 else 0.0
+        asa_r = (a_s / ans / 1000.0) if ans > 0 else 0.0
+        dif_ns = (ns_r - ns_m) if ns_m is not None else None
+        desv_aht = ((aht_r - aht_m) / aht_m * 100.0) if (aht_m and aht_m > 0 and aht_r > 0) else None
+
+        if ns_m is None:
+            estado = "⚪ Sin Meta"
+        elif ns_r >= ns_m:
+            estado = "🟢 Cumple SLA"
+        elif ns_r >= ns_m - 5.0:
+            estado = "🟡 En Riesgo (-5%)"
+        else:
+            estado = "🔴 Crítico (< SLA)"
+
+        filas_resumen_periodo.append({
+            "Servicio": s,
+            "Estado": estado,
+            "Entrantes": int(off),
+            "Atendidas": int(ans),
+            "% Aband": (abn / off * 100.0) if off > 0 else 0.0,
+            "NS Real": ns_r,
+            "NS Meta": ns_m,
+            "Dif NS (pp)": dif_ns,
+            "AHT Real (s)": int(round(aht_r)) if aht_r else 0,
+            "AHT Meta (s)": int(round(aht_m)) if aht_m else None,
+            "Desv AHT (%)": desv_aht,
+            "ASA (s)": asa_r
+        })
+
+    df_ger_periodo = pd.DataFrame(filas_resumen_periodo).sort_values(by=["Entrantes"], ascending=False)
+
+    def estilo_dif_sla(val):
+        if pd.isna(val): return ""
+        if val >= 0: color = "#1baf7a"
+        elif val >= -5.0: color = "#eda100"
+        else: color = "#e24b4a"
+        return f"background-color: {color}22; color: {color}; font-weight: 600;"
+
+    def estilo_desv_aht(val):
+        if pd.isna(val): return ""
+        if val <= 0: color = "#1baf7a"
+        elif val <= 10.0: color = "#eda100"
+        else: color = "#e24b4a"
+        return f"background-color: {color}22; color: {color}; font-weight: 600;"
+
+    styler_periodo = (
+        df_ger_periodo.style
+        .map(estilo_dif_sla, subset=["Dif NS (pp)"])
+        .map(estilo_desv_aht, subset=["Desv AHT (%)"])
+    )
+
+    st.dataframe(
+        styler_periodo,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
+            "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
+            "% Aband": st.column_config.NumberColumn("% Aband.", format="%.1f%%"),
+            "NS Real": st.column_config.NumberColumn("NS Real", format="%.1f%%"),
+            "NS Meta": st.column_config.NumberColumn("NS Meta", format="%.1f%%"),
+            "Dif NS (pp)": st.column_config.NumberColumn("Dif SLA (pp)", format="%+.1f%%"),
+            "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+            "AHT Meta (s)": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
+            "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
+            "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%.1f s"),
+        }
+    )
+
+    # 7. Desglose Día a Día por Servicio
+    with st.expander("📅 Detalle Día a Día por Servicio (Tabla Cruzada)", expanded=False):
+        df_cross = df_diario_srv.sort_values(by=["fecha", "nOffered"], ascending=[False, False])
+        st.dataframe(
+            df_cross[["fecha", "servicio", "nOffered", "tAnswered_count", "tAbandon_count", "% Abandono", "% NS", "AHT (s)"]].rename(columns={
+                "fecha": "Fecha",
+                "servicio": "Servicio",
+                "nOffered": "Entrantes",
+                "tAnswered_count": "Atendidas",
+                "tAbandon_count": "Abandonadas",
+                "% Abandono": "% Abandono",
+                "% NS": "% NS",
+                "AHT (s)": "AHT (s)"
+            }),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
+                "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
+                "Abandonadas": st.column_config.NumberColumn("Abandonadas", format="%d"),
+                "% Abandono": st.column_config.NumberColumn("% Abandono", format="%.1f%%"),
+                "% NS": st.column_config.NumberColumn("% NS", format="%.1f%%"),
+                "AHT (s)": st.column_config.NumberColumn("AHT (s)", format="%.0f s"),
+            }
+        )
+
+    # 8. Curva Intradía 30 Minutos de un Día Pasado
+    with st.expander("⏱️ Curva Intradía 30 Minutos de un Día Histórico", expanded=False):
+        st.caption("Seleccione un día específico del rango y un servicio para consultar la curva hora a hora (cada 30 min).")
+        col_intra_f, col_intra_s = st.columns(2)
+        with col_intra_f:
+            dia_sel = st.selectbox("Fecha a Inspeccionar:", fechas_unicas, index=len(fechas_unicas) - 1, key="sel_hist_intra_dia")
+        with col_intra_s:
+            srv_intra_sel = st.selectbox("Servicio:", ["TT_LATAM (Consolidado)"] + SERVICIOS_ORDEN_OFICIAL, key="sel_hist_intra_srv")
+
+        if st.button("🔍 Cargar Curva Intradía", key="btn_load_intra_hist"):
+            with st.spinner(f"Cargando intervalos PT30M para {dia_sel}..."):
+                df_intra_day, err_i = obtener_metricas_gtr_historico_api(token, str(dia_sel), str(dia_sel), "PT30M")
+            if err_i or df_intra_day.empty:
+                st.warning("No se encontraron registros intradía para esa fecha.")
+            else:
+                if srv_intra_sel == "TT_LATAM (Consolidado)":
+                    df_sub_intra = df_intra_day[df_intra_day["servicio"].isin(SERVICIOS_TT_LATAM)]
+                elif srv_intra_sel == "TT_EQUIPAJES (Consolidado)":
+                    df_sub_intra = df_intra_day[df_intra_day["servicio"].isin(SERVICIOS_TT_EQUIPAJES)]
+                else:
+                    df_sub_intra = df_intra_day[df_intra_day["servicio"] == srv_intra_sel]
+
+                if df_sub_intra.empty:
+                    st.info("Sin tráfico registrado para este servicio en esa fecha.")
+                else:
+                    intra_grp = df_sub_intra.groupby("intervalo").agg({
+                        "nOffered": "sum",
+                        "tAnswered_count": "sum",
+                        "tAbandon_count": "sum",
+                        "sl_numerator": "sum",
+                        "sl_denominator": "sum",
+                        "tHandle_sum": "sum",
+                        "tHandle_count": "sum"
+                    }).reset_index().sort_values("intervalo")
+
+                    intra_grp["% NS"] = intra_grp.apply(
+                        lambda r: (r["sl_numerator"] / r["sl_denominator"] * 100.0) if r["sl_denominator"] > 0 else 0.0, axis=1
+                    ).round(1)
+
+                    fig_intra = go.Figure()
+                    fig_intra.add_trace(go.Bar(
+                        x=intra_grp["intervalo"],
+                        y=intra_grp["nOffered"],
+                        name="Llamadas Entrantes",
+                        marker_color="#3b82f6",
+                        opacity=0.6
+                    ))
+                    fig_intra.add_trace(go.Scatter(
+                        x=intra_grp["intervalo"],
+                        y=intra_grp["% NS"],
+                        name="% Nivel de Servicio",
+                        yaxis="y2",
+                        mode="lines+markers",
+                        line=dict(color="#1baf7a", width=3)
+                    ))
+                    fig_intra.update_layout(
+                        title=f"Curva Intradía — {srv_intra_sel} ({dia_sel})",
+                        yaxis=dict(title="Llamadas Entrantes"),
+                        yaxis2=dict(title="% NS", overlaying="y", side="right", range=[0, 100], ticksuffix="%"),
+                        hovermode="x unified",
+                        margin=dict(l=20, r=20, t=40, b=20)
+                    )
+                    st.plotly_chart(fig_intra, use_container_width=True)
+
+    # 9. Desglose de Otras Colas / No Mapeado en el Período
+    df_no_map_hist = df_hist_raw[df_hist_raw["servicio"] == "Otras Colas / No Mapeado"]
+    if not df_no_map_hist.empty:
+        qids_hist_nomap = tuple(df_no_map_hist["queueId"].dropna().unique())
+        total_nomap_off = int(df_no_map_hist["nOffered"].sum())
+        with st.expander(f"🔎 Desglose de 'Otras Colas / No Mapeado' en el Período ({len(qids_hist_nomap)} colas • {total_nomap_off:,} interacciones)", expanded=False):
+            st.caption("Colas activas durante el período seleccionado que no están en el catálogo oficial de servicios.")
+            nombres_res = resolver_nombres_colas_genesys(token, qids_hist_nomap)
+
+            desglose_h = df_no_map_hist.groupby(["queueId", "canal"]).agg({
+                "nOffered": "sum",
+                "tAnswered_count": "sum",
+                "tAbandon_count": "sum",
+                "sl_numerator": "sum",
+                "sl_denominator": "sum",
+                "tHandle_sum": "sum",
+                "tHandle_count": "sum"
+            }).reset_index()
+
+            desglose_h["Nombre de Cola en Genesys"] = desglose_h["queueId"].map(
+                lambda q: nombres_res.get(q, str(q)) if q in nombres_res else str(q)
+            )
+            desglose_h["% Abandono"] = desglose_h.apply(
+                lambda r: (r["tAbandon_count"] / r["nOffered"] * 100.0) if r["nOffered"] > 0 else 0.0, axis=1
+            )
+            desglose_h["% NS"] = desglose_h.apply(
+                lambda r: (r["sl_numerator"] / r["sl_denominator"] * 100.0) if r["sl_denominator"] > 0 else 0.0, axis=1
+            )
+            desglose_h["AHT (s)"] = desglose_h.apply(
+                lambda r: (r["tHandle_sum"] / r["tHandle_count"] / 1000.0) if r["tHandle_count"] > 0 else 0.0, axis=1
+            )
+
+            desglose_h = desglose_h.rename(columns={
+                "queueId": "ID de Cola (GUID)",
+                "canal": "Canal",
+                "nOffered": "Entrantes",
+                "tAnswered_count": "Atendidas",
+                "tAbandon_count": "Abandonadas"
+            }).sort_values(by=["Entrantes"], ascending=False)
+
+            cols_show_h = [
+                "Nombre de Cola en Genesys", "Canal", "Entrantes", "Atendidas", "Abandonadas",
+                "% Abandono", "% NS", "AHT (s)", "ID de Cola (GUID)"
+            ]
+            st.dataframe(
+                desglose_h[cols_show_h],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
+                    "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
+                    "Abandonadas": st.column_config.NumberColumn("Abandonadas", format="%d"),
+                    "% Abandono": st.column_config.NumberColumn("% Abandono", format="%.1f%%"),
+                    "% NS": st.column_config.NumberColumn("% NS", format="%.1f%%"),
+                    "AHT (s)": st.column_config.NumberColumn("AHT (s)", format="%.0f s"),
+                }
+            )

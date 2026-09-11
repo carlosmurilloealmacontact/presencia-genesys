@@ -15,8 +15,8 @@ from openpyxl.utils import get_column_letter
 
 from config import DB_PATH
 import os
-from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo
-from gtr_engine import render_tab_gtr
+from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo, obtener_token_genesys
+from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_gtr
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
@@ -860,11 +860,11 @@ seccion_activa = st.segmented_control(
 if not seccion_activa:
     seccion_activa = SECCIONES_APP[0]
 
-if seccion_activa == "📊 Análisis Histórico y Adherencia":
+def render_tab_asesores_historico():
     rango_disponible = cargar_rango_fechas()
     if not rango_disponible:
         st.warning("Todavía no hay datos extraídos. Corre `python extract_presencia.py` primero.")
-        st.stop()
+        return
     
     fecha_min_disp, fecha_max_disp = rango_disponible
     fecha_max_disp_d = pd.Timestamp(fecha_max_disp).date()
@@ -909,7 +909,7 @@ if seccion_activa == "📊 Análisis Histórico y Adherencia":
     fecha_hasta = str(st.session_state["hasta"])
     if fecha_desde > fecha_hasta:
         st.error("La fecha 'Desde' es posterior a 'Hasta'.")
-        st.stop()
+        return
     
     df = cargar_rango(fecha_desde, fecha_hasta)
     if "estado_laboral" in df.columns:
@@ -921,7 +921,7 @@ if seccion_activa == "📊 Análisis Histórico y Adherencia":
 
     if df.empty:
         st.info("Sin tramos para este rango y estado laboral seleccionado.")
-        st.stop()
+        return
     
     FILTROS = [
         ("coord_sel", "coordinador", "Coordinador", col_coord),
@@ -954,7 +954,7 @@ if seccion_activa == "📊 Análisis Histórico y Adherencia":
     vista = aplicar_filtros(df, excluir_key=None)
     if vista.empty:
         st.info("Sin tramos para estos filtros.")
-        st.stop()
+        return
     
     with st.expander("⚙️ Configuración: Regla de Available / Conectado y Exclusiones", expanded=False):
         c_av1, c_av2 = st.columns([1, 2])
@@ -1566,6 +1566,26 @@ if seccion_activa == "📊 Análisis Histórico y Adherencia":
             column_config={"Duración (min)": st.column_config.NumberColumn("Duración (min)", format="%.1f")},
         )
         gc.collect()
+
+
+
+
+if seccion_activa == "📊 Análisis Histórico y Adherencia":
+    tab_asesores, tab_gtr = st.tabs([
+        "👤 Histórico de Asesores & Adherencia",
+        "📈 Histórico de Niveles de Servicio & GTR"
+    ])
+
+    with tab_asesores:
+        render_tab_asesores_historico()
+
+    with tab_gtr:
+        token = obtener_token_genesys()
+        if not token:
+            st.error("No se encontró token de Genesys Cloud para consultar métricas históricas.")
+        else:
+            gtr_cfg = cargar_config_gtr()
+            render_tab_gtr_historico(token, gtr_cfg)
 
 
 elif seccion_activa == "🔴 Monitoreo en Vivo (Piso)":
