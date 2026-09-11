@@ -846,9 +846,9 @@ def cargar_agentes_map_base():
 
 
 SECCIONES_APP = [
-    "📊 Análisis Histórico y Adherencia",
-    "🔴 Monitoreo en Vivo (Piso)",
-    "📈 Monitor GTR y Niveles de Servicio",
+    "Analisis de Pausas y Adherencia",
+    "Control de Estados (en Vivo)",
+    "Niveles de Servicio",
 ]
 
 seccion_activa = st.segmented_control(
@@ -1570,21 +1570,11 @@ def render_tab_asesores_historico():
 
 
 
-if seccion_activa == "📊 Análisis Histórico y Adherencia":
-    tab_asesores, tab_gtr = st.tabs([
-        "👤 Histórico de Asesores & Adherencia",
-        "📈 Histórico de Niveles de Servicio & GTR"
-    ])
+if seccion_activa == "Analisis de Pausas y Adherencia":
+    render_tab_asesores_historico()
 
-    with tab_asesores:
-        render_tab_asesores_historico()
-
-    with tab_gtr:
-        render_tab_gtr(cargar_agentes_map_base(), modo_historico=True)
-
-
-elif seccion_activa == "🔴 Monitoreo en Vivo (Piso)":
+elif seccion_activa == "Control de Estados (en Vivo)":
     render_tab_en_vivo(cargar_agentes_map_base())
 
-elif seccion_activa == "📈 Monitor GTR y Niveles de Servicio":
+elif seccion_activa == "Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())

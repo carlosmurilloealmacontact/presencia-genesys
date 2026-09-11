@@ -655,8 +655,8 @@ def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: d
 
 # ── RENDER PRINCIPAL DEL COMPONENTE GTR ───────────────────────────────────────
 
-def render_tab_gtr(agentes_map: dict, modo_historico: bool = False):
-    """Renderiza la pestaña principal de Monitor GTR con soporte en vivo y selección de fechas."""
+def render_tab_gtr(agentes_map: dict):
+    """Renderiza la pestaña de Niveles de Servicio con soporte en vivo y selección de fechas."""
     token = obtener_token_genesys()
     if not token:
         st.warning("⚠️ No se encontró token activo de Genesys Cloud. Conéctalo en Neon Postgres o revisa las credenciales.")
@@ -664,15 +664,12 @@ def render_tab_gtr(agentes_map: dict, modo_historico: bool = False):
 
     gtr_cfg = cargar_config_gtr()
     hoy_col = (datetime.now(timezone.utc) - timedelta(hours=5)).date()
-    k_pfx = "hist_gtr_" if modo_historico else "live_gtr_"
+    k_pfx = "gtr_"
 
     col_h1, col_h2 = st.columns([3, 2])
     with col_h1:
-        st.subheader("📈 Monitor GTR — Gestión en Tiempo Real & Niveles de Servicio")
-        if modo_historico:
-            st.caption("Consolidado histórico y réplica de reportes oficiales `HORA A HORA` y `AHT GENESYS` por fecha.")
-        else:
-            st.caption("Replicación de reportes oficiales `HORA A HORA` y `AHT GENESYS` • En vivo o consulta por fechas.")
+        st.subheader("📈 Niveles de Servicio & GTR")
+        st.caption("Replicación en vivo y por fechas de los reportes oficiales `HORA A HORA` y `AHT GENESYS`.")
 
     # ── BARRA DE SELECCIÓN DE TEMPORALIDAD / FECHA ───────────────────────────
     col_t1, col_t2 = st.columns([2, 3])
@@ -681,11 +678,11 @@ def render_tab_gtr(agentes_map: dict, modo_historico: bool = False):
         tipo_corte = st.segmented_control(
             "Temporalidad a Visualizar:",
             options=opciones_corte,
-            default="📅 Fecha Específica" if modo_historico else "🔴 Hoy (En Vivo)",
+            default="🔴 Hoy (En Vivo)",
             key=f"{k_pfx}tipo_corte"
         )
         if not tipo_corte:
-            tipo_corte = "📅 Fecha Específica" if modo_historico else "🔴 Hoy (En Vivo)"
+            tipo_corte = "🔴 Hoy (En Vivo)"
 
     fecha_desde_str = None
     fecha_hasta_str = None
