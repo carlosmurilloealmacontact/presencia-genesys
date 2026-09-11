@@ -26,6 +26,7 @@ import requests
 import streamlit as st
 
 from live_engine import obtener_token_genesys
+from excel_fiel_engine import inyectar_datos_hora_hora, inyectar_datos_aht_genesys
 
 try:
     from audit_engine import registrar_evento
@@ -449,210 +450,66 @@ def construir_matriz_ejecutiva_gtr(df_raw: pd.DataFrame, gtr_cfg: dict):
 # ── GENERADORES FIELES DE LIBROS EXCEL GTR CON PLANTILLAS MAESTRAS ──────────
 
 @st.cache_data(show_spinner="Generando libro oficial HORA A HORA...")
-def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, gtr_cfg: dict) -> bytes:
+def generar_excel_hora_hora_fiel(df_raw: pd.DataFrame, df_matriz: pd.DataFrame, gtr_cfg: dict, fecha_corte_str: str = None, hora_corte_str: str = None) -> bytes:
     """
     Recrea fielmente el libro oficial HORA A HORA conservando al 100%
     todas las 16 hojas, formatos originales, colores corporativos (#1F4E78),
     reglas condicionales con flechas/iconos, fórmulas nativas y la marca de agua de LATAM.
+    Inyecta datos reales en tiempo real con lxml y zipfile (compatible 100% con Linux/Streamlit Cloud).
     """
     tpl_master = os.path.join(BASE_DIR, "../templates/HORA_HORA_EXACT_MASTER.xlsx")
     if not os.path.exists(tpl_master):
         tpl_master = os.path.join(BASE_DIR, "../templates/HORA_HORA_TEMPLATE.xlsx")
 
-    # Intento 1: Automatización nativa Microsoft Excel aislada (Fidelidad 100% idéntica, sin corrupción)
+    ahora_col = datetime.now(timezone.utc) - timedelta(hours=5)
+    if fecha_corte_str:
+        try:
+            f_corte = datetime.strptime(str(fecha_corte_str)[:10], "%Y-%m-%d").date()
+        except Exception:
+            f_corte = ahora_col.date()
+    else:
+        f_corte = ahora_col.date()
+
+    h_corte = hora_corte_str or ahora_col.strftime("%H:%M:%S")
+    _, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
+
     try:
-        import pythoncom
-        import win32com.client
-
-        pythoncom.CoInitialize()
-        excel = win32com.client.DispatchEx("Excel.Application")
-        excel.Visible = False
-        excel.DisplayAlerts = False
-        excel.ScreenUpdating = False
-        excel.EnableEvents = False
-
-        tpl_abs = os.path.abspath(tpl_master)
-        wb = excel.Workbooks.Open(tpl_abs)
-
-        # 1. Actualizar Hora de Reporte en DETALLE!Y5 y matriz de datos en vivo
-        ws_det = wb.Sheets("DETALLE")
-        ws_det.Range("Y5").Value = datetime.now().strftime("%H:%M:%S")
-
-        # Inyectar métricas en tiempo real directamente en la matriz de la hoja DETALLE (D8:W24)
-        _, serv_data = construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
-        headers = ws_det.Range("D3:W3").Value[0]
-        current_matrix = [list(r) for r in ws_det.Range("D8:W24").Value]
-
-        for col_i, srv in enumerate(headers):
-            if not srv:
-                continue
-            srv = str(srv).strip()
-            sd = serv_data.get(srv)
-            if not sd:
-                continue
-
-            current_matrix[0][col_i] = int(sd.get("LL ENT", 0))
-            current_matrix[1][col_i] = int(sd.get("LL ATEN", 0))
-            current_matrix[2][col_i] = int(sd.get("LL ABAN", 0))
-            current_matrix[3][col_i] = int(sd.get("LL Aten. NS", 0))
-            current_matrix[4][col_i] = round(float(sd.get("% ATEN", 0)) / 100.0, 4)
-            current_matrix[5][col_i] = round(float(sd.get("% ABAN", 0)) / 100.0, 4)
-            if sd.get("% NS META") is not None:
-                current_matrix[6][col_i] = round(float(sd.get("% NS META", 0)) / 100.0, 4)
-            current_matrix[7][col_i] = round(float(sd.get("% NS", 0)) / 100.0, 4)
-            if sd.get("META AHT") is not None:
-                current_matrix[8][col_i] = round(float(sd.get("META AHT", 0)), 1)
-            current_matrix[9][col_i] = round(float(sd.get("AHT", 0)), 1)
-            aht_r = float(sd.get("AHT", 0))
-            aht_m = float(sd.get("META AHT", 0)) if sd.get("META AHT") else None
-            if aht_m and aht_m > 0 and aht_r > 0:
-                current_matrix[10][col_i] = round((aht_r - aht_m) / aht_m, 4)
-            current_matrix[16][col_i] = round(float(sd.get("ASA", 0)), 1)
-
-        ws_det.Range("D8:W24").Value = current_matrix
-
-        # 2. Inyectar intervalos en DATA GENEYS
-        sheet_names = [s.Name for s in wb.Sheets]
-        if "DATA GENEYS" in sheet_names and df_raw is not None and not df_raw.empty:
-            ws_dg = wb.Sheets("DATA GENEYS")
-            last_r = ws_dg.UsedRange.Rows.Count
-            if last_r > 1:
-                ws_dg.Range(f"A2:N{min(last_r + 10, 5000)}").ClearContents()
-
-            now_date_str = datetime.now().strftime("%Y-%m-%d")
-            matrix_rows = []
-            for _, r in df_raw.iterrows():
-                ans_cnt = int(r.get("tAnswered_count", 0))
-                ans_sum_s = float(r.get("tAnswered_sum", 0.0)) / 1000.0
-                asa_val = round(ans_sum_s / ans_cnt, 2) if ans_cnt > 0 else 0.0
-                handle_sum_s = float(r.get("tHandle_sum", 0.0)) / 1000.0
-                aht_val = round(handle_sum_s / ans_cnt, 2) if ans_cnt > 0 else round(handle_sum_s, 2)
-                matrix_rows.append([
-                    now_date_str,
-                    str(r.get("intervalo", "")),
-                    str(r.get("queueId", "")),
-                    str(r.get("canal", "VOZ")),
-                    int(r.get("nOffered", 0)),
-                    ans_cnt,
-                    int(r.get("tAbandon_count", 0)),
-                    int(r.get("sl_numerator", 0)),
-                    asa_val,
-                    "",
-                    round(float(r.get("tTalk_sum", 0.0)) / 1000.0, 2),
-                    round(float(r.get("tAcw_sum", 0.0)) / 1000.0, 2),
-                    aht_val,
-                    round(float(r.get("tHeld_sum", 0.0)) / 1000.0, 2)
-                ])
-
-            if matrix_rows:
-                rng = ws_dg.Range(f"A2:N{len(matrix_rows) + 1}")
-                rng.Value = matrix_rows
-
-        excel.Calculate()
-
-        fd, tmp_out = tempfile.mkstemp(suffix=".xlsx")
-        os.close(fd)
-        wb.SaveCopyAs(tmp_out)
-        wb.Close(False)
-        excel.Quit()
-        pythoncom.CoUninitialize()
-
-        with open(tmp_out, "rb") as f:
-            data_bytes = f.read()
-        os.remove(tmp_out)
+        data_bytes = inyectar_datos_hora_hora(tpl_master, df_raw, serv_data, f_corte, h_corte)
         if len(data_bytes) > 500000:
             return data_bytes
     except Exception as exc:
-        print(f"[ERROR GENERAR HORA_HORA COM] {exc}")
+        print(f"[ERROR GENERAR HORA_HORA INJECTOR] {exc}")
 
-    # Respaldo limpio: retornar el archivo maestro exacto directamente sin alteración de openpyxl
     with open(tpl_master, "rb") as f:
         return f.read()
 
 
 @st.cache_data(show_spinner="Generando libro oficial AHT GENESYS...")
-def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: dict, gtr_cfg: dict) -> bytes:
+def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: dict, gtr_cfg: dict, fecha_corte_str: str = None) -> bytes:
     """
     Recrea fielmente el libro macro oficial AHT GENESYS.xlsm conservando al 100%
     todas las macros VBA, segmentadores (slicers), tablas dinámicas, imágenes y formatos originales.
+    Inyecta datos reales de asesores con lxml y zipfile (compatible 100% con Linux/Streamlit Cloud).
     """
     tpl_master = os.path.join(BASE_DIR, "../templates/AHT_GENESYS_EXACT_MASTER.xlsm")
     if not os.path.exists(tpl_master):
         tpl_master = os.path.join(BASE_DIR, "../templates/AHT_GENESYS_TEMPLATE.xlsm")
 
+    ahora_col = datetime.now(timezone.utc) - timedelta(hours=5)
+    if fecha_corte_str:
+        try:
+            f_corte = datetime.strptime(str(fecha_corte_str)[:10], "%Y-%m-%d").date()
+        except Exception:
+            f_corte = ahora_col.date()
+    else:
+        f_corte = ahora_col.date()
+
     try:
-        import pythoncom
-        import win32com.client
-
-        pythoncom.CoInitialize()
-        excel = win32com.client.DispatchEx("Excel.Application")
-        excel.Visible = False
-        excel.DisplayAlerts = False
-        excel.ScreenUpdating = False
-        excel.EnableEvents = False
-
-        tpl_abs = os.path.abspath(tpl_master)
-        wb = excel.Workbooks.Open(tpl_abs)
-
-        if "DATA" in [s.Name for s in wb.Sheets] and not df_asesores_raw.empty:
-            ws_data = wb.Sheets("DATA")
-            last_r = ws_data.UsedRange.Rows.Count
-            if last_r > 1:
-                ws_data.Range(f"A2:O{min(last_r + 10, 5000)}").ClearContents()
-
-            now_date_str = datetime.now().strftime("%Y-%m-%d 00:00:00")
-            next_date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
-
-            aht_rows = []
-            for _, row in df_asesores_raw.iterrows():
-                aid = str(row.get("agente_id", ""))
-                ag_info = agentes_map.get(aid, {})
-                nombre = ag_info.get("agente", aid)
-                interacc = int(row.get("interacciones", 0))
-                aht_s = float(row.get("aht_seg", 0.0))
-                talk_s = float(row.get("t_talk_seg", 0.0))
-                held_s = float(row.get("t_held_seg", 0.0))
-                acw_s = float(row.get("t_acw_seg", 0.0))
-                transf = int(row.get("transferidas", 0))
-
-                aht_rows.append([
-                    now_date_str,
-                    next_date_str,
-                    False,
-                    "Dirección: Entrante; Dirección inicial:Entrante",
-                    "voz",
-                    aid,
-                    nombre,
-                    interacc,
-                    interacc,
-                    f" {formatear_segundos_mm_ss(aht_s)}.000",
-                    f" {formatear_segundos_mm_ss(talk_s)}.000",
-                    f" {formatear_segundos_mm_ss(held_s)}.000" if held_s > 0 else "",
-                    f" {formatear_segundos_mm_ss(acw_s)}.000" if acw_s > 0 else "",
-                    "",
-                    transf if transf > 0 else ""
-                ])
-
-            if aht_rows:
-                rng = ws_data.Range(f"A2:O{len(aht_rows) + 1}")
-                rng.Value = aht_rows
-
-        wb.RefreshAll()
-
-        fd, tmp_out = tempfile.mkstemp(suffix=".xlsm")
-        os.close(fd)
-        wb.SaveCopyAs(tmp_out)
-        wb.Close(False)
-        excel.Quit()
-        pythoncom.CoUninitialize()
-
-        with open(tmp_out, "rb") as f:
-            data_bytes = f.read()
-        os.remove(tmp_out)
+        data_bytes = inyectar_datos_aht_genesys(tpl_master, df_asesores_raw, agentes_map, gtr_cfg, f_corte)
         if len(data_bytes) > 500000:
             return data_bytes
     except Exception as exc:
-        print(f"[ERROR GENERAR AHT COM] {exc}")
+        print(f"[ERROR GENERAR AHT INJECTOR] {exc}")
 
     with open(tpl_master, "rb") as f:
         return f.read()
@@ -795,7 +652,9 @@ def render_tab_gtr(agentes_map: dict):
                         st.rerun()
             else:
                 if st.button("⚡ Preparar (CONFIDENCIAL)HORA_HORA.xlsx", key=f"{k_pfx}prep_hh", use_container_width=True):
-                    st.session_state["bytes_hh_cache"] = generar_excel_hora_hora_fiel(df_raw, df_matriz, gtr_cfg)
+                    st.session_state["bytes_hh_cache"] = generar_excel_hora_hora_fiel(
+                        df_raw, df_matriz, gtr_cfg, fecha_corte_str=fecha_desde_str, hora_corte_str=ahora_col.strftime("%H:%M:%S")
+                    )
                     try:
                         u_mail = getattr(st.user, "email", "usuario") if hasattr(st, "user") else "usuario"
                         u_nom = getattr(st.user, "name", u_mail) if hasattr(st, "user") else u_mail
@@ -826,7 +685,9 @@ def render_tab_gtr(agentes_map: dict):
                 if st.button("⚡ Preparar AHT_GENESYS.xlsm", key=f"{k_pfx}prep_aht", use_container_width=True):
                     df_as_raw, _ = obtener_aht_asesores_api(token, fecha_desde_str, fecha_hasta_str)
                     if not df_as_raw.empty:
-                        st.session_state["bytes_aht_cache"] = generar_excel_aht_genesys_fiel(df_as_raw, agentes_map, gtr_cfg)
+                        st.session_state["bytes_aht_cache"] = generar_excel_aht_genesys_fiel(
+                            df_as_raw, agentes_map, gtr_cfg, fecha_corte_str=fecha_desde_str
+                        )
                         try:
                             u_mail = getattr(st.user, "email", "usuario") if hasattr(st, "user") else "usuario"
                             u_nom = getattr(st.user, "name", u_mail) if hasattr(st, "user") else u_mail
