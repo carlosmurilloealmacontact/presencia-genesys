@@ -662,6 +662,7 @@ def render_tab_gtr(agentes_map: dict):
         st.warning("⚠️ No se encontró token activo de Genesys Cloud. Conéctalo en Neon Postgres o revisa las credenciales.")
         return
 
+    gtr_cfg = cargar_config_gtr()
     ahora_col = datetime.now(timezone.utc) - timedelta(hours=5)
     hoy_col = ahora_col.date()
     k_pfx = "gtr_"
