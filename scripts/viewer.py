@@ -18,6 +18,7 @@ import os
 from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo, obtener_token_genesys
 from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_gtr
 from capacidad_engine import render_tab_capacidad
+from ausentismo_engine import render_tab_ausentismo
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
@@ -923,6 +924,7 @@ SECCIONES_APP = [
 # Acceso exclusivo para administradores autorizados (Carlos Murillo)
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("🧭 Capacidad y Diagnóstico")
+    SECCIONES_APP.append("🚨 Control de Ausentismo")
 
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
@@ -1697,6 +1699,9 @@ elif seccion_activa == "Niveles de Servicio":
 
 elif seccion_activa == "🧭 Capacidad y Diagnóstico":
     render_tab_capacidad(cargar_agentes_map_base())
+
+elif seccion_activa == "🚨 Control de Ausentismo":
+    render_tab_ausentismo(cargar_agentes_map_base())
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
     render_panel_auditoria()
