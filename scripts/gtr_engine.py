@@ -180,6 +180,13 @@ def obtener_metricas_gtr_api(token: str, fecha_desde: str = None, fecha_hasta: s
     for group in res.get("results", []):
         qid = group.get("group", {}).get("queueId")
         q_info = queues_cfg.get(qid, {})
+        # Filtrar colas que no pertenecen a AMC (Konecta, AEC, Plataforma/IVR)
+        if q_info.get("excluir", False):
+            continue
+        q_nombre_raw = str(q_info.get("nombre_cola", "")).upper()
+        if q_nombre_raw.startswith(("KON_", "AEC_", "SCRIPT_", "FS_")) or q_nombre_raw in ("EPA_MESSAGE", "PENDIENTE_MENSAJE"):
+            continue
+
         srv = q_info.get("servicio", "Otras Colas / No Mapeado")
         q_name = q_info.get("nombre_cola", qid or "Directo / Sin Cola")
         canal = services_cfg.get(srv, {}).get("canal", "VOZ" if "WPP" not in srv and "CHAT" not in srv else "DIGITAL")
@@ -1299,6 +1306,13 @@ def obtener_metricas_gtr_historico_api(token: str, fecha_desde: str, fecha_hasta
     for group in res.get("results", []):
         qid = group.get("group", {}).get("queueId")
         q_info = queues_cfg.get(qid, {})
+        # Filtrar colas que no pertenecen a AMC (Konecta, AEC, Plataforma/IVR)
+        if q_info.get("excluir", False):
+            continue
+        q_nombre_raw = str(q_info.get("nombre_cola", "")).upper()
+        if q_nombre_raw.startswith(("KON_", "AEC_", "SCRIPT_", "FS_")) or q_nombre_raw in ("EPA_MESSAGE", "PENDIENTE_MENSAJE"):
+            continue
+
         srv = q_info.get("servicio", "Otras Colas / No Mapeado")
         q_name = q_info.get("nombre_cola", qid or "Directo / Sin Cola")
         canal = services_cfg.get(srv, {}).get("canal", "VOZ" if "WPP" not in srv and "CHAT" not in srv else "DIGITAL")

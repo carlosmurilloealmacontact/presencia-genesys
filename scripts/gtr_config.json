@@ -365,6 +365,273 @@
       "servicio": "HVC AMC",
       "canal": "VOZ",
       "macro": "TT_LATAM"
+    },
+    "838945e2-558f-4649-a070-efdeaf31025a": {
+      "nombre_cola": "AMC_WSP_LUA_SOLIX_Y_ENVIO_DOCS_ES",
+      "servicio": "WPP LUA AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
+    },
+    "345adff2-c08e-44c0-82c1-df30c33fb52f": {
+      "nombre_cola": "AMC_WSP_DT_FFP_SOLIX_Y_ENVIO_DOCS_ES",
+      "servicio": "DREAM TEAM WP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
+    },
+    "bf87bf05-0229-4f55-b86a-494c46585586": {
+      "nombre_cola": "AMC_WSP_HVC_SOLIX_Y_ENVIO_DOCS_ES",
+      "servicio": "WPP LUA AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
+    },
+    "e81fdd3d-1cee-4f0b-bf21-44f948dfc70b": {
+      "nombre_cola": "AMC_LUA_CHAT_PENDING_ES",
+      "servicio": "CHAT LUA AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
+    },
+    "120319af-6d0e-4d4d-9485-9f13507e1bd3": {
+      "nombre_cola": "AMC_TRANSFER_EQUIPAJE_ES",
+      "servicio": "Equipajes AMC",
+      "canal": "VOZ",
+      "macro": "TT_EQUIPAJES"
+    },
+    "501dda87-5a21-484e-9bd4-4088f0a8904a": {
+      "nombre_cola": "AMC_OUTBOUND_NO_VOZ",
+      "servicio": "WPP LUA AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
+    },
+    "fd681816-030f-487d-a19d-10db40070b0e": {
+      "nombre_cola": "AMC_OUTBOUND",
+      "servicio": "LUA AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "b876a5a2-30bc-4496-a744-5e23a7aea5cd": {
+      "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_SUPERIOR",
+      "servicio": "Ventas AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "39bbaa18-1e5d-4623-bbe3-1688ed6988a3": {
+      "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_ELITE",
+      "servicio": "Ventas AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "7dfdef81-99d7-4ba8-a4b8-700fb5418010": {
+      "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_PLUS",
+      "servicio": "Ventas AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "5984912d-33cf-4f1e-aea1-06f6cb1a43af": {
+      "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_CMGO",
+      "servicio": "Ventas AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "f72ec3bf-46e4-41fa-b2c1-a452bca2c0ed": {
+      "nombre_cola": "AMC_GSS_OPERACIONAL_INTERNA_ING_NIVEL1",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "df2bf2ae-96e4-4100-889f-ff731d34dfd2": {
+      "nombre_cola": "AMC_GSS_OPERACIONAL_INTEREU_ESP_NIVEL1",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "f8abefee-2257-4521-9dd7-261c89074334": {
+      "nombre_cola": "AMC_GSS_OPERACIONAL_INTEREU_ING_NIVEL1",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "ebb19aa6-332f-4efc-8fda-9097f8b05dc7": {
+      "nombre_cola": "AMC_GSS_OPERACIONAL_INTERNA_ESP_NIVEL1",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "d1bbf187-0a3f-4d35-b6aa-cf2645f27684": {
+      "nombre_cola": "AMC_GSS_OPERACIONAL_SSC_ESP_NIVEL1",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "bbcd0a4a-1c9d-4b20-8b41-1be79150c78c": {
+      "nombre_cola": "AMC_GSS_NDC_INTERNA_ING_NIVEL1",
+      "servicio": "GSS NDC Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "6b442482-0c13-4a34-a06a-6e0679c02c78": {
+      "nombre_cola": "AMC_GSS_NDC_INTEREU_ESP_NIVEL1",
+      "servicio": "GSS NDC Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "0d9760a4-06dc-4490-bc22-ae51647c49b0": {
+      "nombre_cola": "AMC_GSS_NDC_INTEREU_ING_NIVEL1",
+      "servicio": "GSS NDC Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "f5192565-1e3d-4bf3-b205-1cb74906ac40": {
+      "nombre_cola": "AMC_GSS_NDC_INTERNA_ESP_NIVEL1",
+      "servicio": "GSS NDC Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "ab126844-cf64-44a8-8688-c8b711375348": {
+      "nombre_cola": "AMC_GSS_NDC_INTERNA_ESP_NIVEL2",
+      "servicio": "GSS NDC Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "68f2d5e2-150f-4885-ae7e-abb74837866c": {
+      "nombre_cola": "AMC_GSS_NDC_SSC_ESP_NIVEL1",
+      "servicio": "GSS NDC Agencias",
+      "canal": "VOZ",
+      "macro": "GSS"
+    },
+    "353708b7-0d1a-4f13-945a-813b5378ff2c": {
+      "nombre_cola": "KON_VOZ_SOPORTE_HVC_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "cc2379bf-d923-490e-92ba-60579907cfb1": {
+      "nombre_cola": "KON_WSP_TRANSFER_HVC_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "ca9c5c42-a40c-44e3-82ca-473bde0d7ead": {
+      "nombre_cola": "KON_WSP_LUA_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "acc2a0be-c9dc-4d7c-a989-d65fc0139df8": {
+      "nombre_cola": "KON_BR_VOZ_POS_VTA_TRANSFER_PT",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "1d00cf83-c8d3-41f5-a054-723b8e643be1": {
+      "nombre_cola": "KON_WSP_TRANSFER_LUA_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "3fb27eda-6d0b-4605-be21-f1a8533f6867": {
+      "nombre_cola": "KON_WSP_TRANSFER_DT_DEVOL_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "ef790225-9339-4dc1-b90e-a02ccd635189": {
+      "nombre_cola": "KON_VOZ_FS_CC_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "27d93bec-9cc8-4b67-931f-48b95aab7ab8": {
+      "nombre_cola": "KON_VOZ_TRANSFER_HVC_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "131dfc7a-074d-4a49-9ace-606a8617acff": {
+      "nombre_cola": "KON_CHAT_DEV_CDA_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "2184f95d-55cb-4797-b256-68b7dda971ae": {
+      "nombre_cola": "KON_POC_AWS_LUA_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "a03554a9-25f1-4807-8edb-a314e949c17d": {
+      "nombre_cola": "KON_BR_VOZ_AWS_POS_VTA_1_PT",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "99bb002f-51df-468f-a8cf-ee30cf70f572": {
+      "nombre_cola": "KON_VOZ_GOLD_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "fa32c75e-286e-4622-89f0-209e2864e86d": {
+      "nombre_cola": "KON_VOZ_LUA_TRANSFER_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "70c072a8-a9cc-45d2-a203-e15e9b13a223": {
+      "nombre_cola": "AEC_WSP_BAG_PT",
+      "excluir": true,
+      "vendor": "AEC"
+    },
+    "ed34d048-63ba-4b69-95d0-8fecc3911f5c": {
+      "nombre_cola": "AEC_VOZ_EQUIPAJES_TRANSFER_PT",
+      "excluir": true,
+      "vendor": "AEC"
+    },
+    "083c7013-d87c-4812-8f00-1d592e6be55f": {
+      "nombre_cola": "AEC_VOZ_AWS_POS_VTA_1_PT",
+      "excluir": true,
+      "vendor": "AEC"
+    },
+    "2d17a615-1093-4217-a5ce-9bcf5a497647": {
+      "nombre_cola": "EPA_MESSAGE",
+      "excluir": true,
+      "vendor": "PLATAFORMA_IVR"
+    },
+    "23026c50-b0f8-4333-99b8-a4e759d8039c": {
+      "nombre_cola": "PENDIENTE_MENSAJE",
+      "excluir": true,
+      "vendor": "PLATAFORMA_IVR"
+    },
+    "fe6da225-c45a-4e35-8f30-daae93a21cc3": {
+      "nombre_cola": "SCRIPT_BAGGAGE_PROBLEM_TRANSFER",
+      "excluir": true,
+      "vendor": "PLATAFORMA_IVR"
+    },
+    "3fd20d15-f07d-4883-9bd7-96ba92f0824f": {
+      "nombre_cola": "SCRIPT_FS_CONSULT",
+      "excluir": true,
+      "vendor": "PLATAFORMA_IVR"
+    },
+    "f0092dbd-c2a2-434a-b090-b9b70c76d22b": {
+      "nombre_cola": "SCRIPT_CC_CONSULT",
+      "excluir": true,
+      "vendor": "PLATAFORMA_IVR"
+    },
+    "35bc49b4-91e5-4304-9445-df47ab9925a0": {
+      "nombre_cola": "FS_CTO_ES",
+      "excluir": true,
+      "vendor": "FIELD_SUPPORT"
+    },
+    "ce5ea3f0-6e78-43e9-a74a-2aeb21abe2a2": {
+      "nombre_cola": "FS_ALIANZA_EN",
+      "excluir": true,
+      "vendor": "FIELD_SUPPORT"
+    },
+    "3832fda4-59b8-414b-8b2b-ea30f78084a5": {
+      "nombre_cola": "INTERNAS_VOZ_SOP_DT_DEV_EM_EC_ES",
+      "excluir": true,
+      "vendor": "INTERNAS"
+    },
+    "cd37c45e-a91c-45f2-bd02-209e3ff757c9": {
+      "nombre_cola": "S02_EST_SSEE_MPCC_ES",
+      "excluir": true,
+      "vendor": "INTERNAS"
+    },
+    "635c8eba-e344-4d46-ad36-009821e72850": {
+      "nombre_cola": "LAE_WSP_OUTBOUND",
+      "excluir": true,
+      "vendor": "INTERNAS"
+    },
+    "d722fa6e-a897-47ad-a57e-3d95f3e758e2": {
+      "nombre_cola": "GSS_OUTBOUND_PAGO_SSC",
+      "excluir": true,
+      "vendor": "GSS_OUTBOUND"
     }
   },
   "services": {
