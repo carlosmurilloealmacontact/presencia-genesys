@@ -19,6 +19,7 @@ from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo, obtene
 from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_gtr
 from capacidad_engine import render_tab_capacidad
 from ausentismo_engine import render_tab_ausentismo
+from glosario_engine import render_tab_glosario
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
@@ -918,6 +919,7 @@ SECCIONES_APP = [
     "Analisis de Pausas y Adherencia",
     "Control de Estados (en Vivo)",
     "Niveles de Servicio",
+    "📚 Glosario & Guía",
 ]
 
 # Pestaña de Capacidad y Diagnóstico Operativo (WFM SORE vs Real):
@@ -1705,3 +1707,6 @@ elif seccion_activa == "🚨 Control de Ausentismo":
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
     render_panel_auditoria()
+
+elif seccion_activa == "📚 Glosario & Guía":
+    render_tab_glosario()
