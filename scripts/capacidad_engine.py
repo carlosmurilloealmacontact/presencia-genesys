@@ -171,9 +171,9 @@ def cargar_forecast_sore_completo(forzar_recarga: bool = False) -> pd.DataFrame:
     return df_nuevo
 
 
-def cargar_presencia_resumen_dia(fecha_str: str) -> pd.DataFrame:
+def cargar_presencia_resumen_rango(fecha_desde: str, fecha_hasta: str, num_dias: int = 1) -> pd.DataFrame:
     """
-    Agrupa los minutos de presencia real de Genesys para una fecha específica.
+    Agrupa los minutos de presencia real de Genesys para un rango de fechas (o un solo día).
     Reconoce de forma inteligente los estados productivos según el tipo de servicio:
     - Inbound / Voz: Available y On Queue son productivos.
     - Back Office: Casos Backoffice, Available y On Queue son productivos.
@@ -202,21 +202,92 @@ def cargar_presencia_resumen_dia(fecha_str: str) -> pd.DataFrame:
                     CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue') THEN duracion_min ELSE 0 END
             END) as min_pausas
         FROM segments
-        WHERE fecha = ? AND servicio IS NOT NULL AND servicio != ''
+        WHERE fecha >= ? AND fecha <= ? AND servicio IS NOT NULL AND servicio != ''
         GROUP BY UPPER(TRIM(servicio))
     """
-    df_pres = pd.read_sql(query, conn, params=(fecha_str,))
+    df_pres = pd.read_sql(query, conn, params=(fecha_desde, fecha_hasta))
     conn.close()
 
     if not df_pres.empty:
         df_pres["pct_auxiliares_real"] = df_pres.apply(
             lambda r: (r["min_pausas"] / r["min_conectado"] * 100.0) if r["min_conectado"] > 0 else 0.0, axis=1
         ).round(1)
-        # FTEs equivalentes en base a jornada estándar de 8 horas (480 minutos)
-        df_pres["fte_reales_conectados"] = (df_pres["min_conectado"] / 480.0).round(1)
-        df_pres["fte_reales_disponibles"] = (df_pres["min_disponible"] / 480.0).round(1)
+        # FTEs equivalentes promedio diario en base a jornada estándar de 8 horas (480 minutos * num_dias)
+        dias_div = max(1, num_dias)
+        df_pres["fte_reales_conectados"] = (df_pres["min_conectado"] / (480.0 * dias_div)).round(1)
+        df_pres["fte_reales_disponibles"] = (df_pres["min_disponible"] / (480.0 * dias_div)).round(1)
 
     return df_pres
+
+
+def cargar_presencia_resumen_dia(fecha_str: str) -> pd.DataFrame:
+    """Compatibilidad: Agrupa minutos de presencia real para un solo día."""
+    return cargar_presencia_resumen_rango(fecha_str, fecha_str, num_dias=1)
+
+
+def calcular_evolucion_diaria_servicio(
+    fecha_desde: str, fecha_hasta: str, servicio_sel: str, df_fore_all: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Calcula la serie temporal día a día de un servicio:
+    FTE Requerido vs FTE Conectado vs FTE Disponible y % de Capacidad.
+    """
+    real_db_path = Path(__file__).parent / DB_PATH
+    if not os.path.exists(real_db_path):
+        return pd.DataFrame()
+
+    conn = sqlite3.connect(real_db_path)
+    query = """
+        SELECT 
+            fecha,
+            COUNT(DISTINCT agente_id) as asesores_conectados,
+            SUM(duracion_min) as min_total,
+            SUM(CASE WHEN presence_label NOT IN ('Offline') THEN duracion_min ELSE 0 END) as min_conectado,
+            SUM(CASE 
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' THEN
+                    CASE WHEN presence_label IN ('Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
+                ELSE
+                    CASE WHEN presence_label IN ('Available', 'On Queue') THEN duracion_min ELSE 0 END
+            END) as min_disponible,
+            SUM(CASE 
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' THEN
+                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
+                ELSE
+                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue') THEN duracion_min ELSE 0 END
+            END) as min_pausas
+        FROM segments
+        WHERE fecha >= ? AND fecha <= ? AND UPPER(TRIM(servicio)) = UPPER(TRIM(?))
+        GROUP BY fecha
+    """
+    df_pres = pd.read_sql(query, conn, params=(fecha_desde, fecha_hasta, servicio_sel))
+    conn.close()
+
+    sub_f = df_fore_all[
+        (df_fore_all["fecha"] >= fecha_desde)
+        & (df_fore_all["fecha"] <= fecha_hasta)
+        & (df_fore_all["servicio"] == servicio_sel)
+    ]
+    df_fore_dia = sub_f.groupby("fecha").agg({
+        "traffic_forecast": "sum",
+        "minutos_req": "sum"
+    }).reset_index()
+
+    if df_fore_dia.empty and df_pres.empty:
+        return pd.DataFrame()
+
+    merged = pd.merge(df_fore_dia, df_pres, on="fecha", how="outer").fillna(0.0).sort_values(by="fecha")
+    merged["fte_req"] = (merged["minutos_req"] / 480.0).round(1)
+    merged["fte_con"] = (merged["min_conectado"] / 480.0).round(1)
+    merged["fte_disp"] = (merged["min_disponible"] / 480.0).round(1)
+    merged["brecha_fte"] = (merged["fte_con"] - merged["fte_req"]).round(1)
+    merged["pct_aux"] = merged.apply(
+        lambda r: (r["min_pausas"] / r["min_conectado"] * 100.0) if r["min_conectado"] > 0 else 0.0, axis=1
+    ).round(1)
+    merged["pct_capacidad"] = merged.apply(
+        lambda r: (r["min_disponible"] / r["minutos_req"] * 100.0) if r["minutos_req"] > 0 else 100.0, axis=1
+    ).round(1)
+
+    return merged
 
 
 def calcular_capacidad_intervalos_real(fecha_str: str, servicio_sel: str) -> pd.DataFrame:
@@ -307,6 +378,102 @@ def diagnosticar_causa_raiz(gap_personas: float, aux_real: float, aux_meta: floa
     return "🔴 " + " • ".join(causas)
 
 
+def _render_curva_y_tabla_intradia(fecha_sel: str, srv_detalle: str, df_fore_all: pd.DataFrame):
+    """
+    Renderiza la gráfica de 48 intervalos de 30 min y la tabla detallada
+    para una fecha y servicio específicos.
+    """
+    df_fore_dia = df_fore_all[df_fore_all["fecha"] == fecha_sel].copy()
+    sub_f_int = df_fore_dia[df_fore_dia["servicio"] == srv_detalle].copy()
+    sub_r_int = calcular_capacidad_intervalos_real(fecha_sel, srv_detalle)
+
+    if sub_r_int.empty:
+        sub_r_int = pd.DataFrame([
+            {
+                "intervalo": int_lbl,
+                "min_conectado": 0.0,
+                "min_disponible": 0.0,
+                "min_pausas": 0.0,
+                "fte_conectado": 0.0,
+                "fte_disponible": 0.0,
+            }
+            for int_lbl in sub_f_int["intervalo"].tolist()
+        ])
+
+    merged_int = pd.merge(sub_f_int, sub_r_int, on="intervalo", how="left").fillna(0.0)
+
+    fig_int = go.Figure()
+    fig_int.add_trace(go.Scatter(
+        x=merged_int["intervalo"],
+        y=merged_int["asesores_req"],
+        mode="lines+markers",
+        name="1. Requerido del Mes (FTEs)",
+        line=dict(color="#f59e0b", width=3, dash="dash")
+    ))
+    fig_int.add_trace(go.Scatter(
+        x=merged_int["intervalo"],
+        y=merged_int["fte_conectado"],
+        mode="lines",
+        name="2. Conectados Totales (FTEs)",
+        line=dict(color="#94a3b8", width=2)
+    ))
+    fig_int.add_trace(go.Bar(
+        x=merged_int["intervalo"],
+        y=merged_int["fte_disponible"],
+        name="3. Disponible Efectivo (FTEs)",
+        marker_color="#2563eb",
+        opacity=0.75
+    ))
+
+    fig_int.update_layout(
+        title=f"Curva Intradía de Cobertura y Capacidad — {srv_detalle} ({fecha_sel})",
+        xaxis=dict(title="Intervalo de 30 min", tickangle=-45),
+        yaxis=dict(title="Equivalente de Asesores (FTEs)"),
+        hovermode="x unified",
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig_int, use_container_width=True)
+
+    with st.expander(f"📋 Ver Tabla Detallada Intervalo a Intervalo ({srv_detalle} - {fecha_sel})", expanded=False):
+        df_mostrar_int = merged_int[[
+            "intervalo", "traffic_forecast", "asesores_req", "fte_conectado", "fte_disponible",
+            "minutos_req", "min_conectado", "min_pausas", "min_disponible"
+        ]].copy()
+
+        df_mostrar_int["% Capacidad"] = df_mostrar_int.apply(
+            lambda r: (r["min_disponible"] / r["minutos_req"] * 100.0) if r["minutos_req"] > 0 else 100.0, axis=1
+        ).round(1)
+
+        st.dataframe(
+            df_mostrar_int.rename(columns={
+                "intervalo": "Intervalo",
+                "traffic_forecast": "Tráfico Plan",
+                "asesores_req": "FTE Requerido",
+                "fte_conectado": "FTE Conectado",
+                "fte_disponible": "FTE Disponible",
+                "minutos_req": "Min. Requeridos",
+                "min_conectado": "Min. Conectados",
+                "min_pausas": "Min. Pausas",
+                "min_disponible": "Min. Disponibles",
+            }),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Intervalo": st.column_config.TextColumn(width="small"),
+                "Tráfico Plan": st.column_config.NumberColumn(format="%.1f"),
+                "FTE Requerido": st.column_config.NumberColumn(format="%.2f"),
+                "FTE Conectado": st.column_config.NumberColumn(format="%.2f"),
+                "FTE Disponible": st.column_config.NumberColumn(format="%.2f"),
+                "Min. Requeridos": st.column_config.NumberColumn(format="%.1f m"),
+                "Min. Conectados": st.column_config.NumberColumn(format="%.1f m"),
+                "Min. Pausas": st.column_config.NumberColumn(format="%.1f m"),
+                "Min. Disponibles": st.column_config.NumberColumn(format="%.1f m"),
+                "% Capacidad": st.column_config.NumberColumn(format="%.1f%%"),
+            }
+        )
+
+
 def render_tab_capacidad(agentes_map: dict):
     """
     Renderiza la Matriz Ejecutiva Panorámica de Capacidad y el Desglose Intradía.
@@ -339,9 +506,50 @@ def render_tab_capacidad(agentes_map: dict):
             pass
 
     # Barra superior de controles
-    col_f1, col_f2, col_f3, col_btn = st.columns([1.6, 2.0, 3.6, 1.2])
-    with col_f1:
-        fecha_sel = st.selectbox("📅 Fecha de Evaluación:", fechas_disp, index=fecha_default_idx, key="cap_fecha_sel")
+    col_t1, col_t2, col_f2, col_f3, col_btn = st.columns([1.3, 2.2, 1.8, 3.2, 1.0])
+    with col_t1:
+        tipo_temporalidad = st.radio(
+            "Temporalidad:",
+            ["📅 Día", "📊 Rango"],
+            horizontal=True,
+            key="cap_tipo_temporalidad"
+        )
+    with col_t2:
+        if tipo_temporalidad == "📅 Día":
+            fecha_sel = st.selectbox("Fecha de Evaluación:", fechas_disp, index=fecha_default_idx, key="cap_fecha_sel")
+            fecha_desde = fecha_sel
+            fecha_hasta = fecha_sel
+            num_dias = 1
+            texto_periodo = f"Día: <b>{fecha_sel}</b>"
+        else:
+            min_d = datetime.strptime(fechas_disp[0], "%Y-%m-%d").date()
+            max_d = datetime.strptime(fechas_disp[-1], "%Y-%m-%d").date()
+            default_start = min_d
+            default_end = datetime.strptime(fechas_disp[fecha_default_idx], "%Y-%m-%d").date()
+            rango_pick = st.date_input(
+                "Rango de Fechas:",
+                value=(default_start, default_end),
+                min_value=min_d,
+                max_value=max_d,
+                key="cap_rango_fechas"
+            )
+            if isinstance(rango_pick, (tuple, list)) and len(rango_pick) == 2:
+                fecha_desde = rango_pick[0].strftime("%Y-%m-%d")
+                fecha_hasta = rango_pick[1].strftime("%Y-%m-%d")
+            elif isinstance(rango_pick, (tuple, list)) and len(rango_pick) == 1:
+                fecha_desde = rango_pick[0].strftime("%Y-%m-%d")
+                fecha_hasta = fecha_desde
+            else:
+                fecha_desde = default_start.strftime("%Y-%m-%d")
+                fecha_hasta = default_end.strftime("%Y-%m-%d")
+
+            if fecha_desde > fecha_hasta:
+                fecha_desde, fecha_hasta = fecha_hasta, fecha_desde
+
+            dias_en_rango = [f for f in fechas_disp if fecha_desde <= f <= fecha_hasta]
+            num_dias = max(1, len(dias_en_rango))
+            texto_periodo = f"Rango: <b>{fecha_desde}</b> a <b>{fecha_hasta}</b> ({num_dias}d)"
+
     with col_f2:
         filtro_mundo = st.selectbox(
             "🌐 Operación / Canal:",
@@ -352,9 +560,9 @@ def render_tab_capacidad(agentes_map: dict):
         st.markdown(
             f"""
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 12px; margin-top: 5px;">
-                <span style="font-size: 11px; color: #64748b;">Parámetros Oficiales del Comité:</span><br>
+                <span style="font-size: 11px; color: #64748b;">Parámetros del Comité · {texto_periodo}:</span><br>
                 <span style="font-size: 12px; font-weight: 600; color: #0f172a;">
-                    Meta Auxiliares: <b>{META_AUXILIARES_OFICIAL:.0f}%</b> (86% Disp.) · Meta AHT: <b>Meta del Mes</b> · Base FTE: <b>8h (480m)</b>
+                    Meta Auxiliares: <b>{META_AUXILIARES_OFICIAL:.0f}%</b> (86% Disp.) · Meta AHT: <b>Mes</b> · Base FTE: <b>8h (480m)</b>
                 </span>
             </div>
             """,
@@ -366,29 +574,29 @@ def render_tab_capacidad(agentes_map: dict):
             cargar_forecast_sore_completo(forzar_recarga=True)
             st.rerun()
 
-    # 1. Consolidar dimensionamiento del día
-    df_fore_dia = df_fore_all[df_fore_all["fecha"] == fecha_sel].copy()
-    if df_fore_dia.empty:
-        st.warning(f"No hay registros de dimensionamiento para la fecha {fecha_sel}.")
+    # 1. Consolidar dimensionamiento del periodo
+    df_fore_rango = df_fore_all[(df_fore_all["fecha"] >= fecha_desde) & (df_fore_all["fecha"] <= fecha_hasta)].copy()
+    if df_fore_rango.empty:
+        st.warning(f"No hay registros de dimensionamiento para las fechas seleccionadas ({fecha_desde} a {fecha_hasta}).")
         return
 
     # 2. Cargar presencia real de Genesys
-    df_pres_dia = cargar_presencia_resumen_dia(fecha_sel)
+    df_pres_rango = cargar_presencia_resumen_rango(fecha_desde, fecha_hasta, num_dias=num_dias)
 
     # Resumen agrupado del forecast por servicio
-    fore_summary = df_fore_dia.groupby(["servicio", "tipo_mundo"]).agg({
+    fore_summary = df_fore_rango.groupby(["servicio", "tipo_mundo"]).agg({
         "traffic_forecast": "sum",
         "minutos_req": "sum",
         "meta_aht_plana": "first",
         "meta_ns": "first"
     }).reset_index()
 
-    # FTEs requeridos en base a jornada estándar de 8 horas (480 minutos)
-    fore_summary["fte_dia_requerido"] = (fore_summary["minutos_req"] / 480.0).round(1)
+    # FTEs requeridos en base a jornada estándar de 8 horas (480 minutos * num_dias)
+    fore_summary["fte_dia_requerido"] = (fore_summary["minutos_req"] / (480.0 * num_dias)).round(1)
 
     # 3. Unir Forecast y Real
-    if not df_pres_dia.empty:
-        matriz = pd.merge(fore_summary, df_pres_dia, on="servicio", how="left").fillna(0.0)
+    if not df_pres_rango.empty:
+        matriz = pd.merge(fore_summary, df_pres_rango, on="servicio", how="left").fillna(0.0)
     else:
         matriz = fore_summary.copy()
         matriz["min_conectado"] = 0.0
@@ -471,7 +679,7 @@ def render_tab_capacidad(agentes_map: dict):
     pct_aux_global = (tot_min_pau / tot_min_con * 100.0) if tot_min_con > 0 else 0.0
     gap_fte_global = tot_fte_con - tot_fte_req
     tot_horas_fuga = df_ejecutiva["Horas Fuga Aux"].sum()
-    fte_fuga_equivalentes = tot_horas_fuga / 8.0
+    fte_fuga_equivalentes = tot_horas_fuga / (8.0 * num_dias)
 
     st.markdown("---")
     m1, m2, m3, m4 = st.columns(4)
@@ -486,12 +694,13 @@ def render_tab_capacidad(agentes_map: dict):
         )
     with m2:
         color_gap = "normal" if gap_fte_global >= 0 else "inverse"
+        delta_gap = f"{gap_fte_global:+.1f} FTEs" if num_dias == 1 else f"{gap_fte_global:+.1f} FTEs/día"
         st.metric(
             "Balance de Personal (FTE)",
             f"{tot_fte_con:.1f} / {tot_fte_req:.1f}",
-            delta=f"{gap_fte_global:+.1f} FTEs",
+            delta=delta_gap,
             delta_color=color_gap,
-            help="Asesores equivalentes conectados vs asesores requeridos."
+            help="Asesores equivalentes conectados vs asesores requeridos (promedio diario)."
         )
     with m3:
         color_aux = "normal" if pct_aux_global <= META_AUXILIARES_OFICIAL else "inverse"
@@ -503,12 +712,13 @@ def render_tab_capacidad(agentes_map: dict):
             help="% del tiempo conectado consumido en pausas en toda la operación."
         )
     with m4:
+        delta_fuga = f"≈ {fte_fuga_equivalentes:.1f} Asesores" if num_dias == 1 else f"≈ {fte_fuga_equivalentes:.1f} FTEs/día"
         st.metric(
             "Horas Perdidas por Exceso",
             f"{tot_horas_fuga:.1f} h",
-            delta=f"≈ {fte_fuga_equivalentes:.1f} Asesores",
+            delta=delta_fuga,
             delta_color="off",
-            help="Horas hombre netas destruidas por haber superado el límite del 14% de auxiliares."
+            help="Horas hombre netas destruidas por haber superado el límite del 14% de auxiliares en el periodo."
         )
 
     st.markdown("---")
@@ -630,8 +840,8 @@ def render_tab_capacidad(agentes_map: dict):
                     ⚖️ Balance Analítico: ¿Qué suma y qué resta?
                 </div>
                 <div style="font-size: 13px; color: #334155; line-height: 1.6;">
-                    • <b>1. Base Requerida del Mes:</b> <code>100.0%</code> ({w_h_req:,.1f} h | {w_fte_req:.1f} FTEs)<br>
-                    • <b>2. Conexión / Asistencia:</b> <span style="color: {'#15803d' if es_superavit_con else '#b91c1c'}; font-weight: 600;">{w_pct_delta_con:+.1f}%</span> ({w_delta_con_h:+,.1f} h | {w_fte_con - w_fte_req:+.1f} FTEs)<br>
+                    • <b>1. Base Requerida del Mes:</b> <code>100.0%</code> ({w_h_req:,.1f} h | {w_fte_req:.1f} FTEs{'/día' if num_dias > 1 else ''})<br>
+                    • <b>2. Conexión / Asistencia:</b> <span style="color: {'#15803d' if es_superavit_con else '#b91c1c'}; font-weight: 600;">{w_pct_delta_con:+.1f}%</span> ({w_delta_con_h:+,.1f} h | {w_fte_con - w_fte_req:+.1f} FTEs{'/día' if num_dias > 1 else ''})<br>
                     <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">{'🟢 Aportó capacidad por encima del plan' if es_superavit_con else '🔴 Restó capacidad por falta de conexión / inasistencia'}</span><br>
                     • <b>3. Pausas y Auxiliares:</b> <span style="color: #b91c1c; font-weight: 600;">{w_pct_pau:.1f}%</span> ({-w_h_pau:.1f} h)<br>
                     <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">– Pausas autorizadas (Meta 14%): {w_pct_pau_meta:.1f}% ({-w_h_pau_meta:.1f} h)</span><br>
@@ -662,7 +872,7 @@ def render_tab_capacidad(agentes_map: dict):
 
     # 6. Tabla Matriz Ejecutiva Panorámica
     st.markdown("#### 📊 Matriz Panorámica de Cumplimiento y Causa Raíz")
-    st.caption("Haz clic en cualquier servicio para desglosar su comportamiento intradía en las 48 franjas horarias.")
+    st.caption("Haz clic en cualquier servicio para desglosar su comportamiento en detalle.")
 
     def estilo_gap(val):
         if pd.isna(val): return ""
@@ -753,12 +963,17 @@ def render_tab_capacidad(agentes_map: dict):
         else f"🟠 Se registró sobreconsumo de auxiliares con un **{d_aux:.1f}%** frente al 14% meta, destruyendo **{d_hfuga:.1f} horas de capacidad**"
     )
 
+    if num_dias == 1:
+        texto_intro = f"Para el servicio <b>{srv_detalle}</b> el <b>{fecha_desde}</b>, la base del requerido del mes dimensionó una exigencia de <b>{d_mreq:,.0f} minutos hombre</b> ({d_req:.1f} FTEs)."
+    else:
+        texto_intro = f"Para el servicio <b>{srv_detalle}</b> en el periodo <b>del {fecha_desde} al {fecha_hasta}</b> ({num_dias} días evaluados), la base del requerido dimensionó una exigencia promedio de <b>{d_req:.1f} FTEs/día</b> ({d_mreq:,.0f} minutos hombre acumulados)."
+
     st.markdown(
         f"""
         <div style="background: #ffffff; border-left: 5px solid {'#10b981' if d_cap >= 90 else '#ef4444'}; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 16px;">
             <span style="font-size: 15px; font-weight: 700; color: #0f172a;">Resumen Ejecutivo de Capacidad:</span><br>
             <p style="font-size: 13.5px; color: #334155; margin-top: 6px; line-height: 1.6;">
-                Para el servicio <b>{srv_detalle}</b> el <b>{fecha_sel}</b>, la base del requerido del mes dimensionó una exigencia de <b>{d_mreq:,.0f} minutos hombre</b> ({d_req:.1f} FTEs).<br>
+                {texto_intro}<br>
                 • <b>1. Conexión / Asistencia:</b> {texto_personas}.<br>
                 • <b>2. Auxiliares y Pausas:</b> {texto_aux}. De los minutos conectados, <b>{d_mpau:,.0f} minutos</b> se consumieron en pausas.<br>
                 • <b>3. Criterio de AHT:</b> Evaluado contra la meta plana de dimensionamiento de <b>{d_aht} segundos</b>.<br>
@@ -769,90 +984,95 @@ def render_tab_capacidad(agentes_map: dict):
         unsafe_allow_html=True
     )
 
-    # 8. Gráfica Intradía de 48 Franjas de 30 min (Lógica Hombre 3)
-    st.markdown("##### 📈 Curva Intradía de Cobertura (30 min × FTEs = Minutos)")
-    st.caption("Compara en cada intervalo cuántas personas exigía la base del requerido del mes vs cuántas estaban conectadas y cuántas efectivamente disponibles.")
-
-    sub_f_int = df_fore_dia[df_fore_dia["servicio"] == srv_detalle].copy()
-    sub_r_int = calcular_capacidad_intervalos_real(fecha_sel, srv_detalle)
-
-    if sub_r_int.empty:
-        sub_r_int = pd.DataFrame([
-            {"intervalo": int_lbl, "min_conectado": 0.0, "min_disponible": 0.0, "min_pausas": 0.0, "fte_conectado": 0.0, "fte_disponible": 0.0}
-            for int_lbl in sub_f_int["intervalo"].tolist()
+    # 9. Vista Detallada: Intradía (si 1 día) o Evolución Diaria + Zoom (si Rango)
+    if num_dias > 1:
+        tab_evol, tab_intra = st.tabs([
+            f"📅 Evolución Diaria ({num_dias} días)",
+            "🕒 Zoom Intradía por Intervalo (30 min)"
         ])
+        with tab_evol:
+            st.markdown(f"##### 📈 Curva de Capacidad Día a Día — {srv_detalle}")
+            st.caption("Comportamiento diario de la capacidad requerida vs ejecutada durante las fechas evaluadas.")
+            df_evol = calcular_evolucion_diaria_servicio(fecha_desde, fecha_hasta, srv_detalle, df_fore_all)
+            if not df_evol.empty:
+                fig_ev = go.Figure()
+                fig_ev.add_trace(go.Scatter(
+                    x=df_evol["fecha"],
+                    y=df_evol["fte_req"],
+                    mode="lines+markers",
+                    name="1. Requerido del Mes (FTEs)",
+                    line=dict(color="#f59e0b", width=3, dash="dash")
+                ))
+                fig_ev.add_trace(go.Scatter(
+                    x=df_evol["fecha"],
+                    y=df_evol["fte_con"],
+                    mode="lines+markers",
+                    name="2. Conectados Totales (FTEs)",
+                    line=dict(color="#94a3b8", width=2)
+                ))
+                fig_ev.add_trace(go.Bar(
+                    x=df_evol["fecha"],
+                    y=df_evol["fte_disp"],
+                    name="3. Disponible Efectivo (FTEs)",
+                    marker_color="#2563eb",
+                    opacity=0.75
+                ))
+                fig_ev.update_layout(
+                    title=f"Evolución Diaria de Personal y Capacidad — {srv_detalle}",
+                    xaxis=dict(title="Fecha", tickangle=-30),
+                    yaxis=dict(title="Equivalente de Asesores (FTEs)"),
+                    hovermode="x unified",
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_ev, use_container_width=True)
 
-    merged_int = pd.merge(sub_f_int, sub_r_int, on="intervalo", how="left").fillna(0.0)
+                with st.expander(f"📋 Ver Desglose Numérico Día a Día ({srv_detalle})", expanded=False):
+                    st.dataframe(
+                        df_evol.rename(columns={
+                            "fecha": "Fecha",
+                            "fte_req": "FTE Requerido",
+                            "fte_con": "FTE Conectado",
+                            "fte_disp": "FTE Disponible",
+                            "brecha_fte": "Brecha FTE",
+                            "pct_aux": "% Auxiliares",
+                            "pct_capacidad": "% Capacidad",
+                            "minutos_req": "Min. Requeridos",
+                            "min_disponible": "Min. Disponibles"
+                        })[[
+                            "Fecha", "FTE Requerido", "FTE Conectado", "FTE Disponible",
+                            "Brecha FTE", "% Auxiliares", "% Capacidad", "Min. Requeridos", "Min. Disponibles"
+                        ]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Fecha": st.column_config.TextColumn("Fecha", width="small"),
+                            "FTE Requerido": st.column_config.NumberColumn(format="%.1f"),
+                            "FTE Conectado": st.column_config.NumberColumn(format="%.1f"),
+                            "FTE Disponible": st.column_config.NumberColumn(format="%.1f"),
+                            "Brecha FTE": st.column_config.NumberColumn(format="%+.1f"),
+                            "% Auxiliares": st.column_config.NumberColumn(format="%.1f%%"),
+                            "% Capacidad": st.column_config.NumberColumn(format="%.1f%%"),
+                            "Min. Requeridos": st.column_config.NumberColumn(format="%.0f m"),
+                            "Min. Disponibles": st.column_config.NumberColumn(format="%.0f m"),
+                        }
+                    )
+            else:
+                st.info("Sin registros de evolución diaria para este servicio en el rango seleccionado.")
 
-    fig_int = go.Figure()
-    fig_int.add_trace(go.Scatter(
-        x=merged_int["intervalo"],
-        y=merged_int["asesores_req"],
-        mode="lines+markers",
-        name="1. Requerido del Mes (FTEs)",
-        line=dict(color="#f59e0b", width=3, dash="dash")
-    ))
-    fig_int.add_trace(go.Scatter(
-        x=merged_int["intervalo"],
-        y=merged_int["fte_conectado"],
-        mode="lines",
-        name="2. Conectados Totales (FTEs)",
-        line=dict(color="#94a3b8", width=2)
-    ))
-    fig_int.add_trace(go.Bar(
-        x=merged_int["intervalo"],
-        y=merged_int["fte_disponible"],
-        name="3. Disponible Efectivo (FTEs)",
-        marker_color="#2563eb",
-        opacity=0.75
-    ))
-
-    fig_int.update_layout(
-        title=f"Curva Intradía de Cobertura y Capacidad — {srv_detalle} ({fecha_sel})",
-        xaxis=dict(title="Intervalo de 30 min", tickangle=-45),
-        yaxis=dict(title="Equivalente de Asesores (FTEs)"),
-        hovermode="x unified",
-        margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    st.plotly_chart(fig_int, use_container_width=True)
-
-    # 9. Tabla de Intervalos de 30 minutos (Lógica Hombre 3)
-    with st.expander(f"📋 Ver Tabla Detallada Intervalo a Intervalo ({srv_detalle})", expanded=False):
-        df_mostrar_int = merged_int[[
-            "intervalo", "traffic_forecast", "asesores_req", "fte_conectado", "fte_disponible",
-            "minutos_req", "min_conectado", "min_pausas", "min_disponible"
-        ]].copy()
-
-        df_mostrar_int["% Capacidad"] = df_mostrar_int.apply(
-            lambda r: (r["min_disponible"] / r["minutos_req"] * 100.0) if r["minutos_req"] > 0 else 100.0, axis=1
-        ).round(1)
-
-        st.dataframe(
-            df_mostrar_int.rename(columns={
-                "intervalo": "Intervalo",
-                "traffic_forecast": "Tráfico Plan",
-                "asesores_req": "FTE Requerido",
-                "fte_conectado": "FTE Conectado",
-                "fte_disponible": "FTE Disponible",
-                "minutos_req": "Min. Requeridos",
-                "min_conectado": "Min. Conectados",
-                "min_pausas": "Min. Pausas",
-                "min_disponible": "Min. Disponibles",
-            }),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Intervalo": st.column_config.TextColumn(width="small"),
-                "Tráfico Plan": st.column_config.NumberColumn(format="%.1f"),
-                "FTE Requerido": st.column_config.NumberColumn(format="%.2f"),
-                "FTE Conectado": st.column_config.NumberColumn(format="%.2f"),
-                "FTE Disponible": st.column_config.NumberColumn(format="%.2f"),
-                "Min. Requeridos": st.column_config.NumberColumn(format="%.1f m"),
-                "Min. Conectados": st.column_config.NumberColumn(format="%.1f m"),
-                "Min. Pausas": st.column_config.NumberColumn(format="%.1f m"),
-                "Min. Disponibles": st.column_config.NumberColumn(format="%.1f m"),
-                "% Capacidad": st.column_config.NumberColumn(format="%.1f%%"),
-            }
-        )
+        with tab_intra:
+            dias_disp_zoom = sorted(df_fore_rango["fecha"].unique().tolist())
+            col_dz, _ = st.columns([2.5, 3.5])
+            with col_dz:
+                dia_zoom = st.selectbox(
+                    "📅 Selecciona un día para examinar sus 48 franjas horarias:",
+                    dias_disp_zoom,
+                    index=len(dias_disp_zoom) - 1,
+                    key="cap_dia_zoom_picker"
+                )
+            _render_curva_y_tabla_intradia(dia_zoom, srv_detalle, df_fore_all)
+    else:
+        st.markdown("##### 📈 Curva Intradía de Cobertura (30 min × FTEs = Minutos)")
+        st.caption("Compara en cada intervalo cuántas personas exigía la base del requerido del mes vs cuántas estaban conectadas y cuántas efectivamente disponibles.")
+        _render_curva_y_tabla_intradia(fecha_desde, srv_detalle, df_fore_all)
 
