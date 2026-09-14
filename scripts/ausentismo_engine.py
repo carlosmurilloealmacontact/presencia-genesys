@@ -9,6 +9,7 @@ con el estado de conexión real de Genesys Cloud:
 4. Matriz Ejecutiva y Exportación: Resumen por Supervisor, Servicio y Tasa de Ausentismo.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta, timezone
 from io import BytesIO
 import json
@@ -18,6 +19,7 @@ import sqlite3
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 
 from config import DB_PATH
@@ -186,6 +188,86 @@ def obtener_turnos_programados_dia(fecha_str: str) -> pd.DataFrame:
             return pd.DataFrame()
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def obtener_presencia_usuarios_ausentismo(token: str, catalog: dict) -> dict:
+    """
+    Consulta a todos los usuarios de Genesys Cloud sin filtrar por locations
+    para mapear con 100% de certeza el estado de presencia en tiempo real por BP.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        r_init = requests.get(
+            "https://api.mypurecloud.com/api/v2/users",
+            headers=headers,
+            params={"pageSize": 100, "pageNumber": 1, "expand": "presence,routingStatus"},
+            timeout=15
+        )
+        if not r_init or r_init.status_code != 200:
+            return {}
+
+        data_init = r_init.json()
+        total_pages = data_init.get("pageCount", 1)
+
+        def fetch_page(p):
+            try:
+                r = requests.get(
+                    "https://api.mypurecloud.com/api/v2/users",
+                    headers=headers,
+                    params={"pageSize": 100, "pageNumber": p, "expand": "presence,routingStatus"},
+                    timeout=15
+                )
+                return r.json().get("entities", []) if r.status_code == 200 else []
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            paginas = list(executor.map(fetch_page, range(1, total_pages + 1)))
+
+        now_utc = datetime.now(timezone.utc)
+        col_tz = timezone(timedelta(hours=-5))
+        presencia_map = {}
+        for page_entities in paginas:
+            for u in page_entities:
+                u_name = u.get("name", "")
+                bp_val = numero_agente(u_name)
+                pres = u.get("presence", {})
+                p_def_id = pres.get("presenceDefinition", {}).get("id")
+                p_info = catalog.get(
+                    p_def_id,
+                    {
+                        "label": pres.get("presenceDefinition", {}).get("systemPresence", "Offline"),
+                        "systemPresence": pres.get("presenceDefinition", {}).get("systemPresence", "Offline")
+                    }
+                )
+                mod_date_str = pres.get("modifiedDate")
+                dur_seg = 0
+                hora_inicio_str = ""
+                if mod_date_str:
+                    try:
+                        dt_mod = datetime.fromisoformat(mod_date_str.replace("Z", "+00:00"))
+                        dur_seg = max(0, int((now_utc - dt_mod).total_seconds()))
+                        dt_col = dt_mod.astimezone(col_tz)
+                        hora_inicio_str = dt_col.strftime("%H:%M:%S")
+                    except Exception:
+                        pass
+
+                routing = u.get("routingStatus", {}).get("status", "OFF_QUEUE")
+
+                if bp_val:
+                    presencia_map[bp_val] = {
+                        "presence_label": p_info.get("label", "Offline"),
+                        "system_presence": p_info.get("systemPresence", "Offline"),
+                        "routing_status": routing,
+                        "duracion_min": round(dur_seg / 60.0, 1),
+                        "hora_ultimo_cambio": hora_inicio_str,
+                        "full_name_genesys": u_name
+                    }
+        return presencia_map
+    except Exception as err:
+        print(f"Error consultando usuarios ausentismo: {err}")
+        return {}
+
+
 @st.cache_data(ttl=1800)
 def cargar_sociodemografico_db() -> dict:
     """Carga el maestro sociodemográfico completo (14k+ asesores) para identificar BPs y jerarquía."""
@@ -202,7 +284,7 @@ def cargar_sociodemografico_db() -> dict:
 
 def construir_radar_ausentismo(
     fecha_str: str,
-    df_live_presencia: pd.DataFrame,
+    df_live_presencia,
     agentes_map: dict
 ) -> pd.DataFrame:
     """
@@ -225,7 +307,9 @@ def construir_radar_ausentismo(
 
     # Mapeo de presencia actual por BP
     presencia_act_map = {}
-    if not df_live_presencia.empty:
+    if isinstance(df_live_presencia, dict):
+        presencia_act_map = df_live_presencia
+    elif isinstance(df_live_presencia, pd.DataFrame) and not df_live_presencia.empty:
         for _, row in df_live_presencia.iterrows():
             bp_val = numero_agente(row.get("agente", ""))
             if bp_val:
@@ -394,14 +478,14 @@ def render_tab_ausentismo(agentes_map: dict):
 
     # Obtener token y presencia en vivo de Genesys si es hoy
     token = obtener_token_genesys()
-    df_live = pd.DataFrame()
+    presencia_map = {}
     if fecha_sel == hoy_col and token:
         with st.spinner("Consultando presencia en tiempo real en Genesys Cloud..."):
             catalog = cargar_catalogo_presencias(token)
-            df_live = obtener_presencia_en_vivo(token, agentes_map, catalog)
+            presencia_map = obtener_presencia_usuarios_ausentismo(token, catalog)
 
     with st.spinner(f"Cruzando programación de turnos con presencia ({fecha_str})..."):
-        df_radar = construir_radar_ausentismo(fecha_str, df_live, agentes_map)
+        df_radar = construir_radar_ausentismo(fecha_str, presencia_map, agentes_map)
 
     if df_radar.empty:
         st.warning(f"No hay turnos programados cargados para la fecha {fecha_str}. Carga la malla semanal correspondiente.")
