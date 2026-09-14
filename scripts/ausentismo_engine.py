@@ -268,6 +268,31 @@ def obtener_presencia_usuarios_ausentismo(token: str, catalog: dict) -> dict:
         return {}
 
 
+@st.cache_data(ttl=600)
+def obtener_presencia_historica_dia(fecha_str: str) -> dict:
+    """Consulta segments en SQLite para reconstruir asistencia y puntualidad de días pasados."""
+    db_path = Path(BASE_DIR) / DB_PATH
+    if not db_path.exists():
+        return {}
+    with sqlite3.connect(db_path) as conn:
+        try:
+            df = pd.read_sql_query("""
+                SELECT 
+                    substr(agente, 1, instr(agente, ' - ') - 1) as bp,
+                    min(inicio) as primer_login,
+                    max(fin) as ultimo_fin,
+                    sum(duracion_min) as duracion_min
+                FROM segments
+                WHERE fecha = ? AND system_presence != 'OFFLINE'
+                GROUP BY bp
+            """, conn, params=(fecha_str,))
+            if df.empty:
+                return {}
+            return df.set_index("bp").to_dict(orient="index")
+        except Exception:
+            return {}
+
+
 @st.cache_data(ttl=1800)
 def cargar_sociodemografico_db() -> dict:
     """Carga el maestro sociodemográfico completo (14k+ asesores) para identificar BPs y jerarquía."""
@@ -288,7 +313,7 @@ def construir_radar_ausentismo(
     agentes_map: dict
 ) -> pd.DataFrame:
     """
-    Cruza los turnos programados de hoy contra la presencia de Genesys y el sociodemográfico.
+    Cruza los turnos programados del día contra la presencia de Genesys (en vivo o histórica).
     Determina:
     - Identificación plena de Asesor, Supervisor, Coordinador y Servicio.
     - Estado de entrada: Conectado a tiempo, Retraso (5-15m), Crítico (>15m), Sin Login (Offline).
@@ -305,24 +330,34 @@ def construir_radar_ausentismo(
     if not df_just.empty:
         just_map = df_just.set_index("bp").to_dict(orient="index")
 
-    # Mapeo de presencia actual por BP
-    presencia_act_map = {}
-    if isinstance(df_live_presencia, dict):
-        presencia_act_map = df_live_presencia
-    elif isinstance(df_live_presencia, pd.DataFrame) and not df_live_presencia.empty:
-        for _, row in df_live_presencia.iterrows():
-            bp_val = numero_agente(row.get("agente", ""))
-            if bp_val:
-                presencia_act_map[bp_val] = {
-                    "presence_label": row.get("estado", "Offline"),
-                    "system_presence": row.get("sys_pres", "Offline"),
-                    "duracion_min": row.get("dur_min", 0.0),
-                    "hora_ultimo_cambio": row.get("hora_inicio", "")
-                }
-
-    # Hora actual en Colombia
+    # Determinar si es fecha pasada, hoy o futura
     now_col = datetime.now(timezone.utc) - timedelta(hours=5)
+    hoy_str = now_col.strftime("%Y-%m-%d")
     hora_act_str = now_col.strftime("%H:%M:%S")
+
+    es_pasado = (fecha_str < hoy_str)
+    es_futuro = (fecha_str > hoy_str)
+    es_hoy = (fecha_str == hoy_str)
+
+    hist_presencia_map = {}
+    if es_pasado:
+        hist_presencia_map = obtener_presencia_historica_dia(fecha_str)
+
+    # Mapeo de presencia actual por BP (solo aplica si es hoy)
+    presencia_act_map = {}
+    if es_hoy:
+        if isinstance(df_live_presencia, dict):
+            presencia_act_map = df_live_presencia
+        elif isinstance(df_live_presencia, pd.DataFrame) and not df_live_presencia.empty:
+            for _, row in df_live_presencia.iterrows():
+                bp_val = numero_agente(row.get("agente", ""))
+                if bp_val:
+                    presencia_act_map[bp_val] = {
+                        "presence_label": row.get("estado", "Offline"),
+                        "system_presence": row.get("sys_pres", "Offline"),
+                        "duracion_min": row.get("dur_min", 0.0),
+                        "hora_ultimo_cambio": row.get("hora_inicio", "")
+                    }
 
     filas = []
     for _, r in df_turnos.iterrows():
@@ -338,7 +373,7 @@ def construir_radar_ausentismo(
                     info_ag = v
                     break
 
-        # 2. Si no tiene supervisor o servicio, cruzar con el maestro sociodemográfico
+        # 2. Cruzar con el maestro sociodemográfico
         socio_ag = socio_map.get(bp, {})
         agente_nom = info_ag.get("agente", "")
         if not agente_nom or agente_nom.startswith("Asesor ") or agente_nom == f"{bp} - Colaborador":
@@ -362,62 +397,109 @@ def construir_radar_ausentismo(
         except Exception:
             duracion_turno_horas = 8.0
 
-        # Estado en Genesys
-        live_info = presencia_act_map.get(bp, {})
-        pres_label = live_info.get("presence_label", "Offline")
-        sys_pres = live_info.get("system_presence", "Offline")
-
-        # Evaluar estado de puntualidad / asistencia
-        ya_debio_iniciar = (hora_act_str >= h_ini)
-        minutos_desde_inicio = 0
-        try:
-            t_ini_dt_today = now_col.replace(
-                hour=int(h_ini.split(":")[0]),
-                minute=int(h_ini.split(":")[1]),
-                second=int(h_ini.split(":")[2]),
-                microsecond=0
-            )
-            minutos_desde_inicio = (now_col - t_ini_dt_today).total_seconds() / 60.0
-        except Exception:
-            pass
-
         # Verificar si pertenece a Cargo (no operan con Genesys)
         es_cargo = ("CARGO" in str(srv).upper()) or ("CARGO" in str(socio_ag.get("cargo", "")).upper())
 
-        # Determinar Semáforo y Clasificación
-        esta_conectado = (pres_label != "Offline" and sys_pres != "Offline")
-
+        # Evaluación según temporalidad (Pasado, Futuro o En Vivo)
         if es_cargo:
             aplica_genesys = False
             es_ausente = False
             estado_asistencia = "📦 Cargo (Sin Genesys)"
             semaforo = "⚪"
-        elif not ya_debio_iniciar:
+            esta_conectado = False
+            ya_debio_iniciar = es_pasado or (hora_act_str >= h_ini)
+            pres_label = "No Aplica (Cargo)"
+            minutos_desde_inicio = 0
+        elif es_futuro:
             aplica_genesys = True
             es_ausente = False
             estado_asistencia = "⏰ Turno Futuro"
             semaforo = "⚪"
-        elif esta_conectado:
+            esta_conectado = False
+            ya_debio_iniciar = False
+            pres_label = "Turno Futuro"
+            minutos_desde_inicio = 0
+        elif es_pasado:
             aplica_genesys = True
-            es_ausente = False
-            estado_asistencia = "🟢 Conectado"
-            semaforo = "🟢"
-        else:
-            # No está conectado y ya debió iniciar (Aplica a Genesys)
-            aplica_genesys = True
-            es_ausente = True
-            if minutos_desde_inicio <= 5:
-                estado_asistencia = "🟡 En Margen (<=5m)"
-                semaforo = "🟡"
-            elif minutos_desde_inicio <= 15:
-                estado_asistencia = "🟠 Retraso Leve (5-15m)"
-                semaforo = "🟠"
-            elif minutos_desde_inicio <= 60:
-                estado_asistencia = "🔴 Retraso Crítico (>15m)"
-                semaforo = "🔴"
+            ya_debio_iniciar = True
+            hist_info = hist_presencia_map.get(bp)
+            if hist_info:
+                esta_conectado = True
+                primer_login = str(hist_info.get("primer_login", "")).strip()
+                diff_min = 0.0
+                try:
+                    t_login_dt = datetime.strptime(primer_login, "%H:%M:%S")
+                    t_ini_dt_ref = datetime.strptime(h_ini, "%H:%M:%S")
+                    diff_min = (t_login_dt - t_ini_dt_ref).total_seconds() / 60.0
+                except Exception:
+                    pass
+
+                minutos_desde_inicio = max(0, int(round(diff_min)))
+                if diff_min <= 5:
+                    estado_asistencia = "🟢 Conectó a Tiempo"
+                    semaforo = "🟢"
+                    es_ausente = False
+                elif diff_min <= 15:
+                    estado_asistencia = "🟠 Retraso Leve (5-15m)"
+                    semaforo = "🟠"
+                    es_ausente = True
+                else:
+                    estado_asistencia = "🔴 Retraso Crítico (>15m)"
+                    semaforo = "🔴"
+                    es_ausente = True
+
+                tot_min_int = int(round(hist_info.get("duracion_min", 0)))
+                pres_label = f"Conectó ({tot_min_int}m • Inició {primer_login})"
             else:
+                esta_conectado = False
+                es_ausente = True
                 estado_asistencia = "🚨 Ausencia / No Login"
                 semaforo = "🚨"
+                minutos_desde_inicio = int(round(duracion_turno_horas * 60))
+                pres_label = "Sin Conexión"
+        else:
+            # es_hoy: Evaluar estado de puntualidad y conexión en tiempo real
+            aplica_genesys = True
+            live_info = presencia_act_map.get(bp, {})
+            pres_label = live_info.get("presence_label", "Offline")
+            sys_pres = live_info.get("system_presence", "Offline")
+            esta_conectado = (pres_label != "Offline" and sys_pres != "Offline")
+
+            ya_debio_iniciar = (hora_act_str >= h_ini)
+            minutos_desde_inicio = 0
+            try:
+                t_ini_dt_today = now_col.replace(
+                    hour=int(h_ini.split(":")[0]),
+                    minute=int(h_ini.split(":")[1]),
+                    second=int(h_ini.split(":")[2]),
+                    microsecond=0
+                )
+                minutos_desde_inicio = (now_col - t_ini_dt_today).total_seconds() / 60.0
+            except Exception:
+                pass
+
+            if not ya_debio_iniciar:
+                estado_asistencia = "⏰ Turno Futuro"
+                semaforo = "⚪"
+                es_ausente = False
+            elif esta_conectado:
+                estado_asistencia = "🟢 Conectado"
+                semaforo = "🟢"
+                es_ausente = False
+            else:
+                es_ausente = True
+                if minutos_desde_inicio <= 5:
+                    estado_asistencia = "🟡 En Margen (<=5m)"
+                    semaforo = "🟡"
+                elif minutos_desde_inicio <= 15:
+                    estado_asistencia = "🟠 Retraso Leve (5-15m)"
+                    semaforo = "🟠"
+                elif minutos_desde_inicio <= 60:
+                    estado_asistencia = "🔴 Retraso Crítico (>15m)"
+                    semaforo = "🔴"
+                else:
+                    estado_asistencia = "🚨 Ausencia / No Login"
+                    semaforo = "🚨"
 
         # Cruzar con justificación si existe
         just_info = just_map.get(bp, {})
@@ -502,9 +584,14 @@ def render_tab_ausentismo(agentes_map: dict):
         with st.spinner("Consultando presencia en tiempo real en Genesys Cloud..."):
             catalog = cargar_catalogo_presencias(token)
             presencia_map = obtener_presencia_usuarios_ausentismo(token, catalog)
+    elif fecha_sel < hoy_col:
+        with st.spinner(f"Reconstruyendo auditoría de asistencia histórica de Genesys ({fecha_str})..."):
+            pass
+    else:
+        with st.spinner(f"Cargando proyección de turnos futuros ({fecha_str})..."):
+            pass
 
-    with st.spinner(f"Cruzando programación de turnos con presencia ({fecha_str})..."):
-        df_radar = construir_radar_ausentismo(fecha_str, presencia_map, agentes_map)
+    df_radar = construir_radar_ausentismo(fecha_str, presencia_map, agentes_map)
 
     if df_radar.empty:
         st.warning(f"No hay turnos programados cargados para la fecha {fecha_str}. Carga la malla semanal correspondiente.")
