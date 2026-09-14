@@ -1,5 +1,5 @@
 """
-Motor de Diagnóstico y Capacidad Operativa (WFM SORE vs. Genesys Real).
+Motor de Diagnóstico y Capacidad Operativa (Requerido del Mes vs. Genesys Real).
 
 Diseñado con base estricta en el debate gerencial de operaciones y planificación:
 - Matriz Ejecutiva Panorámica: Evalúa todos los servicios de un vistazo según las 4 palancas
@@ -313,13 +313,13 @@ def render_tab_capacidad(agentes_map: dict):
     """
     st.markdown("### 🧭 Matriz Ejecutiva de Capacidad y Diagnóstico Operativo")
     st.caption(
-        "Herramienta gerencial de contraste: Compara el dimensionamiento planificado por WFM (SORE) "
+        "Herramienta gerencial de contraste: Compara la base del requerido del mes "
         "frente a la ejecución real de presencia en Genesys, identificando la causa raíz de las brechas de servicio."
     )
 
     df_fore_all = cargar_forecast_sore_completo()
     if df_fore_all.empty:
-        st.error("⚠️ No se encontraron los archivos de dimensionamiento de SORE en la raíz del proyecto.")
+        st.error("⚠️ No se encontraron los archivos base del requerido del mes en la raíz del proyecto.")
         return
 
     # Selector de fecha disponible (default al día más reciente con registros)
@@ -354,7 +354,7 @@ def render_tab_capacidad(agentes_map: dict):
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 12px; margin-top: 5px;">
                 <span style="font-size: 11px; color: #64748b;">Parámetros Oficiales del Comité:</span><br>
                 <span style="font-size: 12px; font-weight: 600; color: #0f172a;">
-                    Meta Auxiliares: <b>{META_AUXILIARES_OFICIAL:.0f}%</b> (86% Disp.) · Meta AHT: <b>Fija SORE</b> · Base FTE: <b>8h (480m)</b>
+                    Meta Auxiliares: <b>{META_AUXILIARES_OFICIAL:.0f}%</b> (86% Disp.) · Meta AHT: <b>Meta del Mes</b> · Base FTE: <b>8h (480m)</b>
                 </span>
             </div>
             """,
@@ -362,7 +362,7 @@ def render_tab_capacidad(agentes_map: dict):
         )
     with col_btn:
         st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True)
-        if st.button("🔄 Recargar", help="Fuerza la lectura fresca de los archivos Excel de SORE"):
+        if st.button("🔄 Recargar", help="Fuerza la lectura fresca de los archivos base del requerido del mes"):
             cargar_forecast_sore_completo(forzar_recarga=True)
             st.rerun()
 
@@ -482,7 +482,7 @@ def render_tab_capacidad(agentes_map: dict):
             f"{cumpl_global:.1f}%",
             delta=f"{cumpl_global - 100.0:+.1f}% vs Requerido",
             delta_color=color_cumpl,
-            help="% de minutos productivos reales frente al total exigido por SORE."
+            help="% de minutos productivos reales frente al total requerido del mes."
         )
     with m2:
         color_gap = "normal" if gap_fte_global >= 0 else "inverse"
@@ -597,7 +597,7 @@ def render_tab_capacidad(agentes_map: dict):
         fig_wat = go.Figure(go.Waterfall(
             orientation="v",
             measure=["absolute", "relative", "relative", "total"],
-            x=["1. Requerido SORE", "2. Conexión / Asistencia", "3. Pausas / Auxiliares", "4. Capacidad Real"],
+            x=["1. Requerido del Mes", "2. Conexión / Asistencia", "3. Pausas / Auxiliares", "4. Capacidad Real"],
             y=y_vals,
             text=text_vals,
             textposition="outside",
@@ -630,7 +630,7 @@ def render_tab_capacidad(agentes_map: dict):
                     ⚖️ Balance Analítico: ¿Qué suma y qué resta?
                 </div>
                 <div style="font-size: 13px; color: #334155; line-height: 1.6;">
-                    • <b>1. Base Planificada SORE:</b> <code>100.0%</code> ({w_h_req:,.1f} h | {w_fte_req:.1f} FTEs)<br>
+                    • <b>1. Base Requerida del Mes:</b> <code>100.0%</code> ({w_h_req:,.1f} h | {w_fte_req:.1f} FTEs)<br>
                     • <b>2. Conexión / Asistencia:</b> <span style="color: {'#15803d' if es_superavit_con else '#b91c1c'}; font-weight: 600;">{w_pct_delta_con:+.1f}%</span> ({w_delta_con_h:+,.1f} h | {w_fte_con - w_fte_req:+.1f} FTEs)<br>
                     <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">{'🟢 Aportó capacidad por encima del plan' if es_superavit_con else '🔴 Restó capacidad por falta de conexión / inasistencia'}</span><br>
                     • <b>3. Pausas y Auxiliares:</b> <span style="color: #b91c1c; font-weight: 600;">{w_pct_pau:.1f}%</span> ({-w_h_pau:.1f} h)<br>
@@ -646,7 +646,7 @@ def render_tab_capacidad(agentes_map: dict):
 
         # Diagnóstico narrativo conciso
         if w_pct_disp >= 95.0:
-            st.success(f"✅ **Operación Cumplida:** La capacidad disponible cubrió el **{w_pct_disp:.1f}%** de la exigencia de SORE.")
+            st.success(f"✅ **Operación Cumplida:** La capacidad disponible cubrió el **{w_pct_disp:.1f}%** de la base requerida del mes.")
         elif es_superavit_con and w_pct_pau_fuga < -5.0:
             st.warning(
                 f"🟠 **Déficit por Fuga en Auxiliares:** Se contó con suficiente personal ({w_pct_delta_con:+.1f}%), pero las pausas no autorizadas destruyeron **{w_h_pau_fuga:.1f} horas** ({w_pct_pau_fuga:.1f}%), tumbando el cumplimiento al **{w_pct_disp:.1f}%**."
@@ -703,9 +703,9 @@ def render_tab_capacidad(agentes_map: dict):
         selection_mode="single-row",
         key="tabla_matriz_capacidad_v2",
         column_config={
-            "Servicio": st.column_config.TextColumn("Servicio", help="Nombre oficial en Genesys y SORE"),
+            "Servicio": st.column_config.TextColumn("Servicio", help="Nombre oficial en Genesys y Base del Requerido"),
             "Canal": st.column_config.TextColumn("Mundo / Canal"),
-            "FTE Req": st.column_config.NumberColumn("FTE Req", format="%.1f", help="Asesores requeridos por SORE"),
+            "FTE Req": st.column_config.NumberColumn("FTE Req", format="%.1f", help="Asesores requeridos en el mes"),
             "FTE Con": st.column_config.NumberColumn("FTE Con", format="%.1f", help="Asesores conectados en Genesys"),
             "Brecha FTE": st.column_config.NumberColumn("Brecha FTE", format="%+.1f", help="Diferencia de personal: Conectados - Requeridos"),
             "% Aux Real": st.column_config.NumberColumn("% Aux Real", format="%.1f%%", help="% de tiempo en pausas y estados no productivos"),
@@ -758,7 +758,7 @@ def render_tab_capacidad(agentes_map: dict):
         <div style="background: #ffffff; border-left: 5px solid {'#10b981' if d_cap >= 90 else '#ef4444'}; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 16px;">
             <span style="font-size: 15px; font-weight: 700; color: #0f172a;">Resumen Ejecutivo de Capacidad:</span><br>
             <p style="font-size: 13.5px; color: #334155; margin-top: 6px; line-height: 1.6;">
-                Para el servicio <b>{srv_detalle}</b> el <b>{fecha_sel}</b>, WFM SORE dimensionó una exigencia de <b>{d_mreq:,.0f} minutos hombre</b> ({d_req:.1f} FTEs).<br>
+                Para el servicio <b>{srv_detalle}</b> el <b>{fecha_sel}</b>, la base del requerido del mes dimensionó una exigencia de <b>{d_mreq:,.0f} minutos hombre</b> ({d_req:.1f} FTEs).<br>
                 • <b>1. Conexión / Asistencia:</b> {texto_personas}.<br>
                 • <b>2. Auxiliares y Pausas:</b> {texto_aux}. De los minutos conectados, <b>{d_mpau:,.0f} minutos</b> se consumieron en pausas.<br>
                 • <b>3. Criterio de AHT:</b> Evaluado contra la meta plana de dimensionamiento de <b>{d_aht} segundos</b>.<br>
@@ -771,7 +771,7 @@ def render_tab_capacidad(agentes_map: dict):
 
     # 8. Gráfica Intradía de 48 Franjas de 30 min (Lógica Hombre 3)
     st.markdown("##### 📈 Curva Intradía de Cobertura (30 min × FTEs = Minutos)")
-    st.caption("Compara en cada intervalo cuántas personas exigía SORE vs cuántas estaban conectadas y cuántas efectivamente disponibles.")
+    st.caption("Compara en cada intervalo cuántas personas exigía la base del requerido del mes vs cuántas estaban conectadas y cuántas efectivamente disponibles.")
 
     sub_f_int = df_fore_dia[df_fore_dia["servicio"] == srv_detalle].copy()
     sub_r_int = calcular_capacidad_intervalos_real(fecha_sel, srv_detalle)
@@ -789,7 +789,7 @@ def render_tab_capacidad(agentes_map: dict):
         x=merged_int["intervalo"],
         y=merged_int["asesores_req"],
         mode="lines+markers",
-        name="1. Requerido SORE (FTEs)",
+        name="1. Requerido del Mes (FTEs)",
         line=dict(color="#f59e0b", width=3, dash="dash")
     ))
     fig_int.add_trace(go.Scatter(
