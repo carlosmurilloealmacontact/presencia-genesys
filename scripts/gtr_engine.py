@@ -523,6 +523,137 @@ def generar_excel_aht_genesys_fiel(df_asesores_raw: pd.DataFrame, agentes_map: d
 
 
 
+def normalizar_servicio(txt: str) -> str:
+    """Normaliza texto removiendo tildes, espacios dobles y mayúsculas."""
+    if not txt:
+        return ""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(txt)).encode("ASCII", "ignore").decode("utf-8")
+    return " ".join(t.strip().upper().split())
+
+
+@st.cache_data(ttl=1800)
+def obtener_mapa_coordinador_servicios(gtr_cfg_services: tuple = ()) -> tuple[dict[str, list[str]], dict[str, list[str]], list[str]]:
+    """Construye el mapeo bidireccional entre Coordinadores y Servicios de GTR."""
+    real_db_path = Path(__file__).parent.parent / "data" / "presencia.db"
+
+    ALIAS_MAP = {
+        "DT FFP AMC": "DT FFP AMC",
+        "DREAM TEAMS VOZ": "DT FFP AMC",
+        "DT FFP AMC ING": "DT FFP AMC ING",
+        "DREAM TEAMS ENG": "DT FFP AMC ING",
+        "DREAM TEAM WP": "DT FFP AMC",
+        "CHAT DT FFP AMC ESP": "DT FFP AMC",
+        "CHAT DREAM TEAMS ES": "RRSS AMC",
+        "CHAT LUA AMC": "LUA AMC",
+        "EQUIPAJES AMC": "Equipajes AMC",
+        "EQUIPAJES AMC ING": "Equipajes AMC ING",
+        "VENTAS AMC": "Ventas AMC",
+        "WPP VENTAS AMC": "WPP VENTAS AMC",
+        "CHAT VENTAS AMC": "CHAT VENTAS AMC",
+        "SOPORTE LUA AMC": "Soporte LUA AMC",
+        "LATAM TRAVEL AMC": "Latam Travel AMC",
+        "BO EQUIPAJES AMC": "Equipajes AMC",
+        "AG CORPORATE CHAT": "CORPORATE PYME",
+        "AGY N1 ESP VOZ": "GSS Operacional Agencias",
+        "AGENCIAS TARGET ES": "GSS Operacional Agencias",
+        "AGY N1 ENG VOZ": "AGENCIAS TARGET ENG",
+        "AGY N1 ESP CHAT": "CHAT AGENCIAS ESP",
+        "AGY N3 ESP VOZ": "GSS Operacional Agencias",
+        "AGY N3 ESP CHAT": "CHAT AGENCIAS ESP",
+        "GSS OPERACIONAL AGENCIAS": "GSS Operacional Agencias",
+        "GSS NDC AGENCIAS": "GSS NDC Agencias",
+        "RRSS AMC": "RRSS AMC",
+        "RRSS AMC ING": "RRSS AMC ING",
+        "RRSS PORT AMC": "RRSS AMC",
+        "LUA AMC": "LUA AMC",
+        "LUA AMC ING": "LUA AMC ING",
+        "WPP LUA AMC": "WPP LUA AMC",
+        "HVC AMC": "HVC AMC",
+        "WPP EQUIPAJES AMC": "WPP EQUIPAJES AMC",
+        "CORPORATE PYME": "CORPORATE PYME",
+    }
+
+    CANONICAL_SRV_COORD = {
+        "LUA AMC": ["CARBONO PEDROZA YINEIDIS YESENIA", "ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "WPP LUA AMC": ["CARBONO PEDROZA YINEIDIS YESENIA", "HERRERA NOGUERA MAURICIO"],
+        "LUA AMC ING": ["CARBONO PEDROZA YINEIDIS YESENIA", "ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "CHAT LUA AMC": ["CARBONO PEDROZA YINEIDIS YESENIA", "ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "HVC AMC": ["MONSALVE HERRERA JOHN JAMES"],
+        "VENTAS AMC": ["LOBO VERA LADY VANESSA"],
+        "WPP VENTAS AMC": ["LOBO VERA LADY VANESSA"],
+        "CHAT VENTAS AMC": ["LOBO VERA LADY VANESSA", "URREGO CASTAÑO ANDRES FELIPE"],
+        "EQUIPAJES AMC": ["LOBO VERA LADY VANESSA"],
+        "EQUIPAJES AMC ING": ["LOBO VERA LADY VANESSA", "ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "WPP EQUIPAJES AMC": ["LOBO VERA LADY VANESSA"],
+        "SOPORTE LUA AMC": ["LOBO VERA LADY VANESSA"],
+        "LATAM TRAVEL AMC": ["LOBO VERA LADY VANESSA"],
+        "BO EQUIPAJES AMC": ["LOBO VERA LADY VANESSA"],
+        "TT_EQUIPAJES": ["LOBO VERA LADY VANESSA"],
+        "DT FFP AMC": ["ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "DT FFP AMC ING": ["ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "DREAM TEAMS VOZ": ["ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "DREAM TEAMS ENG": ["ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "DREAM TEAM WP": ["ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "CHAT DT FFP AMC ESP": ["ROJAS LEGUIZAMO ANDRES FELIPE"],
+        "RRSS AMC": ["ALZATE ARROYAVE DANIEL FELIPE", "URREGO CASTAÑO ANDRES FELIPE"],
+        "RRSS AMC ING": ["ALZATE ARROYAVE DANIEL FELIPE", "URREGO CASTAÑO ANDRES FELIPE"],
+        "RRSS PORT AMC": ["ALZATE ARROYAVE DANIEL FELIPE", "URREGO CASTAÑO ANDRES FELIPE"],
+        "CHAT DREAM TEAMS ES": ["ALZATE ARROYAVE DANIEL FELIPE", "URREGO CASTAÑO ANDRES FELIPE"],
+        "CORPORATE PYME": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AG CORPORATE CHAT": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AGENCIAS TARGET ES": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AGENCIAS TARGET ENG": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "GSS OPERACIONAL AGENCIAS": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "GSS NDC AGENCIAS": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "CHAT AGENCIAS ESP": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AGY N1 ESP VOZ": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AGY N1 ENG VOZ": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AGY N1 ESP CHAT": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AGY N3 ESP VOZ": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+        "AGY N3 ESP CHAT": ["CARDONA RAMIREZ MARELYN", "RODRIGUEZ URIBE ANDRES MAURICIO"],
+    }
+
+    coord_to_srv: dict[str, set[str]] = {}
+    srv_to_coord: dict[str, set[str]] = {}
+
+    for srv_k, coords in CANONICAL_SRV_COORD.items():
+        s_n = normalizar_servicio(srv_k)
+        for c in coords:
+            c_clean = c.strip()
+            coord_to_srv.setdefault(c_clean, set()).add(srv_k)
+            srv_to_coord.setdefault(s_n, set()).add(c_clean)
+
+    if os.path.exists(real_db_path):
+        try:
+            with sqlite3.connect(real_db_path) as conn:
+                df_p = pd.read_sql(
+                    "SELECT distinct servicio, coordinador FROM segments WHERE coordinador IS NOT NULL AND coordinador != '' AND UPPER(cargo) LIKE '%ASESOR%'",
+                    conn
+                )
+                for _, row in df_p.iterrows():
+                    c = str(row['coordinador']).strip()
+                    s = str(row['servicio']).strip()
+                    s_norm = normalizar_servicio(s)
+                    target = ALIAS_MAP.get(s_norm)
+                    if not target:
+                        for g in gtr_cfg_services:
+                            if normalizar_servicio(g) == s_norm:
+                                target = g
+                                break
+                    if target:
+                        coord_to_srv.setdefault(c, set()).add(target)
+                        srv_to_coord.setdefault(normalizar_servicio(target), set()).add(c)
+        except Exception:
+            pass
+
+    c_to_s = {k: sorted(list(v)) for k, v in coord_to_srv.items()}
+    s_to_c = {k: sorted(list(v)) for k, v in srv_to_coord.items()}
+    lista_coords = sorted(c_to_s.keys())
+    return c_to_s, s_to_c, lista_coords
+
+
+
 # ── RENDER PRINCIPAL DEL COMPONENTE GTR ───────────────────────────────────────
 
 def render_tab_gtr(agentes_map: dict):
@@ -719,6 +850,10 @@ def render_tab_gtr(agentes_map: dict):
     # ══════════════════════════════════════════════════════════════════════════
     if "Gerencial" in modo_vista:
         # 1. Transformar serv_data a DataFrame Gerencial Vertical
+        mapa_coord_a_srv, mapa_srv_a_coords, lista_coordinadores = obtener_mapa_coordinador_servicios(
+            tuple(gtr_cfg.get("services", {}).keys())
+        )
+
         filas_ger = []
         for s, d in serv_data.items():
             if s in ("TT_LATAM", "TT_EQUIPAJES") or d["LL ENT"] > 0:
@@ -738,8 +873,19 @@ def render_tab_gtr(agentes_map: dict):
                 else:
                     estado = "🔴 Crítico (< SLA)"
 
+                coords_s = mapa_srv_a_coords.get(normalizar_servicio(s), [])
+                if s == "TT_LATAM":
+                    coord_str = "Consolidado Operación"
+                elif s == "TT_EQUIPAJES":
+                    coord_str = "LOBO VERA LADY VANESSA"
+                elif coords_s:
+                    coord_str = " / ".join(coords_s)
+                else:
+                    coord_str = "Sin Asignar"
+
                 filas_ger.append({
                     "Servicio": s,
+                    "Coordinador": coord_str,
                     "Estado": estado,
                     "Entrantes": int(d["LL ENT"]),
                     "Atendidas": int(d["LL ATEN"]),
@@ -802,6 +948,74 @@ def render_tab_gtr(agentes_map: dict):
                 help=f"Meta Contractual: {int(aht_meta_latam)}s ({formatear_segundos_mm_ss(aht_meta_latam)}). Variación: {dif_aht_latam:+.0f}s. En AHT, menor tiempo es mejor (verde)."
             )
 
+        # ── FILTROS: COORDINADOR Y SERVICIO ─────────────────────────────────
+        st.markdown("---")
+        c_f_head, c_f_info = st.columns([2, 3])
+        with c_f_head:
+            st.markdown("##### 🔎 Filtros de Consulta Operativa")
+            st.caption("Filtre la tabla de desempeño y el diagnóstico por equipo responsable.")
+
+        c_filtro_coord, c_filtro_srv = st.columns([1, 1])
+        with c_filtro_coord:
+            sel_coords = st.multiselect(
+                "👤 Filtrar por Coordinador:",
+                options=lista_coordinadores,
+                default=[],
+                placeholder="Todos los Coordinadores (Sin filtro)",
+                key=f"{k_pfx}sel_coords"
+            )
+
+        with c_filtro_srv:
+            srvs_disponibles_totales = sorted([str(s) for s in df_ger["Servicio"].unique() if s not in ("TT_LATAM", "TT_EQUIPAJES")])
+            if sel_coords:
+                srvs_permitidos = set()
+                for c in sel_coords:
+                    srvs_permitidos.update(mapa_coord_a_srv.get(c, []))
+                srvs_opciones = [
+                    s for s in srvs_disponibles_totales
+                    if any(normalizar_servicio(s) == normalizar_servicio(sp) for sp in srvs_permitidos)
+                ]
+                if not srvs_opciones:
+                    srvs_opciones = srvs_disponibles_totales
+            else:
+                srvs_opciones = srvs_disponibles_totales
+
+            sel_srvs = st.multiselect(
+                "🎧 Filtrar por Servicio:",
+                options=srvs_opciones,
+                default=[],
+                placeholder="Todos los Servicios (Sin filtro)",
+                key=f"{k_pfx}sel_srvs"
+            )
+
+        # Aplicar filtros a df_ger_view
+        df_ger_view = df_ger.copy()
+        if sel_coords:
+            def srv_coincide_coords(srv):
+                if srv == "TT_LATAM":
+                    return False
+                if srv == "TT_EQUIPAJES":
+                    return "LOBO VERA LADY VANESSA" in sel_coords
+                coords_s = mapa_srv_a_coords.get(normalizar_servicio(srv), [])
+                return any(c in sel_coords for c in coords_s)
+            df_ger_view = df_ger_view[df_ger_view["Servicio"].apply(srv_coincide_coords)]
+
+        if sel_srvs:
+            df_ger_view = df_ger_view[df_ger_view["Servicio"].isin(sel_srvs)]
+
+        if sel_coords or sel_srvs:
+            chips = []
+            if sel_coords:
+                chips.append(f"**Coordinador:** {', '.join(sel_coords)}")
+            if sel_srvs:
+                chips.append(f"**Servicio:** {', '.join(sel_srvs)}")
+            st.info(
+                f"🎯 **Filtro Activo:** {' | '.join(chips)} "
+                f"• **{len(df_ger_view)}** servicios mostrados "
+                f"• **{int(df_ger_view['Entrantes'].sum()):,}** llamadas entrantes "
+                f"• **{int(df_ger_view['Atendidas'].sum()):,}** atendidas"
+            )
+
         # 4. Tabla Ejecutiva Vertical Ordenada por Impacto
         st.markdown("#### 📊 Desempeño Operativo por Servicio (Priorizado por Volumen e Impacto)")
         st.caption("Filas ordenadas por número de llamadas. Permite detectar en 3 segundos desviaciones de SLA y excesos de AHT.")
@@ -840,33 +1054,40 @@ def render_tab_gtr(agentes_map: dict):
                 return f"background-color: {color}22; color: {color}; font-weight: 600;"
             return ""
 
-        styler_ger = (
-            df_ger.style
-            .map(estilo_dif_sla, subset=["Dif NS (pp)"])
-            .map(estilo_desv_aht, subset=["Desv AHT (%)"])
-        )
+        if df_ger_view.empty:
+            st.warning("⚠️ No se encontraron servicios con interacciones para la combinación de filtros seleccionada.")
+        else:
+            styler_ger = (
+                df_ger_view.style
+                .map(estilo_dif_sla, subset=["Dif NS (pp)"])
+                .map(estilo_desv_aht, subset=["Desv AHT (%)"])
+            )
 
-        st.dataframe(
-            styler_ger,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
-                "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
-                "% Aband": st.column_config.NumberColumn("% Aband.", format="%.1f%%"),
-                "NS Real": st.column_config.NumberColumn("NS Real", format="%.1f%%"),
-                "NS Meta": st.column_config.NumberColumn("NS Meta", format="%.1f%%"),
-                "Dif NS (pp)": st.column_config.NumberColumn("Dif SLA (pp)", format="%+.1f%%"),
-                "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
-                "AHT Meta (s)": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
-                "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
-                "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%.1f s"),
-            }
-        )
+            st.dataframe(
+                styler_ger,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Servicio": st.column_config.TextColumn("Servicio", width="medium"),
+                    "Coordinador": st.column_config.TextColumn("Coordinador Responsable", width="medium"),
+                    "Estado": st.column_config.TextColumn("Estado SLA", width="small"),
+                    "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
+                    "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
+                    "% Aband": st.column_config.NumberColumn("% Aband.", format="%.1f%%"),
+                    "NS Real": st.column_config.NumberColumn("NS Real", format="%.1f%%"),
+                    "NS Meta": st.column_config.NumberColumn("NS Meta", format="%.1f%%"),
+                    "Dif NS (pp)": st.column_config.NumberColumn("Dif SLA (pp)", format="%+.1f%%"),
+                    "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+                    "AHT Meta (s)": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
+                    "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
+                    "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%.1f s"),
+                }
+            )
 
         # 4.1 Desglose interactivo de "Otras Colas / No Mapeado"
         df_no_map = df_raw[df_raw["servicio"] == "Otras Colas / No Mapeado"]
-        if not df_no_map.empty:
+        mostrar_no_map = not df_no_map.empty and ("Otras Colas / No Mapeado" in df_ger_view["Servicio"].values or (not sel_coords and not sel_srvs))
+        if mostrar_no_map:
             total_off_nomap = int(df_no_map["nOffered"].sum())
             total_ans_nomap = int(df_no_map["tAnswered_count"].sum())
             total_abn_nomap = int(df_no_map["tAbandon_count"].sum())
@@ -1030,168 +1251,177 @@ $$\\text{AHT (Tiempo Total)} = \\text{Talk (Conversación)} + \\text{Hold (Esper
             df_as_ger[["Asesor", "Servicio", "Supervisor", "Coordinador", "Meta AHT"]] = df_as_ger.apply(cruzar_sup, axis=1)
             df_as_ger = df_as_ger[df_as_ger["Supervisor"] != "-"]
 
-            # Selector de agrupación
-            col_diag1, col_diag2 = st.columns([2, 3])
-            with col_diag1:
-                nivel_sup = st.radio(
-                    "Nivel de Vista:",
-                    ["👤 Consolidado por Supervisor", "👥 Desglose por Supervisor y Servicio"],
-                    horizontal=True
+            if sel_coords:
+                df_as_ger = df_as_ger[df_as_ger["Coordinador"].isin(sel_coords)]
+            if sel_srvs:
+                srvs_norm_sel = {normalizar_servicio(s) for s in sel_srvs}
+                df_as_ger = df_as_ger[df_as_ger["Servicio"].apply(lambda s: normalizar_servicio(s) in srvs_norm_sel)]
+
+            if df_as_ger.empty:
+                st.info("ℹ️ No se encontraron registros de asesores para los filtros seleccionados.")
+            else:
+                # Selector de agrupación
+                col_diag1, col_diag2 = st.columns([2, 3])
+                with col_diag1:
+                    nivel_sup = st.radio(
+                        "Nivel de Vista:",
+                        ["👤 Consolidado por Supervisor", "👥 Desglose por Supervisor y Servicio"],
+                        horizontal=True
+                    )
+
+                group_cols = ["Supervisor"] if "Consolidado" in nivel_sup else ["Supervisor", "Servicio"]
+
+                def agg_sup_ponderado(grp):
+                    tot_int = grp["interacciones"].sum()
+                    if tot_int == 0:
+                        return pd.Series({})
+                    aht_p = (grp["aht_seg"] * grp["interacciones"]).sum() / tot_int
+                    talk_p = (grp["t_talk_seg"] * grp["interacciones"]).sum() / tot_int
+                    hold_p = (grp["t_held_seg"] * grp["interacciones"]).sum() / tot_int
+                    acw_p = (grp["t_acw_seg"] * grp["interacciones"]).sum() / tot_int
+                    
+                    valid_m = grp[grp["Meta AHT"].notna()]
+                    if not valid_m.empty and valid_m["interacciones"].sum() > 0:
+                        meta_p = (valid_m["Meta AHT"] * valid_m["interacciones"]).sum() / valid_m["interacciones"].sum()
+                    else:
+                        meta_p = None
+
+                    return pd.Series({
+                        "Asesores Activos": int(grp["agente_id"].nunique()),
+                        "Interacciones": int(tot_int),
+                        "AHT Real (s)": round(aht_p, 0),
+                        "Meta AHT (s)": round(meta_p, 0) if meta_p else None,
+                        "Talk (s)": round(talk_p, 0),
+                        "Hold (s)": round(hold_p, 0),
+                        "ACW (s)": round(acw_p, 0),
+                    })
+
+                sup_grp = df_as_ger.groupby(group_cols).apply(agg_sup_ponderado, include_groups=False).reset_index()
+
+                def calc_desv(r):
+                    if pd.notna(r["Meta AHT (s)"]) and r["Meta AHT (s)"] > 0 and pd.notna(r["AHT Real (s)"]):
+                        return round((r["AHT Real (s)"] - r["Meta AHT (s)"]) / r["Meta AHT (s)"] * 100.0, 1)
+                    return None
+
+                sup_grp["Desv AHT (%)"] = sup_grp.apply(calc_desv, axis=1)
+
+                def diagnosticar_foco_gestion(r):
+                    desv = r.get("Desv AHT (%)")
+                    if pd.isna(desv) or desv is None:
+                        return "⚪ Sin Meta Definida"
+                    if desv <= 0:
+                        return "🟢 Cumple Meta (Operación Controlada)"
+
+                    hold = r.get("Hold (s)")
+                    if hold is None:
+                        hold = r.get("t_held_seg", 0)
+                    hold = float(hold or 0)
+
+                    talk = r.get("Talk (s)")
+                    if talk is None:
+                        talk = r.get("t_talk_seg", 0)
+                    talk = float(talk or 0)
+
+                    acw = r.get("ACW (s)")
+                    if acw is None:
+                        acw = r.get("t_acw_seg", 0)
+                    acw = float(acw or 0)
+
+                    aht_r = r.get("AHT Real (s)")
+                    if aht_r is None:
+                        aht_r = r.get("aht_seg", 1)
+                    aht_r = float(aht_r or 1)
+
+                    meta = r.get("Meta AHT (s)")
+                    if meta is None:
+                        meta = r.get("Meta AHT", 600)
+                    meta = float(meta or 600)
+
+                    pct_hold = (hold / aht_r * 100.0) if aht_r > 0 else 0.0
+
+                    if hold > 200 or pct_hold >= 30.0:
+                        return f"🔴 Retención / Hold ({int(hold)}s - {int(pct_hold)}% AHT) — Dudas procedimentales o herramientas"
+                    elif acw > 35:
+                        return f"🔴 ACW / Post-llamada ({int(acw)}s) — Demora en tipificación o cierre tras colgar"
+                    elif talk > meta:
+                        return f"🔴 Conversación / Talk ({int(talk)}s) — Reforzar escucha activa y síntesis de llamada"
+                    elif desv <= 10.0:
+                        return f"🟡 Desvío Leve (+{desv:.1f}%) — Monitorear llamadas punta"
+
+                    return f"🔴 Desvío Mixto (+{desv:.1f}%) — Auditar llamadas de mayor duración"
+
+                def estilo_foco(val):
+                    if not isinstance(val, str):
+                        return ""
+                    if "🟢" in val:
+                        return "background-color: rgba(27, 175, 122, 0.15); color: #0e6251; font-weight: 600;"
+                    elif "🟡" in val:
+                        return "background-color: rgba(237, 161, 0, 0.15); color: #7d6608; font-weight: 600;"
+                    elif "🔴" in val:
+                        return "background-color: rgba(226, 75, 74, 0.15); color: #78281f; font-weight: 600;"
+                    return ""
+
+                sup_grp["Acción Recomendada / Foco de Gestión"] = sup_grp.apply(diagnosticar_foco_gestion, axis=1)
+                sup_grp = sup_grp.sort_values(by=["Desv AHT (%)", "Interacciones"], ascending=[False, False])
+
+                styler_sup = (
+                    sup_grp.style
+                    .map(estilo_desv_aht, subset=["Desv AHT (%)"])
+                    .map(estilo_hold, subset=["Hold (s)"])
+                    .map(estilo_foco, subset=["Acción Recomendada / Foco de Gestión"])
                 )
 
-            group_cols = ["Supervisor"] if "Consolidado" in nivel_sup else ["Supervisor", "Servicio"]
+                st.dataframe(
+                    styler_sup,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Asesores Activos": st.column_config.NumberColumn("Asesores Activos", format="%d"),
+                        "Interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
+                        "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+                        "Meta AHT (s)": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
+                        "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
+                        "Talk (s)": st.column_config.NumberColumn("Talk (s)", format="%.0f s"),
+                        "Hold (s)": st.column_config.NumberColumn("Hold / Retención (s)", format="%.0f s"),
+                        "ACW (s)": st.column_config.NumberColumn("ACW (s)", format="%.0f s"),
+                        "Acción Recomendada / Foco de Gestión": st.column_config.TextColumn("Acción Recomendada / Foco de Gestión", width="large"),
+                    }
+                )
 
-            def agg_sup_ponderado(grp):
-                tot_int = grp["interacciones"].sum()
-                if tot_int == 0:
-                    return pd.Series({})
-                aht_p = (grp["aht_seg"] * grp["interacciones"]).sum() / tot_int
-                talk_p = (grp["t_talk_seg"] * grp["interacciones"]).sum() / tot_int
-                hold_p = (grp["t_held_seg"] * grp["interacciones"]).sum() / tot_int
-                acw_p = (grp["t_acw_seg"] * grp["interacciones"]).sum() / tot_int
-                
-                valid_m = grp[grp["Meta AHT"].notna()]
-                if not valid_m.empty and valid_m["interacciones"].sum() > 0:
-                    meta_p = (valid_m["Meta AHT"] * valid_m["interacciones"]).sum() / valid_m["interacciones"].sum()
-                else:
-                    meta_p = None
-
-                return pd.Series({
-                    "Asesores Activos": int(grp["agente_id"].nunique()),
-                    "Interacciones": int(tot_int),
-                    "AHT Real (s)": round(aht_p, 0),
-                    "Meta AHT (s)": round(meta_p, 0) if meta_p else None,
-                    "Talk (s)": round(talk_p, 0),
-                    "Hold (s)": round(hold_p, 0),
-                    "ACW (s)": round(acw_p, 0),
-                })
-
-            sup_grp = df_as_ger.groupby(group_cols).apply(agg_sup_ponderado, include_groups=False).reset_index()
-
-            def calc_desv(r):
-                if pd.notna(r["Meta AHT (s)"]) and r["Meta AHT (s)"] > 0 and pd.notna(r["AHT Real (s)"]):
-                    return round((r["AHT Real (s)"] - r["Meta AHT (s)"]) / r["Meta AHT (s)"] * 100.0, 1)
-                return None
-
-            sup_grp["Desv AHT (%)"] = sup_grp.apply(calc_desv, axis=1)
-
-            def diagnosticar_foco_gestion(r):
-                desv = r.get("Desv AHT (%)")
-                if pd.isna(desv) or desv is None:
-                    return "⚪ Sin Meta Definida"
-                if desv <= 0:
-                    return "🟢 Cumple Meta (Operación Controlada)"
-
-                hold = r.get("Hold (s)")
-                if hold is None:
-                    hold = r.get("t_held_seg", 0)
-                hold = float(hold or 0)
-
-                talk = r.get("Talk (s)")
-                if talk is None:
-                    talk = r.get("t_talk_seg", 0)
-                talk = float(talk or 0)
-
-                acw = r.get("ACW (s)")
-                if acw is None:
-                    acw = r.get("t_acw_seg", 0)
-                acw = float(acw or 0)
-
-                aht_r = r.get("AHT Real (s)")
-                if aht_r is None:
-                    aht_r = r.get("aht_seg", 1)
-                aht_r = float(aht_r or 1)
-
-                meta = r.get("Meta AHT (s)")
-                if meta is None:
-                    meta = r.get("Meta AHT", 600)
-                meta = float(meta or 600)
-
-                pct_hold = (hold / aht_r * 100.0) if aht_r > 0 else 0.0
-
-                if hold > 200 or pct_hold >= 30.0:
-                    return f"🔴 Retención / Hold ({int(hold)}s - {int(pct_hold)}% AHT) — Dudas procedimentales o herramientas"
-                elif acw > 35:
-                    return f"🔴 ACW / Post-llamada ({int(acw)}s) — Demora en tipificación o cierre tras colgar"
-                elif talk > meta:
-                    return f"🔴 Conversación / Talk ({int(talk)}s) — Reforzar escucha activa y síntesis de llamada"
-                elif desv <= 10.0:
-                    return f"🟡 Desvío Leve (+{desv:.1f}%) — Monitorear llamadas punta"
-
-                return f"🔴 Desvío Mixto (+{desv:.1f}%) — Auditar llamadas de mayor duración"
-
-            def estilo_foco(val):
-                if not isinstance(val, str):
-                    return ""
-                if "🟢" in val:
-                    return "background-color: rgba(27, 175, 122, 0.15); color: #0e6251; font-weight: 600;"
-                elif "🟡" in val:
-                    return "background-color: rgba(237, 161, 0, 0.15); color: #7d6608; font-weight: 600;"
-                elif "🔴" in val:
-                    return "background-color: rgba(226, 75, 74, 0.15); color: #78281f; font-weight: 600;"
-                return ""
-
-            sup_grp["Acción Recomendada / Foco de Gestión"] = sup_grp.apply(diagnosticar_foco_gestion, axis=1)
-            sup_grp = sup_grp.sort_values(by=["Desv AHT (%)", "Interacciones"], ascending=[False, False])
-
-            styler_sup = (
-                sup_grp.style
-                .map(estilo_desv_aht, subset=["Desv AHT (%)"])
-                .map(estilo_hold, subset=["Hold (s)"])
-                .map(estilo_foco, subset=["Acción Recomendada / Foco de Gestión"])
-            )
-
-            st.dataframe(
-                styler_sup,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Asesores Activos": st.column_config.NumberColumn("Asesores Activos", format="%d"),
-                    "Interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
-                    "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
-                    "Meta AHT (s)": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
-                    "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
-                    "Talk (s)": st.column_config.NumberColumn("Talk (s)", format="%.0f s"),
-                    "Hold (s)": st.column_config.NumberColumn("Hold / Retención (s)", format="%.0f s"),
-                    "ACW (s)": st.column_config.NumberColumn("ACW (s)", format="%.0f s"),
-                    "Acción Recomendada / Foco de Gestión": st.column_config.TextColumn("Acción Recomendada / Foco de Gestión", width="large"),
-                }
-            )
-
-            # Detalle Drill-down por Asesor dentro del supervisor
-            with st.expander("🔎 Ver detalle de asesores por Supervisor seleccionado", expanded=False):
-                lista_supervisores = sorted(df_as_ger["Supervisor"].unique().tolist())
-                sup_seleccionado = st.selectbox("Selecciona un Supervisor:", lista_supervisores)
-                if sup_seleccionado:
-                    df_asesores_sup = df_as_ger[df_as_ger["Supervisor"] == sup_seleccionado].copy()
-                    df_asesores_sup["Desv AHT (%)"] = df_asesores_sup.apply(
-                        lambda r: round((r["aht_seg"] - r["Meta AHT"]) / r["Meta AHT"] * 100.0, 1) if pd.notna(r["Meta AHT"]) and r["Meta AHT"] > 0 else None,
-                        axis=1
-                    )
-                    df_asesores_sup["Acción Recomendada / Foco de Gestión"] = df_asesores_sup.apply(diagnosticar_foco_gestion, axis=1)
-                    df_asesores_sup = df_asesores_sup.sort_values(by="aht_seg", ascending=False)
-                    styler_asesores = (
-                        df_asesores_sup[["Asesor", "Servicio", "interacciones", "aht_seg", "Meta AHT", "Desv AHT (%)", "t_talk_seg", "t_held_seg", "t_acw_seg", "Acción Recomendada / Foco de Gestión"]]
-                        .style
-                        .map(estilo_desv_aht, subset=["Desv AHT (%)"])
-                        .map(estilo_hold, subset=["t_held_seg"])
-                        .map(estilo_foco, subset=["Acción Recomendada / Foco de Gestión"])
-                    )
-                    st.dataframe(
-                        styler_asesores,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
-                            "aht_seg": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
-                            "Meta AHT": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
-                            "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
-                            "t_talk_seg": st.column_config.NumberColumn("Talk (s)", format="%.0f s"),
-                            "t_held_seg": st.column_config.NumberColumn("Hold (s)", format="%.0f s"),
-                            "t_acw_seg": st.column_config.NumberColumn("ACW (s)", format="%.0f s"),
-                            "Acción Recomendada / Foco de Gestión": st.column_config.TextColumn("Acción Recomendada / Foco de Gestión", width="large"),
-                        }
-                    )
+                # Detalle Drill-down por Asesor dentro del supervisor
+                with st.expander("🔎 Ver detalle de asesores por Supervisor seleccionado", expanded=False):
+                    lista_supervisores = sorted(df_as_ger["Supervisor"].unique().tolist())
+                    sup_seleccionado = st.selectbox("Selecciona un Supervisor:", lista_supervisores)
+                    if sup_seleccionado:
+                        df_asesores_sup = df_as_ger[df_as_ger["Supervisor"] == sup_seleccionado].copy()
+                        df_asesores_sup["Desv AHT (%)"] = df_asesores_sup.apply(
+                            lambda r: round((r["aht_seg"] - r["Meta AHT"]) / r["Meta AHT"] * 100.0, 1) if pd.notna(r["Meta AHT"]) and r["Meta AHT"] > 0 else None,
+                            axis=1
+                        )
+                        df_asesores_sup["Acción Recomendada / Foco de Gestión"] = df_asesores_sup.apply(diagnosticar_foco_gestion, axis=1)
+                        df_asesores_sup = df_asesores_sup.sort_values(by="aht_seg", ascending=False)
+                        styler_asesores = (
+                            df_asesores_sup[["Asesor", "Servicio", "interacciones", "aht_seg", "Meta AHT", "Desv AHT (%)", "t_talk_seg", "t_held_seg", "t_acw_seg", "Acción Recomendada / Foco de Gestión"]]
+                            .style
+                            .map(estilo_desv_aht, subset=["Desv AHT (%)"])
+                            .map(estilo_hold, subset=["t_held_seg"])
+                            .map(estilo_foco, subset=["Acción Recomendada / Foco de Gestión"])
+                        )
+                        st.dataframe(
+                            styler_asesores,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "interacciones": st.column_config.NumberColumn("Interacciones", format="%d"),
+                                "aht_seg": st.column_config.NumberColumn("AHT Real (s)", format="%.0f s"),
+                                "Meta AHT": st.column_config.NumberColumn("Meta AHT (s)", format="%.0f s"),
+                                "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
+                                "t_talk_seg": st.column_config.NumberColumn("Talk (s)", format="%.0f s"),
+                                "t_held_seg": st.column_config.NumberColumn("Hold (s)", format="%.0f s"),
+                                "t_acw_seg": st.column_config.NumberColumn("ACW (s)", format="%.0f s"),
+                                "Acción Recomendada / Foco de Gestión": st.column_config.TextColumn("Acción Recomendada / Foco de Gestión", width="large"),
+                            }
+                        )
 
     # ══════════════════════════════════════════════════════════════════════════
     # MODO 2: VISTA TÉCNICA GTR (HORA A HORA Y MATRIZ HORIZONTAL)
