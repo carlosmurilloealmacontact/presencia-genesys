@@ -21,11 +21,18 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from config import DB_PATH
-from jerarquia import load_jerarquia, load_cedula_a_bp, numero_agente
 from live_engine import obtener_token_genesys, obtener_presencia_en_vivo, cargar_catalogo_presencias
 from audit_engine import _obtener_db_url, registrar_evento
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def numero_agente(agente_nombre: str) -> str:
+    """Extrae el identificador o BP desde '4853818 - Nombre Apellido' -> '4853818'."""
+    if not agente_nombre:
+        return ""
+    s = str(agente_nombre).strip()
+    return s.split(" - ")[0].strip() if " - " in s else s
 
 # Catálogo oficial de tipos de ausencia según imagen operativa
 TIPOS_AUSENCIA_OFICIALES = [
