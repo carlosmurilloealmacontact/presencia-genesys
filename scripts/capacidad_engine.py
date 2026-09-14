@@ -513,7 +513,154 @@ def render_tab_capacidad(agentes_map: dict):
 
     st.markdown("---")
 
-    # 5. Tabla Matriz Ejecutiva Panorámica
+    # 5. Árbol de Atribución y Descomposición de Capacidad (Suma y Resta en Horas y %)
+    st.markdown("#### 🌳 Árbol de Atribución y Descomposición de Capacidad")
+    st.caption("Explica de forma transparente cuánto sumó la dotación/conexión y cuánto restaron las pausas para llegar a la capacidad neta final (en horas y porcentaje).")
+
+    col_ctrl_1, col_ctrl_2 = st.columns([2.2, 1.8])
+    with col_ctrl_1:
+        opciones_alcance = ["🌐 Consolidado Global (Toda la Operación)"] + [f"🔍 {s}" for s in df_ejecutiva["Servicio"].tolist()]
+        sel_alcance = st.selectbox(
+            "Alcance del Análisis de Capacidad:",
+            opciones_alcance,
+            index=0,
+            help="Elige si deseas ver el balance de toda la operación consolidada o hacer zoom en un servicio específico."
+        )
+    with col_ctrl_2:
+        modo_eje = st.radio(
+            "Eje Principal del Gráfico:",
+            ["Horas Equivalentes (h)", "Porcentaje de Capacidad (%)"],
+            horizontal=True,
+            help="Ambas magnitudes se visualizan simultáneamente en las etiquetas de las barras."
+        )
+
+    # Determinar métricas según alcance
+    if sel_alcance.startswith("🌐"):
+        w_nombre = f"Consolidado Global ({filtro_mundo})"
+        w_min_req = tot_min_req
+        w_min_disp = tot_min_disp
+        w_min_pau = tot_min_pau
+        w_min_con = tot_min_con
+        w_fte_req = tot_fte_req
+        w_fte_con = tot_fte_con
+        w_hfuga = tot_horas_fuga
+        w_meta_aht = None
+    else:
+        srv_limpio = sel_alcance.replace("🔍 ", "")
+        w_nombre = srv_limpio
+        fila_s = df_ejecutiva[df_ejecutiva["Servicio"] == srv_limpio].iloc[0]
+        w_min_req = fila_s["Min. Requeridos"]
+        w_min_disp = fila_s["Min. Disponibles"]
+        w_min_pau = fila_s["Min. Pausas"]
+        w_min_con = w_min_disp + w_min_pau
+        w_fte_req = fila_s["FTE Req"]
+        w_fte_con = fila_s["FTE Con"]
+        w_hfuga = fila_s["Horas Fuga Aux"]
+        w_meta_aht = fila_s["Meta AHT (s)"]
+
+    w_h_req = w_min_req / 60.0
+    w_h_disp = w_min_disp / 60.0
+    w_h_pau = w_min_pau / 60.0
+    w_h_con = w_min_con / 60.0
+    w_delta_con_h = w_h_con - w_h_req
+
+    w_pct_delta_con = (w_delta_con_h / w_h_req * 100.0) if w_h_req > 0 else 0.0
+    w_pct_pau = -(w_h_pau / w_h_req * 100.0) if w_h_req > 0 else 0.0
+    w_pct_disp = (w_h_disp / w_h_req * 100.0) if w_h_req > 0 else 0.0
+
+    # Desglose de pausas: dentro de meta oficial (14%) vs exceso de auxiliares
+    w_min_pau_meta = w_min_con * (META_AUXILIARES_OFICIAL / 100.0)
+    w_min_pau_fuga = max(0.0, w_min_pau - w_min_pau_meta)
+    w_h_pau_meta = w_min_pau_meta / 60.0
+    w_h_pau_fuga = w_min_pau_fuga / 60.0
+    w_pct_pau_meta = -(w_h_pau_meta / w_h_req * 100.0) if w_h_req > 0 else 0.0
+    w_pct_pau_fuga = -(w_h_pau_fuga / w_h_req * 100.0) if w_h_req > 0 else 0.0
+
+    col_wat, col_diag = st.columns([1.5, 1.1])
+    with col_wat:
+        if modo_eje == "Porcentaje de Capacidad (%)":
+            y_vals = [100.0, w_pct_delta_con, w_pct_pau, w_pct_disp]
+            eje_y_lbl = "% de Capacidad Requerida"
+        else:
+            y_vals = [w_h_req, w_delta_con_h, -w_h_pau, w_h_disp]
+            eje_y_lbl = "Horas-Hombre Equivalentes"
+
+        text_vals = [
+            f"<b>{w_h_req:,.1f} h</b><br>100.0%",
+            f"<b>{w_delta_con_h:+,.1f} h</b><br>{w_pct_delta_con:+.1f}%",
+            f"<b>{-w_h_pau:+,.1f} h</b><br>{w_pct_pau:+.1f}%",
+            f"<b>{w_h_disp:,.1f} h</b><br>{w_pct_disp:.1f}%"
+        ]
+
+        color_disp = "#10b981" if w_pct_disp >= 95.0 else ("#f59e0b" if w_pct_disp >= 85.0 else "#ef4444")
+
+        fig_wat = go.Figure(go.Waterfall(
+            orientation="v",
+            measure=["absolute", "relative", "relative", "total"],
+            x=["1. Requerido SORE", "2. Conexión / Asistencia", "3. Pausas / Auxiliares", "4. Capacidad Real"],
+            y=y_vals,
+            text=text_vals,
+            textposition="outside",
+            connector={"line": {"color": "#cbd5e1", "width": 1.5}},
+            decreasing={"marker": {"color": "#ef4444"}},
+            increasing={"marker": {"color": "#10b981"}},
+            totals={"marker": {"color": color_disp}}
+        ))
+
+        fig_wat.update_layout(
+            title=f"Descomposición de Capacidad — {w_nombre}",
+            waterfallgap=0.3,
+            margin=dict(l=20, r=20, t=50, b=20),
+            yaxis=dict(title=eje_y_lbl),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_wat, use_container_width=True)
+
+    with col_diag:
+        es_superavit_con = w_delta_con_h >= 0
+        es_cumplido = w_pct_disp >= 85.0
+        bg_card = "#f0fdf4" if w_pct_disp >= 95.0 else ("#fffbeb" if w_pct_disp >= 85.0 else "#fef2f2")
+        border_card = "#10b981" if w_pct_disp >= 95.0 else ("#f59e0b" if w_pct_disp >= 85.0 else "#ef4444")
+
+        st.markdown(
+            f"""
+            <div style="background: {bg_card}; border: 1px solid {border_card}; border-radius: 10px; padding: 14px 16px; margin-top: 10px;">
+                <div style="font-weight: 700; font-size: 15px; color: #0f172a; margin-bottom: 8px;">
+                    ⚖️ Balance Analítico: ¿Qué suma y qué resta?
+                </div>
+                <div style="font-size: 13px; color: #334155; line-height: 1.6;">
+                    • <b>1. Base Planificada SORE:</b> <code>100.0%</code> ({w_h_req:,.1f} h | {w_fte_req:.1f} FTEs)<br>
+                    • <b>2. Conexión / Asistencia:</b> <span style="color: {'#15803d' if es_superavit_con else '#b91c1c'}; font-weight: 600;">{w_pct_delta_con:+.1f}%</span> ({w_delta_con_h:+,.1f} h | {w_fte_con - w_fte_req:+.1f} FTEs)<br>
+                    <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">{'🟢 Aportó capacidad por encima del plan' if es_superavit_con else '🔴 Restó capacidad por falta de conexión / inasistencia'}</span><br>
+                    • <b>3. Pausas y Auxiliares:</b> <span style="color: #b91c1c; font-weight: 600;">{w_pct_pau:.1f}%</span> ({-w_h_pau:.1f} h)<br>
+                    <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">– Pausas autorizadas (Meta 14%): {w_pct_pau_meta:.1f}% ({-w_h_pau_meta:.1f} h)</span><br>
+                    <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">– Fuga por exceso de auxiliares: <b>{w_pct_pau_fuga:.1f}% ({-w_h_pau_fuga:.1f} h)</b></span><br>
+                    • <b>4. Capacidad Real Lograda:</b> <span style="font-size: 14px; font-weight: 700; color: {'#15803d' if es_cumplido else '#b91c1c'};">{w_pct_disp:.1f}%</span> ({w_h_disp:,.1f} h)<br>
+                    <span style="font-size: 12px; font-weight: 600; color: #475569; margin-left: 12px;">Brecha Neta Final: <b>{w_pct_disp - 100.0:+.1f}%</b> ({w_h_disp - w_h_req:+,.1f} h)</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Diagnóstico narrativo conciso
+        if w_pct_disp >= 95.0:
+            st.success(f"✅ **Operación Cumplida:** La capacidad disponible cubrió el **{w_pct_disp:.1f}%** de la exigencia de SORE.")
+        elif es_superavit_con and w_pct_pau_fuga < -5.0:
+            st.warning(
+                f"🟠 **Déficit por Fuga en Auxiliares:** Se contó con suficiente personal ({w_pct_delta_con:+.1f}%), pero las pausas no autorizadas destruyeron **{w_h_pau_fuga:.1f} horas** ({w_pct_pau_fuga:.1f}%), tumbando el cumplimiento al **{w_pct_disp:.1f}%**."
+            )
+        elif not es_superavit_con:
+            st.error(
+                f"🚨 **Déficit por Falta de Conexión:** Faltaron **{abs(w_delta_con_h):.1f} horas** de personal ({w_pct_delta_con:.1f}% vs plan), lo que sumado a las pausas dejó una brecha final de **{w_pct_disp - 100.0:.1f}%**."
+            )
+        else:
+            st.warning(f"⚠️ **Capacidad Ajustada:** Cumplimiento del **{w_pct_disp:.1f}%** frente a la exigencia planificada.")
+
+    st.markdown("---")
+
+    # 6. Tabla Matriz Ejecutiva Panorámica
     st.markdown("#### 📊 Matriz Panorámica de Cumplimiento y Causa Raíz")
     st.caption("Haz clic en cualquier servicio para desglosar su comportamiento intradía en las 48 franjas horarias.")
 
@@ -569,7 +716,7 @@ def render_tab_capacidad(agentes_map: dict):
         }
     )
 
-    # 6. Servicio Seleccionado para el Detalle Intradía
+    # 7. Servicio Seleccionado para el Detalle Intradía
     filas_sel = evento.selection.get("rows", [])
     if filas_sel:
         idx_sel = filas_sel[0]
@@ -579,7 +726,7 @@ def render_tab_capacidad(agentes_map: dict):
         srv_detalle = df_ejecutiva.iloc[0]["Servicio"]
         fila_detalle = df_ejecutiva.iloc[0]
 
-    # 7. Diagnóstico Narrativo Ejecutivo del Servicio Seleccionado
+    # 8. Diagnóstico Narrativo Ejecutivo del Servicio Seleccionado
     st.markdown("---")
     st.subheader(f"🔎 Diagnóstico Detallado — {srv_detalle}")
 
