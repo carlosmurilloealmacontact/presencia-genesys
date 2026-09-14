@@ -468,12 +468,27 @@ def render_tab_en_vivo(agentes_map: dict):
 
     k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
 
-    foco_actual = st.session_state.get("live_vista_rapida", "Solo Conectados")
+    if "live_focos_activos" not in st.session_state:
+        prev_foco = st.session_state.get("live_vista_rapida", "Solo Conectados")
+        if isinstance(prev_foco, list):
+            st.session_state["live_focos_activos"] = prev_foco
+        elif prev_foco in (
+            "Todos", "Solo Conectados", "Solo Llamadas Activas", "Solo Llamadas Prolongadas",
+            "Solo Excesos de Breaks", "Solo En Cola", "Solo Pausas con Meta", "Solo Gestión"
+        ):
+            st.session_state["live_focos_activos"] = [prev_foco]
+        else:
+            st.session_state["live_focos_activos"] = ["Solo Conectados"]
+
+    focos_activos = list(st.session_state.get("live_focos_activos", ["Solo Conectados"]))
+    if not focos_activos:
+        focos_activos = ["Solo Conectados"]
+        st.session_state["live_focos_activos"] = focos_activos
 
     def render_kpi_interactivo(col, titulo, valor, subtitulo, color, foco_asociado):
-        es_activo = (foco_actual == foco_asociado)
+        es_activo = (foco_asociado in focos_activos)
         borde_k = f"border: 2px solid {color}; box-shadow: 0 0 10px {color}44; background: #fff;" if es_activo else f"border-left: 4px solid {color}; background: #f8f9fa;"
-        tag_k = "<span style='float:right; font-size:9px; background:#185fa5; color:#fff; padding:1px 5px; border-radius:6px;'>✓ Filtrando</span>" if es_activo else ""
+        tag_k = "<span style='float:right; font-size:9px; background:#185fa5; color:#fff; padding:1px 5px; border-radius:6px;'>✓ Activo</span>" if es_activo else ""
 
         with col:
             st.markdown(
@@ -488,10 +503,29 @@ def render_tab_en_vivo(agentes_map: dict):
             )
             btn_txt = "✖ Quitar" if es_activo else "🔍 Filtrar"
             if st.button(btn_txt, key=f"btn_live_card_{foco_asociado}", width="stretch", type="primary" if es_activo else "secondary"):
-                if es_activo:
-                    st.session_state["live_vista_rapida"] = "Todos"
+                actuales = list(st.session_state.get("live_focos_activos", ["Solo Conectados"]))
+
+                if foco_asociado in ("Solo Conectados", "Todos"):
+                    if es_activo and foco_asociado == "Solo Conectados":
+                        st.session_state["live_focos_activos"] = ["Todos"]
+                    else:
+                        st.session_state["live_focos_activos"] = [foco_asociado]
                 else:
-                    st.session_state["live_vista_rapida"] = foco_asociado
+                    if "Solo Conectados" in actuales:
+                        actuales.remove("Solo Conectados")
+                    if "Todos" in actuales:
+                        actuales.remove("Todos")
+
+                    if foco_asociado in actuales:
+                        actuales.remove(foco_asociado)
+                    else:
+                        actuales.append(foco_asociado)
+
+                    if not actuales:
+                        actuales = ["Solo Conectados"]
+                    st.session_state["live_focos_activos"] = actuales
+
+                st.session_state["ms_live_focos_select"] = st.session_state["live_focos_activos"]
                 st.rerun(scope="fragment")
 
     pct_con = (len(conectados) / len(df_filtrado) * 100.0) if len(df_filtrado) > 0 else 0.0
@@ -503,6 +537,34 @@ def render_tab_en_vivo(agentes_map: dict):
     render_kpi_interactivo(k5, "En Gestión / BO", len(en_gestion), "Backoffice, Autogestión", "#6347A6", "Solo Gestión")
     render_kpi_interactivo(k6, "📞 Llamadas Largas", len(alertas_llamadas), f"> {umbral_llamada} min en curso", "#EA580C" if len(alertas_llamadas) > 0 else "#888", "Solo Llamadas Prolongadas")
     render_kpi_interactivo(k7, "☕ Excesos Breaks", len(alertas_breaks), "Breaks y pausas excedidos", "#DC2626" if len(alertas_breaks) > 0 else "#888", "Solo Excesos de Breaks")
+
+    # Barra informativa cuando hay múltiples filtros de tarjeta activos
+    TITULOS_FOCOS = {
+        "Solo Conectados": "Conectados",
+        "Solo Llamadas Activas": "En Interacción",
+        "Solo En Cola": "En Cola Disponibles",
+        "Solo Pausas con Meta": "En Pausas de Ley",
+        "Solo Gestión": "En Gestión / BO",
+        "Solo Llamadas Prolongadas": "📞 Llamadas Largas",
+        "Solo Excesos de Breaks": "☕ Excesos de Breaks",
+        "Todos": "Todos los Asesores",
+    }
+    if focos_activos != ["Solo Conectados"] and focos_activos != ["Todos"]:
+        col_inf, col_rst = st.columns([5.5, 1.5])
+        with col_inf:
+            etiquetas_activas = [
+                f"<span style='background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe; padding:2px 8px; border-radius:12px; font-size:11.5px; font-weight:600;'>{TITULOS_FOCOS.get(f, f)}</span>"
+                for f in focos_activos
+            ]
+            st.markdown(
+                f"<div style='margin: 4px 0 10px 0; font-size:12.5px; color:#334155;'><b>Filtro combinado activo ({len(focos_activos)} seleccionados):</b> " + " ".join(etiquetas_activas) + "</div>",
+                unsafe_allow_html=True
+            )
+        with col_rst:
+            if st.button("🧹 Quitar Filtros", key="btn_limpiar_focos_live", width="stretch", help="Restablece la vista a todos los asesores conectados"):
+                st.session_state["live_focos_activos"] = ["Solo Conectados"]
+                st.session_state["ms_live_focos_select"] = ["Solo Conectados"]
+                st.rerun(scope="fragment")
 
     # ── 3. Cuadro de Alertas en Tiempo Real (Separado: Llamadas Largas vs Excesos de Breaks) ──
     filtro_txt = " (en tu selección actual)" if (coord_sel or serv_sel or superv_sel or buscar_agente) else ""
@@ -558,24 +620,34 @@ def render_tab_en_vivo(agentes_map: dict):
             )
 
     # ── 4. Controles de Visualización de Tabla ───────────────────────────
-    c_foco, c_orden = st.columns([1.5, 1.5])
+    c_foco, c_orden = st.columns([1.8, 1.2])
     with c_foco:
-        vista_rapida = st.selectbox(
-            "Foco de Vista",
-            options=[
-                "Solo Conectados",
-                "Todos",
-                "Solo Llamadas Activas",
-                "Solo Llamadas Prolongadas",
-                "Solo Excesos de Breaks",
-                "Solo En Cola",
-                "Solo Pausas con Meta",
-                "Solo Gestión",
-                "Todas las Alertas",
-            ],
-            index=0,
-            key="live_vista_rapida",
+        OPCIONES_FOCO = {
+            "Solo Conectados": "🟢 Conectados (Línea Base)",
+            "Solo Llamadas Activas": "📞 En Interacción",
+            "Solo En Cola": "🟢 En Cola Disponibles",
+            "Solo Pausas con Meta": "☕ En Pausas de Ley",
+            "Solo Gestión": "📂 En Gestión / BO",
+            "Solo Llamadas Prolongadas": "📞 Llamadas Largas (> umbral)",
+            "Solo Excesos de Breaks": "☕ Excesos de Breaks",
+            "Todos": "👥 Todos (Incluye Desconectados)",
+        }
+        if "ms_live_focos_select" not in st.session_state:
+            st.session_state["ms_live_focos_select"] = focos_activos
+        elif not st.session_state["ms_live_focos_select"]:
+            st.session_state["ms_live_focos_select"] = ["Solo Conectados"]
+
+        focos_ms = st.multiselect(
+            "Foco de Vista (puedes combinar múltiples estados):",
+            options=list(OPCIONES_FOCO.keys()),
+            key="ms_live_focos_select",
+            format_func=lambda k: OPCIONES_FOCO.get(k, k),
+            help="Elige uno o varios estados para combinar. Se sincroniza con las tarjetas interactivas superiores."
         )
+        if focos_ms and set(focos_ms) != set(st.session_state.get("live_focos_activos", [])):
+            st.session_state["live_focos_activos"] = focos_ms
+            st.rerun(scope="fragment")
+
     with c_orden:
         orden_piso = st.selectbox(
             "Ordenar por",
@@ -591,34 +663,48 @@ def render_tab_en_vivo(agentes_map: dict):
             key="live_orden_piso",
         )
 
-    if vista_rapida == "Solo Conectados":
-        df_vista_final = df_filtrado[df_filtrado["sys_pres"] != "Offline"]
-    elif vista_rapida == "Solo Llamadas Activas":
-        df_vista_final = df_filtrado[(df_filtrado["sys_pres"] != "Offline") & (df_filtrado["routing"] == "INTERACTING")]
-    elif vista_rapida == "Solo Llamadas Prolongadas":
-        df_vista_final = df_filtrado[
-            (df_filtrado["sys_pres"] != "Offline")
-            & (df_filtrado["routing"] == "INTERACTING")
-            & (df_filtrado["dur_llamada_min"] >= umbral_llamada)
-        ]
-    elif vista_rapida == "Solo Excesos de Breaks":
-        df_vista_final = df_filtrado[
-            df_filtrado["nivel_alerta"].isin(["danger", "warning"])
-            & (df_filtrado["routing"] != "INTERACTING")
-        ]
-    elif vista_rapida in ("Solo Alertas", "Todas las Alertas"):
-        df_vista_final = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
-    elif vista_rapida == "Solo En Cola":
-        df_vista_final = df_filtrado[(df_filtrado["estado"].isin(["Available", "On Queue"])) & (df_filtrado["routing"] == "IDLE")]
-    elif vista_rapida == "Solo Pausas con Meta":
-        df_vista_final = df_filtrado[df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"])]
-    elif vista_rapida == "Solo Gestión":
-        df_vista_final = df_filtrado[
-            (~df_filtrado["estado"].isin(ESTADOS_SISTEMA))
-            & (~df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
-        ]
+    focos_a_filtrar = focos_ms if focos_ms else focos_activos
+    if not focos_a_filtrar:
+        focos_a_filtrar = ["Solo Conectados"]
+
+    mascaras = []
+    for f in focos_a_filtrar:
+        if f == "Solo Conectados":
+            mascaras.append(df_filtrado["sys_pres"] != "Offline")
+        elif f == "Solo Llamadas Activas":
+            mascaras.append((df_filtrado["sys_pres"] != "Offline") & (df_filtrado["routing"] == "INTERACTING"))
+        elif f == "Solo Llamadas Prolongadas":
+            mascaras.append(
+                (df_filtrado["sys_pres"] != "Offline")
+                & (df_filtrado["routing"] == "INTERACTING")
+                & (df_filtrado["dur_llamada_min"] >= umbral_llamada)
+            )
+        elif f == "Solo En Cola":
+            mascaras.append((df_filtrado["estado"].isin(["Available", "On Queue"])) & (df_filtrado["routing"] == "IDLE"))
+        elif f == "Solo Pausas con Meta":
+            mascaras.append(df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
+        elif f == "Solo Gestión":
+            mascaras.append(
+                (~df_filtrado["estado"].isin(ESTADOS_SISTEMA))
+                & (~df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
+            )
+        elif f == "Solo Excesos de Breaks":
+            mascaras.append(
+                df_filtrado["nivel_alerta"].isin(["danger", "warning"])
+                & (df_filtrado["routing"] != "INTERACTING")
+            )
+        elif f in ("Solo Alertas", "Todas las Alertas"):
+            mascaras.append(df_filtrado["nivel_alerta"].isin(["danger", "warning"]))
+        elif f == "Todos":
+            mascaras.append(pd.Series(True, index=df_filtrado.index))
+
+    if mascaras:
+        mask_final = mascaras[0]
+        for m in mascaras[1:]:
+            mask_final = mask_final | m
+        df_vista_final = df_filtrado[mask_final]
     else:
-        df_vista_final = df_filtrado.copy()
+        df_vista_final = df_filtrado[df_filtrado["sys_pres"] != "Offline"]
 
     # Ordenamiento de tabla
     if orden_piso == "Mayor AHT Hoy (seg)":
