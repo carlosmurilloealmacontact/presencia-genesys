@@ -225,17 +225,16 @@ def construir_radar_ausentismo(
 
     # Mapeo de presencia actual por BP
     presencia_act_map = {}
-    if not df_live_presencia.empty and "agente_id" in df_live_presencia.columns:
+    if not df_live_presencia.empty:
         for _, row in df_live_presencia.iterrows():
-            aid = row.get("agente_id", "")
-            # bp suele ser el número de agente
-            bp_val = numero_agente(row.get("agente", aid))
-            presencia_act_map[bp_val] = {
-                "presence_label": row.get("presence_label", "Offline"),
-                "system_presence": row.get("system_presence", "Offline"),
-                "duracion_min": row.get("duracion_min", 0.0),
-                "hora_ultimo_cambio": row.get("hora_ultimo_cambio", "")
-            }
+            bp_val = numero_agente(row.get("agente", ""))
+            if bp_val:
+                presencia_act_map[bp_val] = {
+                    "presence_label": row.get("estado", "Offline"),
+                    "system_presence": row.get("sys_pres", "Offline"),
+                    "duracion_min": row.get("dur_min", 0.0),
+                    "hora_ultimo_cambio": row.get("hora_inicio", "")
+                }
 
     # Hora actual en Colombia
     now_col = datetime.now(timezone.utc) - timedelta(hours=5)
