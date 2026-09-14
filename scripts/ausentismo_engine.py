@@ -186,20 +186,37 @@ def obtener_turnos_programados_dia(fecha_str: str) -> pd.DataFrame:
             return pd.DataFrame()
 
 
+@st.cache_data(ttl=1800)
+def cargar_sociodemografico_db() -> dict:
+    """Carga el maestro sociodemográfico completo (14k+ asesores) para identificar BPs y jerarquía."""
+    db_path = Path(BASE_DIR) / DB_PATH
+    if not db_path.exists():
+        return {}
+    with sqlite3.connect(db_path) as conn:
+        try:
+            df = pd.read_sql_query("SELECT bp, nombre, servicio, jefe_inmediato, coordinador, cargo, estado_laboral FROM sociodemografico", conn)
+            return df.set_index("bp").to_dict(orient="index")
+        except Exception:
+            return {}
+
+
 def construir_radar_ausentismo(
     fecha_str: str,
     df_live_presencia: pd.DataFrame,
     agentes_map: dict
 ) -> pd.DataFrame:
     """
-    Cruza los turnos programados de hoy contra la presencia de Genesys.
+    Cruza los turnos programados de hoy contra la presencia de Genesys y el sociodemográfico.
     Determina:
+    - Identificación plena de Asesor, Supervisor, Coordinador y Servicio.
     - Estado de entrada: Conectado a tiempo, Retraso (5-15m), Crítico (>15m), Sin Login (Offline).
     - Horas de turno y pérdida de capacidad.
     """
     df_turnos = obtener_turnos_programados_dia(fecha_str)
     if df_turnos.empty:
         return pd.DataFrame()
+
+    socio_map = cargar_sociodemografico_db()
 
     df_just = cargar_justificaciones_db(fecha_str)
     just_map = {}
@@ -230,6 +247,7 @@ def construir_radar_ausentismo(
         h_ini = str(r["hora_inicio"]).strip()
         h_fin = str(r["hora_fin"]).strip()
 
+        # 1. Buscar en segmentos de Genesys
         info_ag = agentes_map.get(bp, {})
         if not info_ag:
             for k, v in agentes_map.items():
@@ -237,10 +255,19 @@ def construir_radar_ausentismo(
                     info_ag = v
                     break
 
-        agente_nom = info_ag.get("agente", f"Asesor {bp}")
-        sup = info_ag.get("jefe_inmediato", "Sin Supervisor")
-        coord = info_ag.get("coordinador", "Sin Coordinador")
-        srv = info_ag.get("servicio", "General")
+        # 2. Si no tiene supervisor o servicio, cruzar con el maestro sociodemográfico
+        socio_ag = socio_map.get(bp, {})
+        agente_nom = info_ag.get("agente", "")
+        if not agente_nom or agente_nom.startswith("Asesor ") or agente_nom == f"{bp} - Colaborador":
+            nombre_socio = socio_ag.get("nombre", "").strip()
+            if nombre_socio:
+                agente_nom = f"{bp} - {nombre_socio}"
+            else:
+                agente_nom = f"{bp} - {socio_ag.get('cargo', 'Asesor')}" if socio_ag else f"Asesor {bp}"
+
+        sup = info_ag.get("jefe_inmediato") or socio_ag.get("jefe_inmediato") or "Sin Supervisor"
+        coord = info_ag.get("coordinador") or socio_ag.get("coordinador") or "Sin Coordinador"
+        srv = info_ag.get("servicio") or socio_ag.get("servicio") or "General"
 
         # Calcular duración programada en horas
         try:
