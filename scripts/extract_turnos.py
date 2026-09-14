@@ -89,8 +89,14 @@ def procesar_archivo_semanal(ruta: str, cedula_a_bp: dict) -> list[dict]:
     col_fin = cols_map.get("turno_fin") or cols_map.get("hora fin") or cols_map.get("horafin")
     col_nov = cols_map.get("novedad")
 
+    col_area = cols_map.get("cliente_area") or cols_map.get("area") or cols_map.get("cliente")
+
     if not (col_doc and col_fecha and col_ini and col_fin):
         return []
+
+    # Filtrar exclusivamente campañas de LATAM (LATAM MED y LATAM BOG)
+    if col_area:
+        df = df[df[col_area].astype(str).str.upper().str.strip().isin(["LATAM MED", "LATAM BOG"])]
 
     if col_nov:
         df = df[df[col_nov].astype(str).str.upper().str.strip().isin(["TUR", "TURNO", "TRB"])]
