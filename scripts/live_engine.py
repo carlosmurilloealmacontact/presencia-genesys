@@ -459,24 +459,29 @@ def render_tab_en_vivo(agentes_map: dict):
         (~df_filtrado["estado"].isin(ESTADOS_SISTEMA))
         & (~df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
     ]
-    alertas = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
+    alertas_llamadas = llamadas_largas
+    alertas_breaks = df_filtrado[
+        df_filtrado["nivel_alerta"].isin(["danger", "warning"])
+        & (df_filtrado["routing"] != "INTERACTING")
+    ]
+    todas_alertas = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
 
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
 
     foco_actual = st.session_state.get("live_vista_rapida", "Solo Conectados")
 
     def render_kpi_interactivo(col, titulo, valor, subtitulo, color, foco_asociado):
         es_activo = (foco_actual == foco_asociado)
         borde_k = f"border: 2px solid {color}; box-shadow: 0 0 10px {color}44; background: #fff;" if es_activo else f"border-left: 4px solid {color}; background: #f8f9fa;"
-        tag_k = "<span style='float:right; font-size:10px; background:#185fa5; color:#fff; padding:1px 6px; border-radius:8px;'>✓ Filtrando</span>" if es_activo else ""
+        tag_k = "<span style='float:right; font-size:9px; background:#185fa5; color:#fff; padding:1px 5px; border-radius:6px;'>✓ Filtrando</span>" if es_activo else ""
 
         with col:
             st.markdown(
                 f"""
-                <div style="{borde_k} border-radius:8px; padding:10px 12px; margin-bottom:4px; transition: all 0.2s;">
-                    <p style="color:#666; font-size:12px; margin:0;">{titulo} {tag_k}</p>
-                    <p style="color:{color}; font-size:24px; font-weight:700; margin:2px 0;">{valor}</p>
-                    <p style="color:#888; font-size:11px; margin:0;">{subtitulo}</p>
+                <div style="{borde_k} border-radius:8px; padding:8px 10px; margin-bottom:4px; transition: all 0.2s; min-height: 85px;">
+                    <p style="color:#666; font-size:11.5px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{titulo} {tag_k}</p>
+                    <p style="color:{color}; font-size:22px; font-weight:700; margin:2px 0;">{valor}</p>
+                    <p style="color:#888; font-size:10.5px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{subtitulo}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -490,36 +495,67 @@ def render_tab_en_vivo(agentes_map: dict):
                 st.rerun(scope="fragment")
 
     pct_con = (len(conectados) / len(df_filtrado) * 100.0) if len(df_filtrado) > 0 else 0.0
-    sub_llamada = f"🚨 {len(llamadas_largas)} > {umbral_llamada} min" if len(llamadas_largas) > 0 else "Duración normal"
-    color_llamada = "#E24B4A" if len(llamadas_largas) > 0 else "#185FA5"
 
     render_kpi_interactivo(k1, "Conectados", len(conectados), f"{pct_con:.0f}% del filtro", "#1baf7a", "Solo Conectados")
-    render_kpi_interactivo(k2, "En Interacción", len(en_llamada), sub_llamada, color_llamada, "Solo Llamadas Activas")
+    render_kpi_interactivo(k2, "En Interacción", len(en_llamada), "Llamadas en curso", "#185FA5", "Solo Llamadas Activas")
     render_kpi_interactivo(k3, "En Cola Disponibles", len(disponibles), "Esperando contacto", "#0F825C", "Solo En Cola")
     render_kpi_interactivo(k4, "En Pausas de Ley", len(en_pausas_regla), "Break, Baño, Pre Pausa", "#BA7517", "Solo Pausas con Meta")
     render_kpi_interactivo(k5, "En Gestión / BO", len(en_gestion), "Backoffice, Autogestión", "#6347A6", "Solo Gestión")
-    render_kpi_interactivo(k6, "Alertas de Exceso", len(alertas), f"Pausas y llamadas > {umbral_llamada}m", "#E24B4A" if len(alertas) > 0 else "#888", "Solo Alertas")
+    render_kpi_interactivo(k6, "📞 Llamadas Largas", len(alertas_llamadas), f"> {umbral_llamada} min en curso", "#EA580C" if len(alertas_llamadas) > 0 else "#888", "Solo Llamadas Prolongadas")
+    render_kpi_interactivo(k7, "☕ Excesos Breaks", len(alertas_breaks), "Breaks y pausas excedidos", "#DC2626" if len(alertas_breaks) > 0 else "#888", "Solo Excesos de Breaks")
 
-    # ── 3. Cuadro de Alertas en Tiempo Real (RESPONDE A LOS FILTROS) ──────
-    if not alertas.empty:
-        items_alertas = []
-        for _, r in alertas.iterrows():
-            nombre_agente = str(r["agente"] or "").split(" - ")[-1]
-            serv_tag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
-            items_alertas.append(f"<b>{nombre_agente}</b>{serv_tag}: {r['alerta']}")
+    # ── 3. Cuadro de Alertas en Tiempo Real (Separado: Llamadas Largas vs Excesos de Breaks) ──
+    filtro_txt = " (en tu selección actual)" if (coord_sel or serv_sel or superv_sel or buscar_agente) else ""
 
-        filtro_txt = " (en tu selección actual)" if (coord_sel or serv_sel or superv_sel or buscar_agente) else ""
-        st.markdown(
-            f"""
-            <div style="background:#fee8e7; border:1px solid #f9c0bc; border-radius:8px; padding:12px 16px; margin-bottom:16px;">
-                <b style="color:#b3261e; font-size:15px;">🚨 {len(alertas)} Alerta(s) Activa(s) en este Instante{filtro_txt}:</b>
-                <div style="margin-top:6px; color:#5c1d1a; font-size:13px; line-height:1.7;">
-                    {" &nbsp;·&nbsp; ".join(items_alertas)}
+    hay_llamadas_largas = not alertas_llamadas.empty
+    hay_excesos_breaks = not alertas_breaks.empty
+
+    if hay_llamadas_largas and hay_excesos_breaks:
+        col_al_ll, col_al_br = st.columns(2)
+    elif hay_llamadas_largas:
+        col_al_ll, col_al_br = st.container(), None
+    elif hay_excesos_breaks:
+        col_al_ll, col_al_br = None, st.container()
+    else:
+        col_al_ll, col_al_br = None, None
+
+    if col_al_ll is not None and hay_llamadas_largas:
+        with col_al_ll:
+            items_ll = []
+            for _, r in alertas_llamadas.iterrows():
+                nom = str(r["agente"] or "").split(" - ")[-1]
+                stag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
+                items_ll.append(f"<b>{nom}</b>{stag}: 📞 {r['cronometro_llamada']}")
+            st.markdown(
+                f"""
+                <div style="background:#fff4eb; border:1px solid #fed7aa; border-left:4px solid #ea580c; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
+                    <b style="color:#9a3412; font-size:14px;">📞 {len(alertas_llamadas)} Llamada(s) Prolongada(s) > {umbral_llamada} min{filtro_txt}:</b>
+                    <div style="margin-top:5px; color:#7c2d12; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
+                        {" &nbsp;·&nbsp; ".join(items_ll)}
+                    </div>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
+
+    if col_al_br is not None and hay_excesos_breaks:
+        with col_al_br:
+            items_br = []
+            for _, r in alertas_breaks.iterrows():
+                nom = str(r["agente"] or "").split(" - ")[-1]
+                stag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
+                items_br.append(f"<b>{nom}</b>{stag}: {r['alerta']}")
+            st.markdown(
+                f"""
+                <div style="background:#fee8e7; border:1px solid #f9c0bc; border-left:4px solid #dc2626; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
+                    <b style="color:#991b1b; font-size:14px;">☕ {len(alertas_breaks)} Exceso(s) de Breaks y Pausas{filtro_txt}:</b>
+                    <div style="margin-top:5px; color:#7f1d1d; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
+                        {" &nbsp;·&nbsp; ".join(items_br)}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     # ── 4. Controles de Visualización de Tabla ───────────────────────────
     c_foco, c_orden = st.columns([1.5, 1.5])
@@ -531,10 +567,11 @@ def render_tab_en_vivo(agentes_map: dict):
                 "Todos",
                 "Solo Llamadas Activas",
                 "Solo Llamadas Prolongadas",
+                "Solo Excesos de Breaks",
                 "Solo En Cola",
                 "Solo Pausas con Meta",
                 "Solo Gestión",
-                "Solo Alertas",
+                "Todas las Alertas",
             ],
             index=0,
             key="live_vista_rapida",
@@ -564,6 +601,13 @@ def render_tab_en_vivo(agentes_map: dict):
             & (df_filtrado["routing"] == "INTERACTING")
             & (df_filtrado["dur_llamada_min"] >= umbral_llamada)
         ]
+    elif vista_rapida == "Solo Excesos de Breaks":
+        df_vista_final = df_filtrado[
+            df_filtrado["nivel_alerta"].isin(["danger", "warning"])
+            & (df_filtrado["routing"] != "INTERACTING")
+        ]
+    elif vista_rapida in ("Solo Alertas", "Todas las Alertas"):
+        df_vista_final = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
     elif vista_rapida == "Solo En Cola":
         df_vista_final = df_filtrado[(df_filtrado["estado"].isin(["Available", "On Queue"])) & (df_filtrado["routing"] == "IDLE")]
     elif vista_rapida == "Solo Pausas con Meta":
@@ -573,8 +617,6 @@ def render_tab_en_vivo(agentes_map: dict):
             (~df_filtrado["estado"].isin(ESTADOS_SISTEMA))
             & (~df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
         ]
-    elif vista_rapida == "Solo Alertas":
-        df_vista_final = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
     else:
         df_vista_final = df_filtrado.copy()
 
@@ -610,7 +652,9 @@ def render_tab_en_vivo(agentes_map: dict):
             return "background-color: #378add22; color: #185fa5; font-weight: 600;"
 
     def estilo_alerta_col(val):
-        if str(val).startswith("🚨") or str(val).startswith("📞"):
+        if str(val).startswith("📞"):
+            return "background-color: #fff4eb; color: #c2410c; font-weight: 700;"
+        elif str(val).startswith("🚨"):
             return "background-color: #fee8e7; color: #b3261e; font-weight: 700;"
         elif str(val).startswith("⚠️"):
             return "background-color: #fef7e0; color: #b07000; font-weight: 700;"
