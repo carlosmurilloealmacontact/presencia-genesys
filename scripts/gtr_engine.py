@@ -771,17 +771,36 @@ def render_tab_gtr(agentes_map: dict):
         tt_l = serv_data.get("TT_LATAM", {})
         tt_e = serv_data.get("TT_EQUIPAJES", {})
 
+        ns_real_latam = tt_l.get("% NS", 0.0)
+        ns_meta_latam = tt_l.get("% NS META", 75.3)
+        dif_ns_latam = ns_real_latam - ns_meta_latam
+
+        aht_real_latam = tt_l.get("AHT", 0.0)
+        aht_meta_latam = tt_l.get("META AHT", 877.0)
+        dif_aht_latam = aht_real_latam - aht_meta_latam if aht_meta_latam else 0.0
+
         k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
             st.metric("Entrantes Totales", f"{int(df_raw['nOffered'].sum()):,}")
         with k2:
             st.metric("Atendidas Totales", f"{int(df_raw['tAnswered_count'].sum()):,}")
         with k3:
-            st.metric("Abandono Global", f"{df_raw['tAbandon_count'].sum() / df_raw['nOffered'].sum() * 100:.1f}%")
+            st.metric("Abandono Global", f"{df_raw['tAbandon_count'].sum() / df_raw['nOffered'].sum() * 100:.1f}%" if df_raw['nOffered'].sum() > 0 else "0.0%")
         with k4:
-            st.metric("NS Consolidado LATAM", f"{tt_l.get('% NS', 0):.1f}%", delta=f"{tt_l.get('% NS', 0) - tt_l.get('% NS META', 75):+.1f}pp")
+            st.metric(
+                "NS Consolidado LATAM",
+                f"{ns_real_latam:.1f}%",
+                delta=f"{dif_ns_latam:+.1f}pp (Meta: {ns_meta_latam:.1f}%)",
+                help=f"Meta Contractual: {ns_meta_latam:.1f}%. Diferencia actual: {dif_ns_latam:+.1f} puntos porcentuales."
+            )
         with k5:
-            st.metric("AHT Consolidado LATAM", f"{int(tt_l.get('AHT', 0))}s", delta=formatear_segundos_mm_ss(tt_l.get("AHT", 0)))
+            st.metric(
+                "AHT Consolidado LATAM",
+                f"{int(round(aht_real_latam))}s ({formatear_segundos_mm_ss(aht_real_latam)})",
+                delta=f"{dif_aht_latam:+.0f}s (Meta: {int(aht_meta_latam)}s)",
+                delta_color="inverse",
+                help=f"Meta Contractual: {int(aht_meta_latam)}s ({formatear_segundos_mm_ss(aht_meta_latam)}). Variación: {dif_aht_latam:+.0f}s. En AHT, menor tiempo es mejor (verde)."
+            )
 
         # 4. Tabla Ejecutiva Vertical Ordenada por Impacto
         st.markdown("#### 📊 Desempeño Operativo por Servicio (Priorizado por Volumen e Impacto)")
@@ -1517,6 +1536,9 @@ def render_tab_gtr_historico(token: str, gtr_cfg: dict):
     latam_h_c = df_latam_tot["tHandle_count"].sum()
     aht_latam = (latam_h_s / latam_h_c / 1000.0) if latam_h_c > 0 else 0.0
 
+    dif_hist_ns = pct_ns_latam - 75.3
+    dif_hist_aht = aht_latam - 877.0 if aht_latam > 0 else 0.0
+
     k1, k2, k3, k4, k5 = st.columns(5)
     with k1:
         st.metric("Entrantes Período", f"{tot_off:,}")
@@ -1525,9 +1547,20 @@ def render_tab_gtr_historico(token: str, gtr_cfg: dict):
     with k3:
         st.metric("% Abandono Período", f"{pct_abn:.1f}%")
     with k4:
-        st.metric("NS Acumulado LATAM", f"{pct_ns_latam:.1f}%", delta=f"{pct_ns_latam - 75.3:+.1f}pp vs 75.3% Meta")
+        st.metric(
+            "NS Acumulado LATAM",
+            f"{pct_ns_latam:.1f}%",
+            delta=f"{dif_hist_ns:+.1f}pp (Meta: 75.3%)",
+            help="Meta Contractual Consolidada LATAM: 75.3%"
+        )
     with k5:
-        st.metric("AHT Promedio LATAM", f"{int(round(aht_latam))}s", delta=formatear_segundos_mm_ss(aht_latam))
+        st.metric(
+            "AHT Promedio LATAM",
+            f"{int(round(aht_latam))}s ({formatear_segundos_mm_ss(aht_latam)})",
+            delta=f"{dif_hist_aht:+.0f}s (Meta: 877s)",
+            delta_color="inverse",
+            help=f"Meta Contractual Consolidada LATAM: 877s ({formatear_segundos_mm_ss(877)}). Menor AHT es positivo."
+        )
 
     st.markdown("---")
 
