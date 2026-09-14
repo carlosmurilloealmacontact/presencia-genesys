@@ -381,17 +381,31 @@ def construir_radar_ausentismo(
         except Exception:
             pass
 
+        # Verificar si pertenece a Cargo (no operan con Genesys)
+        es_cargo = ("CARGO" in str(srv).upper()) or ("CARGO" in str(socio_ag.get("cargo", "")).upper())
+
         # Determinar Semáforo y Clasificación
         esta_conectado = (pres_label != "Offline" and sys_pres != "Offline")
 
-        if not ya_debio_iniciar:
+        if es_cargo:
+            aplica_genesys = False
+            es_ausente = False
+            estado_asistencia = "📦 Cargo (Sin Genesys)"
+            semaforo = "⚪"
+        elif not ya_debio_iniciar:
+            aplica_genesys = True
+            es_ausente = False
             estado_asistencia = "⏰ Turno Futuro"
             semaforo = "⚪"
         elif esta_conectado:
+            aplica_genesys = True
+            es_ausente = False
             estado_asistencia = "🟢 Conectado"
             semaforo = "🟢"
         else:
-            # No está conectado y ya pasó la hora de inicio
+            # No está conectado y ya debió iniciar (Aplica a Genesys)
+            aplica_genesys = True
+            es_ausente = True
             if minutos_desde_inicio <= 5:
                 estado_asistencia = "🟡 En Margen (<=5m)"
                 semaforo = "🟡"
@@ -411,10 +425,12 @@ def construir_radar_ausentismo(
         obs_just = just_info.get("observacion", "")
         reg_por = just_info.get("registrado_por", "")
 
-        estado_justificacion = "Pendiente de Justificar" if (semaforo in ("🟠", "🔴", "🚨") and not tipo_just) else (
-            f"✅ {tipo_just}" if tipo_just else "No Aplica"
-        )
-        es_justificado = just_info.get("es_justificado", True) if tipo_just else False
+        if es_cargo:
+            justificacion_val = "No Aplica (Cargo)"
+            es_justificado_str = "No Aplica"
+        else:
+            justificacion_val = tipo_just or "Sin Justificar"
+            es_justificado_str = "Sí" if (tipo_just and es_justificado) else ("No" if (tipo_just and not es_justificado) else "Pendiente")
 
         filas.append({
             "Semaforo": semaforo,
@@ -427,14 +443,17 @@ def construir_radar_ausentismo(
             "Hora Inicio": h_ini,
             "Hora Fin": h_fin,
             "Duracion Horas": round(duracion_turno_horas, 1),
-            "Min Retraso": max(0, int(round(minutos_desde_inicio))) if not esta_conectado and ya_debio_iniciar else 0,
-            "Estado Genesys": pres_label,
-            "Justificación": tipo_just or "Sin Justificar",
-            "Es Justificado": "Sí" if (tipo_just and es_justificado) else ("No" if (tipo_just and not es_justificado) else "Pendiente"),
+            "Min Retraso": max(0, int(round(minutos_desde_inicio))) if es_ausente and ya_debio_iniciar else 0,
+            "Estado Genesys": ("No Aplica (Cargo)" if es_cargo else pres_label),
+            "Justificación": justificacion_val,
+            "Es Justificado": es_justificado_str,
             "Observación": obs_just,
             "Registrado Por": reg_por,
             "Ya Inició": ya_debio_iniciar,
-            "Esta Conectado": esta_conectado
+            "Esta Conectado": esta_conectado,
+            "Es Ausente": es_ausente,
+            "Es Cargo": es_cargo,
+            "Aplica Genesys": aplica_genesys
         })
 
     df_res = pd.DataFrame(filas)
@@ -471,7 +490,7 @@ def render_tab_ausentismo(agentes_map: dict):
     hoy_col = now_col.date()
 
     # Controles de cabecera
-    c_f1, c_f2, c_f3, c_f4 = st.columns([1.2, 1.5, 1.5, 1.2])
+    c_f1, c_f2, c_f3, c_f4, c_f5 = st.columns([1.1, 1.3, 1.3, 1.1, 1.2])
     with c_f1:
         fecha_sel = st.date_input("Fecha a Evaluar:", value=hoy_col, max_value=hoy_col + timedelta(days=7), key="dt_ausentismo")
     fecha_str = str(fecha_sel)
@@ -501,8 +520,13 @@ def render_tab_ausentismo(agentes_map: dict):
     with c_f4:
         servicios_disp = df_radar["Servicio"].dropna().unique()
         srv_sel = st.multiselect("Filtrar Servicio:", options=sorted(servicios_disp), default=[], key="aus_srv_sel")
+    with c_f5:
+        st.write("")
+        excluir_cargo = st.checkbox("Excluir Cargo", value=True, help="Oculta colaboradores de Cargo Booking / CC (no operan con Genesys)", key="aus_excluir_cargo")
 
     df_view = df_radar.copy()
+    if excluir_cargo:
+        df_view = df_view[~df_view["Es Cargo"]]
     if coord_sel:
         df_view = df_view[df_view["Coordinador"].isin(coord_sel)]
     if sup_sel:
@@ -512,12 +536,12 @@ def render_tab_ausentismo(agentes_map: dict):
 
     # ── KPIs DE RESUMEN EJECUTIVO ────────────────────────────────────────────
     total_prog = len(df_view)
-    iniciados = df_view[df_view["Ya Inició"]]
+    iniciados = df_view[df_view["Ya Inició"] & df_view["Aplica Genesys"]]
     total_iniciados = len(iniciados)
     conectados_act = len(iniciados[iniciados["Esta Conectado"]])
     
-    # Ausentes: debieron iniciar y están offline
-    ausentes_df = iniciados[~iniciados["Esta Conectado"]]
+    # Ausentes: debieron iniciar, aplican a Genesys y están clasificados como ausentes
+    ausentes_df = iniciados[iniciados["Es Ausente"]]
     total_ausentes = len(ausentes_df)
     
     # Tasa de ausentismo sobre turnos ya iniciados
@@ -570,7 +594,7 @@ def render_tab_ausentismo(agentes_map: dict):
             filtro_est = st.selectbox("Vista de Radar:", opc_estados, index=1, key="aus_filtro_radar")
 
         if filtro_est == "Solo Ausentes / No Login (Crítico)":
-            df_radar_show = df_view[df_view["Ya Inició"] & (~df_view["Esta Conectado"])]
+            df_radar_show = df_view[df_view["Ya Inició"] & df_view["Es Ausente"]]
         elif filtro_est == "Solo Retrasos (5-15 min)":
             df_radar_show = df_view[df_view["Estado"].str.contains("Retraso Leve", na=False)]
         elif filtro_est == "Todos los que debieron iniciar":
@@ -616,8 +640,8 @@ def render_tab_ausentismo(agentes_map: dict):
         c_form1, c_form2 = st.columns([1.5, 1])
 
         with c_form1:
-            # Lista de asesores que requieren justificación
-            pendientes_df = df_view[df_view["Ya Inició"] & (~df_view["Esta Conectado"])]
+            # Lista de asesores que requieren justificación (solo ausencias evaluables en Genesys)
+            pendientes_df = df_view[df_view["Ya Inició"] & df_view["Es Ausente"]]
             
             if pendientes_df.empty:
                 st.success("🎉 ¡Excelente! No hay asesores pendientes de justificar en este momento con los filtros seleccionados.")
@@ -686,12 +710,13 @@ def render_tab_ausentismo(agentes_map: dict):
 
         c_g1, c_g2 = st.columns(2)
 
-        # 1. Agrupado por Supervisor
-        resumen_sup = df_view[df_view["Ya Inició"]].groupby("Supervisor").agg(
+        # 1. Agrupado por Supervisor (solo evaluables en Genesys)
+        evaluables_sup = df_view[df_view["Ya Inició"] & df_view["Aplica Genesys"]]
+        resumen_sup = evaluables_sup.groupby("Supervisor").agg(
             Programados=("BP", "count"),
             Conectados=("Esta Conectado", "sum"),
-            Ausentes=("Esta Conectado", lambda x: (~x).sum()),
-            Horas_Perdidas=("Duracion Horas", lambda h: h[~df_view.loc[h.index, "Esta Conectado"]].sum())
+            Ausentes=("Es Ausente", "sum"),
+            Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
         ).reset_index()
 
         resumen_sup["% Ausentismo"] = (resumen_sup["Ausentes"] / resumen_sup["Programados"] * 100.0).round(1)
@@ -711,8 +736,8 @@ def render_tab_ausentismo(agentes_map: dict):
             st.plotly_chart(fig_sup, use_container_width=True)
 
         with c_g2:
-            # 2. Distribución de Tipos de Ausencia
-            aus_con_motivo = df_view[df_view["Ya Inició"] & (~df_view["Esta Conectado"])]
+            # 2. Distribución de Tipos de Ausencia (solo ausencias evaluables)
+            aus_con_motivo = df_view[df_view["Ya Inició"] & df_view["Es Ausente"]]
             conteo_motivos = aus_con_motivo["Justificación"].value_counts().reset_index()
             conteo_motivos.columns = ["Motivo", "Cantidad"]
 
