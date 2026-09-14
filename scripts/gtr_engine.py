@@ -108,6 +108,27 @@ def resolver_nombres_colas_genesys(token: str, queue_ids: tuple) -> dict:
             if r.status_code == 200:
                 return qid, r.json().get("name", str(qid))
             elif r.status_code == 403:
+                try:
+                    now_u = datetime.now(timezone.utc)
+                    inter = f"{(now_u - timedelta(days=7)).strftime('%Y-%m-%dT00:00:00.000Z')}/{(now_u + timedelta(days=1)).strftime('%Y-%m-%dT00:00:00.000Z')}"
+                    body = {
+                        "interval": inter,
+                        "segmentFilters": [{"type": "and", "predicates": [{"type": "dimension", "dimension": "queueId", "operator": "matches", "value": qid}]}],
+                        "paging": {"pageSize": 1, "pageNumber": 1}
+                    }
+                    r_det = requests.post(
+                        "https://api.mypurecloud.com/api/v2/analytics/conversations/details/query",
+                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                        json=body,
+                        timeout=5
+                    )
+                    if r_det.status_code == 200 and r_det.json().get("conversations"):
+                        for p in r_det.json()["conversations"][0].get("participants", []):
+                            if p.get("purpose") == "acd" or p.get("queueId") == qid:
+                                if p.get("participantName"):
+                                    return qid, p.get("participantName")
+                except Exception:
+                    pass
                 return qid, f"Cola Otra División ({str(qid)[:8]}...)"
             return qid, str(qid)
         except Exception:

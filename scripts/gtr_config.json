@@ -632,6 +632,119 @@
       "nombre_cola": "GSS_OUTBOUND_PAGO_SSC",
       "excluir": true,
       "vendor": "GSS_OUTBOUND"
+    },
+    "6fc1127a-1e1b-4e70-aae6-3bc1d42c6ee2": {
+      "nombre_cola": "AMC_GSS_NDC_SSC_ESP_NIVEL2",
+      "servicio": "GSS NDC Agencias",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "8b299434-6271-4e95-91e9-7e3f79e69016": {
+      "nombre_cola": "AMC_GSS_OPERACIONAL_SSC_ESP_NIVEL2",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "da49b28f-6e2b-422e-980b-0b5c98a30a2f": {
+      "nombre_cola": "AMC_LUA_INGLES_EN",
+      "servicio": "LUA AMC ING",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "e493065e-8ce6-46cf-a1d7-cf99711e0d66": {
+      "nombre_cola": "GSS_SCC_DEVOLUCIONES_SSC_ESP_CMGO",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "fcc92ad5-6cf8-475d-9a18-7370eb67637d": {
+      "nombre_cola": "AMC_POC_AWS_DT_FFP_ES",
+      "servicio": "DT FFP AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "1dffd7f1-a468-4e97-ba29-231e0e435ab5": {
+      "nombre_cola": "AMC_POC_AWS_DT_FFP_ES",
+      "servicio": "DT FFP AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "1d77d47f-ea0f-4193-891a-fe1595526718": {
+      "nombre_cola": "GSS_SCC_DEVOLUCIONES_SSC_ESP_SUPERIOR",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "d5ebc587-ea99-4267-a619-0053043e3891": {
+      "nombre_cola": "AMC_CHAT_FFP_TRANSFER_CDA_ES",
+      "servicio": "CHAT DT FFP AMC ESP",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
+    },
+    "6cec8a24-dce6-488e-aafb-9a35c2899fd9": {
+      "nombre_cola": "AMC_GSS_OPERACIONAL_INTERNA_ESP_NIVEL2",
+      "servicio": "GSS Operacional Agencias",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "aec97c1e-19f0-470b-92fe-07201be79e22": {
+      "nombre_cola": "AMC_POC_AWS_VTA_ES",
+      "servicio": "Ventas AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "3cbe955d-1a7d-41da-8031-1d8672f83485": {
+      "nombre_cola": "AMC_VOZ_GOLD_ES",
+      "servicio": "HVC AMC",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "d8e3423d-634f-4922-8287-fe2429d802ba": {
+      "nombre_cola": "AMC_OUTBOUND_RRSS",
+      "servicio": "RRSS AMC",
+      "canal": "CHAT",
+      "macro": "TT_LATAM"
+    },
+    "78619ab4-2122-4761-b5c4-7d0a41ffa2ac": {
+      "nombre_cola": "AMC_SALIENTE_MANUAL_ALL",
+      "servicio": "LUA AMC ING",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "3fb58a2c-2095-4cbc-b876-e9c8126d8d37": {
+      "nombre_cola": "KON_WSP_LUA_DEFAULT_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "315e8e45-13bd-4d7b-9c0b-c95a3bf601d9": {
+      "nombre_cola": "AEC_AWS_VTA_PT",
+      "excluir": true,
+      "vendor": "AEC"
+    },
+    "25e88a6b-6c84-4334-8929-223d1984b378": {
+      "nombre_cola": "KON_CHAT_LUA_CDA_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "64b458ef-cd40-46bb-972c-a0b6c0531773": {
+      "nombre_cola": "KON_BR_VOZ_AWS_POS_VTA_2_PT",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "da0cd5cd-2f32-4898-ac79-b87417523504": {
+      "nombre_cola": "KON_VOZ_PLATINUM_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "c5842b49-53cb-4729-98d8-0a579a01dbe3": {
+      "nombre_cola": "KON_VOZ_PILOTO_LUA_FFP_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
+    },
+    "eb98e752-47f0-4cb1-8c08-760f84236e23": {
+      "nombre_cola": "KON_POC_AWS_DT_DEV_ES",
+      "excluir": true,
+      "vendor": "KONECTA"
     }
   },
   "services": {
