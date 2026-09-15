@@ -13,32 +13,52 @@ SALESFORCE_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "sal
 
 
 def get_latest_salesforce_file():
-    """Obtiene la ruta del archivo de reporte de casos mas reciente."""
-    files = glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.xlsx")) + glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.csv"))
-    if not files:
+    """Obtiene la ruta del archivo de reporte de casos mas reciente (excluyendo caches generados)."""
+    raw_files = [
+        f for f in glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.xlsx")) + glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.csv"))
+        if not os.path.basename(f).startswith("cases_amc_cleaned")
+    ]
+    if not raw_files:
         return None
     # Ordenar por fecha de modificacion descendente
-    files.sort(key=os.path.getmtime, reverse=True)
-    return files[0]
+    raw_files.sort(key=os.path.getmtime, reverse=True)
+    return raw_files[0]
 
 
 def load_and_clean_cases_data(file_path=None):
     """
-    Carga el reporte exportado de Salesforce, ubica el encabezado real,
-    aplica forward-fill sobre las agrupaciones y filtra exclusivamente colas de AMC.
+    Carga el reporte exportado de Salesforce o la base preprocesada de casos AMC.
     """
+    cache_pkl = os.path.join(SALESFORCE_DATA_DIR, "cases_amc_cleaned.pkl")
+    cache_csv = os.path.join(SALESFORCE_DATA_DIR, "cases_amc_cleaned.csv")
+
     if file_path is None:
         file_path = get_latest_salesforce_file()
-        if file_path is None:
-            return pd.DataFrame()
 
-    if not os.path.exists(file_path):
+    # Si no hay archivo raw de reporte disponible (ej. entorno de despliegue en la nube)
+    if file_path is None or not os.path.exists(file_path):
+        if os.path.exists(cache_pkl):
+            try:
+                return pd.read_pickle(cache_pkl)
+            except Exception as e:
+                print(f"[!] Error leyendo pickle: {e}")
+        if os.path.exists(cache_csv):
+            try:
+                df_csv = pd.read_csv(cache_csv)
+                if "Fecha_Inicio_dt" in df_csv.columns:
+                    df_csv["Fecha_Inicio_dt"] = pd.to_datetime(df_csv["Fecha_Inicio_dt"], errors="coerce")
+                if "Fecha_Finalizacion_dt" in df_csv.columns:
+                    df_csv["Fecha_Finalizacion_dt"] = pd.to_datetime(df_csv["Fecha_Finalizacion_dt"], errors="coerce")
+                return df_csv
+            except Exception as e:
+                print(f"[!] Error leyendo csv cache: {e}")
         return pd.DataFrame()
 
-    cache_path = os.path.join(SALESFORCE_DATA_DIR, "cases_amc_cleaned.pkl")
-    if os.path.exists(cache_path) and os.path.getmtime(cache_path) >= os.path.getmtime(file_path):
+    # Si hay archivo raw y el caché pkl es más reciente:
+    if os.path.exists(cache_pkl):
         try:
-            return pd.read_pickle(cache_path)
+            if os.path.getmtime(cache_pkl) >= os.path.getmtime(file_path):
+                return pd.read_pickle(cache_pkl)
         except Exception:
             pass
 
@@ -57,7 +77,7 @@ def load_and_clean_cases_data(file_path=None):
         df = pd.read_excel(file_path, skiprows=header_row)
     else:
         # Archivo CSV
-        df = pd.read_csv(file_path, skiprows=13, encoding="utf-8", errors="replace")
+        df = pd.read_csv(file_path, skiprows=13, encoding="utf-8", encoding_errors="replace")
 
     # Limpieza de nombres de columnas (remover flechas de ordenamiento y espacios)
     df.columns = [str(c).replace("↑", "").replace("↓", "").strip() for c in df.columns]
@@ -148,7 +168,8 @@ def load_and_clean_cases_data(file_path=None):
     df["Rango_Antiguedad"] = df["Antiguedad_Dias"].apply(categorize_aging)
 
     try:
-        df.to_pickle(cache_path)
+        df.to_pickle(cache_pkl)
+        df.to_csv(cache_csv, index=False)
     except Exception:
         pass
 

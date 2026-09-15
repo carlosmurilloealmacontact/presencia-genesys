@@ -24,6 +24,7 @@ scripts/implementation_plan.md
 
 # Archivos de datos esenciales para Salesforce B2B
 !data/salesforce/cases_amc_cleaned.pkl
+!data/salesforce/cases_amc_cleaned.csv
 !data/salesforce/maestro_asesores_b2b.json
 !data/salesforce_live.db
 
