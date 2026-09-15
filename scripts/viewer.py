@@ -20,10 +20,11 @@ from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_g
 from capacidad_engine import render_tab_capacidad
 from ausentismo_engine import render_tab_ausentismo
 from glosario_engine import render_tab_glosario
+from salesforce_b2b_engine import render_tab_salesforce_b2b
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
-from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, ADMINS_AUTORIZADOS
+from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, DOMINIOS_CORPORATIVOS, ADMINS_AUTORIZADOS
 
 # ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
 try:
@@ -34,8 +35,9 @@ except Exception:
 if auth_configurado:
     # 1. Validar inicio de sesión
     if not getattr(st.user, "is_logged_in", False):
+        dominios_validos_str = ", ".join(DOMINIOS_CORPORATIVOS)
         st.markdown(
-            """
+            f"""
             <div style="max-width: 480px; margin: 40px auto 20px auto; padding: 35px 25px; background: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); text-align: center; border: 1px solid #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
                 <div style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 15px;">
                     🔒 Acceso Restringido
@@ -43,7 +45,7 @@ if auth_configurado:
                 <h2 style="color: #0f172a; margin: 0 0 8px 0; font-size: 22px;">Panel de Gestión Operativa</h2>
                 <p style="color: #64748b; font-size: 13px; margin: 0 0 20px 0;">Almaexperience • Genesys Cloud & GTR</p>
                 <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 25px; border: 1px dashed #cbd5e1; font-size: 13px; color: #334155;">
-                    Acceso permitido exclusivamente a cuentas corporativas autorizadas <b>@outsourcing-account.com</b>.
+                    Acceso permitido exclusivamente a cuentas corporativas autorizadas <b>(@outsourcing-account.com, @latam.com, @almaexperience.co)</b>.
                 </div>
             </div>
             """,
@@ -58,8 +60,8 @@ if auth_configurado:
     current_email = (getattr(st.user, "email", "") or "").strip().lower()
     current_name = getattr(st.user, "name", "") or current_email
 
-    # 2. Validar que el dominio sea estrictamente @outsourcing-account.com
-    if not current_email.endswith(DOMINIO_CORPORATIVO):
+    # 2. Validar que el dominio sea corporativo autorizado
+    if not any(current_email.endswith(dom) for dom in DOMINIOS_CORPORATIVOS):
         st.markdown(
             f"""
             <div style="max-width: 500px; margin: 60px auto 20px auto; padding: 30px; background-color: #fef2f2; border-radius: 12px; border: 1px solid #f87171; text-align: center;">
@@ -68,7 +70,7 @@ if auth_configurado:
                     Has iniciado sesión con el correo:<br><b>{current_email}</b>
                 </p>
                 <p style="color: #991b1b; font-size: 13px;">
-                    Este tablero es privado y solo admite colaboradores con cuenta corporativa <b>{DOMINIO_CORPORATIVO}</b>.
+                    Este tablero es privado y solo admite colaboradores con cuentas corporativas autorizadas (<b>{", ".join(DOMINIOS_CORPORATIVOS)}</b>).
                 </p>
             </div>
             """,
@@ -922,6 +924,14 @@ SECCIONES_APP = [
     "📚 Glosario & Guía",
 ]
 
+# Pestaña de Salesforce B2B:
+# Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
+USUARIOS_SALESFORCE_AUTORIZADOS = {
+    "carlosmurilloe.almacontact@outsourcing-account.com",
+}
+if current_email in USUARIOS_SALESFORCE_AUTORIZADOS or not auth_configurado:
+    SECCIONES_APP.append("☁️ Salesforce B2B")
+
 # Pestaña de Capacidad y Diagnóstico Operativo (WFM SORE vs Real):
 # Acceso exclusivo para administradores autorizados (Carlos Murillo)
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
@@ -1698,6 +1708,9 @@ elif seccion_activa == "Control de Estados (en Vivo)":
 
 elif seccion_activa == "Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())
+
+elif seccion_activa == "☁️ Salesforce B2B":
+    render_tab_salesforce_b2b(current_email)
 
 elif seccion_activa == "🧭 Capacidad y Diagnóstico":
     render_tab_capacidad(cargar_agentes_map_base())

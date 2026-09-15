@@ -10,3 +10,24 @@ data/salesforce/*
 data/salesforce_state.json
 scripts/salesforce_session.json
 scripts/salesforce_live_config.json
+
+# Bases de datos y logs locales
+*.db
+*.sqlite
+data/*.db
+data/*.png
+data/*.pkl
+log_ejecucion.txt
+scratch_media/
+scripts/implementation_plan.md
+
+# Scripts temporales de pruebas y depuración
+scripts/inspect_*.py
+scripts/test_*.py
+scripts/check_*.py
+scripts/search_*.py
+scripts/analyze_amc_cases.py
+scripts/generate_storage_state.py
+scripts/authenticate_and_save_session.py
+scripts/extract_salesforce_users_map.py
+scripts/preview_*.py
