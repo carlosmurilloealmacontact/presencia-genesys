@@ -6,7 +6,8 @@ scripts/genesys_token.txt
 scripts/salesforce_credentials.json
 data/presencia_master.db
 data/turnos_semanales/*.xlsx
-data/salesforce/*
+data/salesforce/*.xlsx
+data/salesforce/*.csv
 data/salesforce_state.json
 scripts/salesforce_session.json
 scripts/salesforce_live_config.json
@@ -20,6 +21,11 @@ data/*.pkl
 log_ejecucion.txt
 scratch_media/
 scripts/implementation_plan.md
+
+# Archivos de datos esenciales para Salesforce B2B
+!data/salesforce/cases_amc_cleaned.pkl
+!data/salesforce/maestro_asesores_b2b.json
+!data/salesforce_live.db
 
 # Scripts temporales de pruebas y depuración
 scripts/inspect_*.py

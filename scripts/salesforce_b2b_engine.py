@@ -99,6 +99,7 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                 color_continuous_scale="Reds",
                 labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola"}
             )
+            fig_q.update_traces(textposition="outside")
             fig_q.update_layout(template="plotly_dark", height=300, margin=dict(l=10, r=10, t=20, b=10), showlegend=False)
             st.plotly_chart(fig_q, use_container_width=True)
 
@@ -115,9 +116,18 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                     info.get("supervisor", "Sin Supervisor")
                 ])
 
-            df_disp[["Nombre Real", "Nivel", "Campaña", "Supervisor"]] = df_disp["agent_name"].apply(enrich_live_row)
-            df_disp["Simultaneidad"] = df_disp["active_chats"].astype(str) + " de 3 (" + df_disp["capacity_pct"].astype(str) + "%)"
-            df_disp["Tiempo"] = (df_disp["time_in_status_sec"] // 60).astype(str) + " min"
+            if df_disp.empty:
+                df_disp["Nombre Real"] = []
+                df_disp["Nivel"] = []
+                df_disp["Campaña"] = []
+                df_disp["Supervisor"] = []
+                df_disp["Simultaneidad"] = []
+                df_disp["Tiempo"] = []
+            else:
+                enriched = df_disp["agent_name"].apply(enrich_live_row)
+                df_disp[["Nombre Real", "Nivel", "Campaña", "Supervisor"]] = enriched
+                df_disp["Simultaneidad"] = df_disp["active_chats"].astype(str) + " de 3 (" + df_disp["capacity_pct"].astype(str) + "%)"
+                df_disp["Tiempo"] = (df_disp["time_in_status_sec"] // 60).astype(str) + " min"
 
             fl_c1, fl_c2, fl_c3 = st.columns([1.5, 1.2, 1.2])
             with fl_c1:
@@ -191,10 +201,44 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             "SLA Casos 24h": [28.0, 14.3, 45.6, 50.0]
         })
         fig_ns = go.Figure()
-        fig_ns.add_trace(go.Bar(x=df_chart_b2b["Servicio"], y=df_chart_b2b["NS Voz (Genesys)"], name="🎙️ NS Voz (Meta: 80%)", marker_color="#3B82F6"))
-        fig_ns.add_trace(go.Bar(x=df_chart_b2b["Servicio"], y=df_chart_b2b["NS Chat (Salesforce)"], name="💬 NS Chat (Meta: 85%)", marker_color="#10B981"))
-        fig_ns.add_trace(go.Bar(x=df_chart_b2b["Servicio"], y=df_chart_b2b["SLA Casos 24h"], name="📋 SLA Casos 24h (Meta: 80%)", marker_color="#EF4444"))
-        fig_ns.update_layout(barmode="group", template="plotly_dark", height=280, margin=dict(l=10, r=10, t=10, b=10))
+        fig_ns.add_trace(go.Bar(
+            x=df_chart_b2b["Servicio"],
+            y=df_chart_b2b["NS Voz (Genesys)"],
+            name="🎙️ NS Voz (Meta: 80%)",
+            marker_color="#3B82F6",
+            text=[f"{v:.1f}%" if v > 0 else "—" for v in df_chart_b2b["NS Voz (Genesys)"]],
+            textposition="outside"
+        ))
+        fig_ns.add_trace(go.Bar(
+            x=df_chart_b2b["Servicio"],
+            y=df_chart_b2b["NS Chat (Salesforce)"],
+            name="💬 NS Chat (Meta: 85%)",
+            marker_color="#10B981",
+            text=[f"{v:.1f}%" if v > 0 else "—" for v in df_chart_b2b["NS Chat (Salesforce)"]],
+            textposition="outside"
+        ))
+        fig_ns.add_trace(go.Bar(
+            x=df_chart_b2b["Servicio"],
+            y=df_chart_b2b["SLA Casos 24h"],
+            name="📋 SLA Casos 24h (Meta: 80%)",
+            marker_color="#EF4444",
+            text=[f"{v:.1f}%" if v > 0 else "—" for v in df_chart_b2b["SLA Casos 24h"]],
+            textposition="outside"
+        ))
+        fig_ns.update_layout(
+            barmode="group",
+            template="plotly_dark",
+            height=340,
+            margin=dict(l=10, r=10, t=30, b=10),
+            yaxis=dict(title="Cumplimiento (%)", range=[0, 115]),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.04,
+                xanchor="center",
+                x=0.5
+            )
+        )
         st.plotly_chart(fig_ns, use_container_width=True)
 
     # ---------------------------------------------------------------------
@@ -249,19 +293,31 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                 st.markdown("##### 🌡️ Termómetro de Antigüedad (Aging)")
                 df_aging = sfe.get_aging_distribution(df_cases_bk)
                 fig_aging = go.Figure()
+                a_tiempo = df_aging["Casos"] - df_aging["Infracciones"]
+                en_infraccion = df_aging["Infracciones"]
                 fig_aging.add_trace(go.Bar(
                     x=df_aging["Rango"],
-                    y=df_aging["Casos"] - df_aging["Infracciones"],
+                    y=a_tiempo,
                     name="A Tiempo (<24h)",
-                    marker_color="#10B981"
+                    marker_color="#10B981",
+                    text=[str(v) if v > 0 else "" for v in a_tiempo],
+                    textposition="inside"
                 ))
                 fig_aging.add_trace(go.Bar(
                     x=df_aging["Rango"],
-                    y=df_aging["Infracciones"],
+                    y=en_infraccion,
                     name="En Infracción (>24h)",
-                    marker_color="#EF4444"
+                    marker_color="#EF4444",
+                    text=[str(v) if v > 0 else "" for v in en_infraccion],
+                    textposition="inside"
                 ))
-                fig_aging.update_layout(barmode="stack", template="plotly_dark", height=300, margin=dict(l=10, r=10, t=10, b=10))
+                fig_aging.update_layout(
+                    barmode="stack",
+                    template="plotly_dark",
+                    height=320,
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+                )
                 st.plotly_chart(fig_aging, use_container_width=True)
 
             with col_qu:

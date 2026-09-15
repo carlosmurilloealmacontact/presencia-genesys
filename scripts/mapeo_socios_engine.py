@@ -24,7 +24,7 @@ def sync_maestro_asesores():
     """Descarga y cachea el mapeo de alias de Salesforce a Nombres Reales y Niveles."""
     os.makedirs(CACHE_MAPEO_PATH.parent, exist_ok=True)
     if jerarquia is None:
-        return cargar_mapeo_cached()
+        return load_cached_mapeo()
     try:
         creds = jerarquia.get_google_creds()
         import gspread
