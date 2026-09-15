@@ -213,9 +213,9 @@ def estilo_micro(val):
 
 
 def servicio_tiene_prepausa(servicio: str) -> bool:
-    """Pre Pausa aplica a canales WPP/Chat/RRSS, excepto CHAT AGENCIAS ESP."""
+    """Pre Pausa aplica a canales WPP/Chat/RRSS, excepto Chat Agencias (AGY N1/N3 CHAT)."""
     s = (servicio or "").upper()
-    if "CHAT AGENCIAS ESP" in s:
+    if "CHAT AGENCIAS ESP" in s or ("AGY" in s and "CHAT" in s):
         return False
     return any(k in s for k in ("WPP", "CHAT", "RRSS"))
 

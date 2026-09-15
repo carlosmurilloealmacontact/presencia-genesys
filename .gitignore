@@ -3,5 +3,10 @@ scripts/*.log
 scripts/google_oauth_client.json
 scripts/google_token.json
 scripts/genesys_token.txt
+scripts/salesforce_credentials.json
 data/presencia_master.db
 data/turnos_semanales/*.xlsx
+data/salesforce/*
+data/salesforce_state.json
+scripts/salesforce_session.json
+scripts/salesforce_live_config.json

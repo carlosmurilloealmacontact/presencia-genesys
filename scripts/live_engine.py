@@ -26,12 +26,15 @@ ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
 
 def servicio_autorizado_casos_bo(servicio: str) -> bool:
     """Casos Backoffice está autorizado para servicios BO y células de Chat/Redes autorizadas."""
-    s = (servicio or "").upper()
     if s.startswith("BO ") or s.startswith("BO_") or "BACKOFFICE" in s:
+        return True
+    if "AGY" in s and "CHAT" in s:
         return True
     celulas = (
         "RRSS AMC",
         "CHAT AGENCIAS ESP",
+        "AGY N1 ESP CHAT",
+        "AGY N3 ESP CHAT",
         "AG CORPORATE CHAT",
         "SPEECH",
         "AG CHECK IN",

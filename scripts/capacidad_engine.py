@@ -54,7 +54,8 @@ CATALOGO_SERVICIOS_SORE = {
     "RRSS AMC ING": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "RRSS AMC ING", "meta_aht": 1200.0, "meta_ns": 80.0},
     "RRSS PORT AMC": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "RRSS PORT AMC", "meta_aht": 1200.0, "meta_ns": 80.0},
     "AG CORPORATE CHAT": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "AGENCIAS CHAT CORPORATE", "meta_aht": 1859.0, "meta_ns": 80.0},
-    "CHAT AGENCIAS ESP": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "CHAT AGENCIAS ESP", "meta_aht": 1223.0, "meta_ns": 80.0},
+    "AGY N1 ESP CHAT": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "CHAT AGENCIAS ESP", "meta_aht": 1223.0, "meta_ns": 80.0, "factor_req": 0.53},
+    "AGY N3 ESP CHAT": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "CHAT AGENCIAS ESP", "meta_aht": 1223.0, "meta_ns": 80.0, "factor_req": 0.47},
     "CHAT DT FFP AMC ESP": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "CHAT DREAM TEAMS ES", "meta_aht": 1103.0, "meta_ns": 80.0},
     "DREAM TEAM WP": {"tipo": "Canales Digitales", "origen": "IN", "sheet": "DREAM TEAMS WA", "meta_aht": 1272.0, "meta_ns": 80.0},
 
@@ -76,9 +77,8 @@ HOMOLOGACION_PRESENCIA_A_SORE = {
     "AGY N1 ESP VOZ": "AGENCIAS TARGET ES",
     "AGY N3 ESP VOZ": "AGENCIAS TARGET ES",
 
-    # Agencias Chat: Niveles N1 y N3 se homologan a la exigencia de Chat Agencias
-    "AGY N1 ESP CHAT": "CHAT AGENCIAS ESP",
-    "AGY N3 ESP CHAT": "CHAT AGENCIAS ESP",
+    # Chat Agencias: Nombre obsoleto CHAT AGENCIAS ESP redirigido a Nivel 1
+    "CHAT AGENCIAS ESP": "AGY N1 ESP CHAT",
 
     # Back Office Reclamos: Customer Service Colombia
     "BO_CUS_COL": "BO RECLAMOS AMC",
@@ -133,6 +133,7 @@ def parsear_archivos_sore_crudos() -> pd.DataFrame:
                 continue
 
             ws = wb[sheet_target]
+            factor = float(info.get("factor_req", 1.0))
             for r in range(5, ws.max_row + 1):
                 d_val = ws.cell(r, 4).value
                 if not d_val:
@@ -151,7 +152,7 @@ def parsear_archivos_sore_crudos() -> pd.DataFrame:
                 asesores = ws.cell(r, 8).value or 0.0
 
                 try:
-                    traffic = float(traffic)
+                    traffic = float(traffic) * factor
                 except Exception:
                     traffic = 0.0
                 try:
@@ -159,7 +160,7 @@ def parsear_archivos_sore_crudos() -> pd.DataFrame:
                 except Exception:
                     aht_plan = 0.0
                 try:
-                    asesores = float(asesores)
+                    asesores = float(asesores) * factor
                 except Exception:
                     asesores = 0.0
 
@@ -251,16 +252,38 @@ def cargar_presencia_resumen_rango(fecha_desde: str, fecha_hasta: str, num_dias:
             SUM(duracion_min) as min_total,
             SUM(CASE WHEN presence_label NOT IN ('Offline') THEN duracion_min ELSE 0 END) as min_conectado,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
-                    CASE WHEN presence_label IN ('Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DREAM%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%AGY%CHAT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%CHAT%AGENCIA%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AGENCIA%CHAT%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AG CORPORATE CHAT%' THEN
+                    CASE WHEN presence_label IN ('Available', 'On Queue', 'Conectado', 'Casos Backoffice', 'Gestión sin Contacto', 'Gestion sin Contacto') 
+                              OR UPPER(presence_label) LIKE '%BACKOFFICE%' 
+                              OR UPPER(presence_label) LIKE '%GESTION%' 
+                              OR UPPER(presence_label) LIKE '%GESTIÓN%' 
+                         THEN duracion_min ELSE 0 END
                 ELSE
-                    CASE WHEN presence_label IN ('Available', 'On Queue') THEN duracion_min ELSE 0 END
+                    CASE WHEN presence_label IN ('Available', 'On Queue', 'Conectado') THEN duracion_min ELSE 0 END
             END) as min_disponible,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
-                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DREAM%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%AGY%CHAT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%CHAT%AGENCIA%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AGENCIA%CHAT%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AG CORPORATE CHAT%' THEN
+                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Conectado', 'Casos Backoffice', 'Gestión sin Contacto', 'Gestion sin Contacto') 
+                              AND UPPER(presence_label) NOT LIKE '%BACKOFFICE%' 
+                              AND UPPER(presence_label) NOT LIKE '%GESTION%' 
+                              AND UPPER(presence_label) NOT LIKE '%GESTIÓN%' 
+                         THEN duracion_min ELSE 0 END
                 ELSE
-                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue') THEN duracion_min ELSE 0 END
+                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Conectado') THEN duracion_min ELSE 0 END
             END) as min_pausas
         FROM segments
         WHERE fecha >= ? AND fecha <= ? AND servicio IS NOT NULL AND servicio != ''
@@ -318,16 +341,38 @@ def calcular_evolucion_diaria_servicio(
             SUM(duracion_min) as min_total,
             SUM(CASE WHEN presence_label NOT IN ('Offline') THEN duracion_min ELSE 0 END) as min_conectado,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
-                    CASE WHEN presence_label IN ('Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DREAM%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%AGY%CHAT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%CHAT%AGENCIA%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AGENCIA%CHAT%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AG CORPORATE CHAT%' THEN
+                    CASE WHEN presence_label IN ('Available', 'On Queue', 'Conectado', 'Casos Backoffice', 'Gestión sin Contacto', 'Gestion sin Contacto') 
+                              OR UPPER(presence_label) LIKE '%BACKOFFICE%' 
+                              OR UPPER(presence_label) LIKE '%GESTION%' 
+                              OR UPPER(presence_label) LIKE '%GESTIÓN%' 
+                         THEN duracion_min ELSE 0 END
                 ELSE
-                    CASE WHEN presence_label IN ('Available', 'On Queue') THEN duracion_min ELSE 0 END
+                    CASE WHEN presence_label IN ('Available', 'On Queue', 'Conectado') THEN duracion_min ELSE 0 END
             END) as min_disponible,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
-                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%DREAM%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%AGY%CHAT%' 
+                  OR UPPER(TRIM(servicio)) LIKE '%CHAT%AGENCIA%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AGENCIA%CHAT%'
+                  OR UPPER(TRIM(servicio)) LIKE '%AG CORPORATE CHAT%' THEN
+                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Conectado', 'Casos Backoffice', 'Gestión sin Contacto', 'Gestion sin Contacto') 
+                              AND UPPER(presence_label) NOT LIKE '%BACKOFFICE%' 
+                              AND UPPER(presence_label) NOT LIKE '%GESTION%' 
+                              AND UPPER(presence_label) NOT LIKE '%GESTIÓN%' 
+                         THEN duracion_min ELSE 0 END
                 ELSE
-                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue') THEN duracion_min ELSE 0 END
+                    CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Conectado') THEN duracion_min ELSE 0 END
             END) as min_pausas
         FROM segments
         WHERE fecha >= ? AND fecha <= ? AND UPPER(TRIM(servicio)) IN ({placeholders})
@@ -395,8 +440,8 @@ def calcular_capacidad_intervalos_real(fecha_str: str, servicio_sel: str) -> pd.
         df_seg["dt_ini"] + pd.to_timedelta(df_seg["duracion_min"], unit="m")
     )
 
-    es_bo = ("BO" in servicio_sel.upper()) or ("BACKOFFICE" in servicio_sel.upper()) or ("DREAM" in servicio_sel.upper()) or ("DT" in servicio_sel.upper())
-    estados_productivos = ["Available", "On Queue", "Casos Backoffice"] if es_bo else ["Available", "On Queue"]
+    es_bo_o_chat_agy = any(k in servicio_sel.upper() for k in ["BO", "BACKOFFICE", "DREAM", "DT", "AGY", "AGENCIA"])
+    estados_productivos = ["Available", "On Queue", "Conectado", "Casos Backoffice", "Gestión sin Contacto", "Gestion sin Contacto"] if es_bo_o_chat_agy else ["Available", "On Queue", "Conectado"]
 
     day_dt = pd.to_datetime(fecha_str)
     intervalos = []
@@ -415,8 +460,12 @@ def calcular_capacidad_intervalos_real(fecha_str: str, servicio_sel: str) -> pd.
 
         if not sub.empty:
             min_con = sub[sub["presence_label"] != "Offline"]["w_min"].sum()
-            min_disp = sub[sub["presence_label"].isin(estados_productivos)]["w_min"].sum()
-            min_pau = sub[~sub["presence_label"].isin(estados_productivos + ["Offline"])]["w_min"].sum()
+            if es_bo_o_chat_agy:
+                is_prod = sub["presence_label"].isin(estados_productivos) | sub["presence_label"].astype(str).str.upper().str.contains("BACKOFFICE|GESTION|GESTIÓN", na=False)
+            else:
+                is_prod = sub["presence_label"].isin(estados_productivos)
+            min_disp = sub[is_prod]["w_min"].sum()
+            min_pau = sub[(sub["presence_label"] != "Offline") & (~is_prod)]["w_min"].sum()
         else:
             min_con = 0.0
             min_disp = 0.0
@@ -502,7 +551,11 @@ def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFra
             srv_u = str(srv).upper()
             canal = row.get("canal", "VOZ")
             if "AGENCIA" in srv_u or "AGY" in srv_u:
-                return "CHAT AGENCIAS ESP" if canal == "CHAT" else "AGENCIAS TARGET ES"
+                if canal == "CHAT":
+                    if "N3" in srv_u or "NIVEL 3" in srv_u or "NIVEL3" in srv_u:
+                        return "AGY N3 ESP CHAT"
+                    return "AGY N1 ESP CHAT"
+                return "AGENCIAS TARGET ES"
             return srv_u
 
         df_metrics["servicio_sore"] = df_metrics.apply(_mapear, axis=1)
@@ -549,10 +602,17 @@ def obtener_metricas_servicio_intradia(fecha_sel: str, srv_detalle: str) -> pd.D
         srv_u = srv_detalle.upper()
         if "DREAM TEAM" in srv_u or "DT FFP" in srv_u:
             sub = df_metrics[df_metrics["servicio"].isin(["DT FFP AMC", "CHAT DT FFP AMC ESP", "DREAM TEAM WP"])]
-        elif "AGENCIAS" in srv_u and "CHAT" not in srv_u:
+        elif ("AGENCIAS" in srv_u or "AGY" in srv_u) and "CHAT" not in srv_u:
             sub = df_metrics[df_metrics["servicio"].str.contains("Agencias|AGY", case=False, na=False) & (df_metrics["canal"] == "VOZ")]
-        elif "AGENCIAS" in srv_u and "CHAT" in srv_u:
-            sub = df_metrics[df_metrics["servicio"].str.contains("Agencias|AGY", case=False, na=False) & (df_metrics["canal"] == "CHAT")]
+        elif ("AGENCIAS" in srv_u or "AGY" in srv_u) and "CHAT" in srv_u:
+            if "N3" in srv_u or "NIVEL 3" in srv_u or "NIVEL3" in srv_u:
+                sub = df_metrics[df_metrics["servicio"].str.contains("N3|Nivel 3|Nivel3", case=False, na=False) & (df_metrics["canal"] == "CHAT")]
+                if sub.empty:
+                    sub = df_metrics[df_metrics["servicio"].str.contains("Agencias|AGY", case=False, na=False) & (df_metrics["canal"] == "CHAT")]
+            else:
+                sub = df_metrics[df_metrics["servicio"].str.contains("N1|Nivel 1|Nivel1|Expert", case=False, na=False) & (df_metrics["canal"] == "CHAT")]
+                if sub.empty:
+                    sub = df_metrics[df_metrics["servicio"].str.contains("Agencias|AGY", case=False, na=False) & (df_metrics["canal"] == "CHAT")]
         else:
             sub = df_metrics[df_metrics["servicio"].str.upper() == srv_u]
 
