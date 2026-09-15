@@ -1192,13 +1192,28 @@ def render_tab_capacidad(agentes_map: dict):
             y_vals = [w_h_req, w_delta_con_h, -w_h_pau, w_h_disp, w_h_delta_demanda, w_h_delta_aht, w_h_cap_efectiva]
             eje_y_lbl = "Horas-Hombre Equivalentes"
 
+        # Etiquetas claras e inequívocas para cada barra del Waterfall
+        # Para Demanda: mostrar tanto la sobrecarga en llamadas (+X% volumen) como su impacto en capacidad (-Y%)
+        if pd.notna(w_traf_real) and w_traf_plan > 0:
+            pct_vol_diff = ((w_traf_real - w_traf_plan) / w_traf_plan * 100.0)
+            lbl_demanda = f"<b>{w_h_delta_demanda:+,.1f} h</b><br>{w_pct_delta_demanda:+.1f}% Cap<br><span style='font-size:10px; color:#475569;'>({pct_vol_diff:+.1f}% Vol)</span>"
+        else:
+            lbl_demanda = "<b>0.0 h</b><br>0.0%"
+
+        # Para AHT: mostrar tanto el desvío en segundos (+X% AHT) como su impacto en capacidad (-Y%)
+        if pd.notna(w_aht_real) and w_meta_aht and w_meta_aht > 0:
+            pct_aht_diff = ((w_aht_real - w_meta_aht) / w_meta_aht * 100.0)
+            lbl_aht = f"<b>{w_h_delta_aht:+,.1f} h</b><br>{w_pct_delta_aht:+.1f}% Cap<br><span style='font-size:10px; color:#475569;'>({pct_aht_diff:+.1f}% AHT)</span>"
+        else:
+            lbl_aht = "<b>0.0 h</b><br>0.0%"
+
         text_vals = [
             f"<b>{w_h_req:,.1f} h</b><br>100.0%",
             f"<b>{w_delta_con_h:+,.1f} h</b><br>{w_pct_delta_con:+.1f}%",
             f"<b>{-w_h_pau:+,.1f} h</b><br>{w_pct_pau:+.1f}%",
             f"<b>{w_h_disp:,.1f} h</b><br>{w_pct_disp:.1f}%",
-            f"<b>{w_h_delta_demanda:+,.1f} h</b><br>{w_pct_delta_demanda:+.1f}%",
-            f"<b>{w_h_delta_aht:+,.1f} h</b><br>{w_pct_delta_aht:+.1f}%",
+            lbl_demanda,
+            lbl_aht,
             f"<b>{w_h_cap_efectiva:,.1f} h</b><br>{w_pct_cap_efectiva:.1f}%"
         ]
 
@@ -1234,6 +1249,7 @@ def render_tab_capacidad(agentes_map: dict):
             paper_bgcolor="rgba(0,0,0,0)"
         )
         st.plotly_chart(fig_wat, use_container_width=True)
+        st.caption("💡 **Regla de Signos Operativa:** En Demanda y AHT, un incremento en el indicador operativo (+ llamadas o + segundos) **resta capacidad efectiva (barra roja que desciende)** porque sobrecarga o frena la operación.")
 
     with col_diag:
         es_superavit_con = w_delta_con_h >= 0
