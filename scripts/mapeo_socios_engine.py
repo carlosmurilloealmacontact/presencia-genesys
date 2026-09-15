@@ -14,12 +14,17 @@ BASE_DIR = Path(__file__).parent
 CACHE_MAPEO_PATH = BASE_DIR.parent / "data" / "salesforce" / "maestro_asesores_b2b.json"
 
 sys.path.insert(0, str(BASE_DIR))
-import jerarquia
+try:
+    import jerarquia
+except Exception as e:
+    jerarquia = None
 
 
 def sync_maestro_asesores():
     """Descarga y cachea el mapeo de alias de Salesforce a Nombres Reales y Niveles."""
     os.makedirs(CACHE_MAPEO_PATH.parent, exist_ok=True)
+    if jerarquia is None:
+        return cargar_mapeo_cached()
     try:
         creds = jerarquia.get_google_creds()
         import gspread

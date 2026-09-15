@@ -20,7 +20,12 @@ from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_g
 from capacidad_engine import render_tab_capacidad
 from ausentismo_engine import render_tab_ausentismo
 from glosario_engine import render_tab_glosario
-from salesforce_b2b_engine import render_tab_salesforce_b2b
+
+try:
+    from salesforce_b2b_engine import render_tab_salesforce_b2b
+except Exception as _sf_err:
+    def render_tab_salesforce_b2b(email_usuario=""):
+        st.error(f"Error cargando módulo Salesforce B2B: {_sf_err}")
 
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
