@@ -457,6 +457,80 @@ def diagnosticar_causa_raiz(gap_personas: float, aux_real: float, aux_meta: floa
     return "🔴 " + " • ".join(causas)
 
 
+MAPA_GTR_A_SORE = {
+    "LUA AMC": "LUA AMC",
+    "LUA AMC ING": "LUA AMC ING",
+    "Soporte LUA AMC": "SOPORTE LUA AMC",
+    "HVC AMC": "HVC AMC",
+    "Ventas AMC": "VENTAS AMC",
+    "Equipajes AMC": "EQUIPAJES AMC",
+    "Equipajes AMC ING": "EQUIPAJES AMC ING",
+    "WPP LUA AMC": "WPP LUA AMC",
+    "WPP VENTAS AMC": "WPP VENTAS AMC",
+    "CHAT VENTAS AMC": "CHAT VENTAS AMC",
+    "WPP EQUIPAJES AMC": "WPP EQUIPAJES AMC",
+    "RRSS AMC": "RRSS AMC",
+    "DT FFP AMC ING": "DT FFP AMC ING",
+    "DT FFP AMC": "DT FFP AMC (DREAM TEAM)",
+    "CHAT DT FFP AMC ESP": "DT FFP AMC (DREAM TEAM)",
+    "DREAM TEAM WP": "DT FFP AMC (DREAM TEAM)",
+    "GSS NDC Agencias": "AGENCIAS TARGET ES",
+    "GSS Operacional Agencias": "AGENCIAS TARGET ES",
+    "TRAVEL WP AMC": "TRAVEL WP AMC",
+}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFrame:
+    """
+    Consulta las métricas agregadas de colas en Genesys Cloud para un rango de fechas (o un día)
+    y las homologa a nivel de servicio SORE (Tráfico real, AHT real, NS 80/20 real).
+    """
+    token = obtener_token_genesys()
+    if not token:
+        return pd.DataFrame()
+    try:
+        from gtr_engine import obtener_metricas_gtr_api
+        df_metrics, err, _ = obtener_metricas_gtr_api(token, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
+        if df_metrics.empty:
+            return pd.DataFrame()
+
+        def _mapear(row):
+            srv = row.get("servicio", "")
+            if srv in MAPA_GTR_A_SORE:
+                return MAPA_GTR_A_SORE[srv]
+            srv_u = str(srv).upper()
+            canal = row.get("canal", "VOZ")
+            if "AGENCIA" in srv_u or "AGY" in srv_u:
+                return "CHAT AGENCIAS ESP" if canal == "CHAT" else "AGENCIAS TARGET ES"
+            return srv_u
+
+        df_metrics["servicio_sore"] = df_metrics.apply(_mapear, axis=1)
+        agg = df_metrics.groupby("servicio_sore").agg({
+            "nOffered": "sum",
+            "tAnswered_count": "sum",
+            "tHandle_sum": "sum",
+            "tHandle_count": "sum",
+            "sl_numerator": "sum",
+            "sl_denominator": "sum"
+        }).reset_index()
+
+        agg["trafico_real"] = agg["nOffered"]
+        agg["aht_real_seg"] = agg.apply(
+            lambda r: int(round((r["tHandle_sum"] / r["tHandle_count"]) / 1000.0)) if r["tHandle_count"] > 0 else np.nan,
+            axis=1
+        )
+        agg["ns_real"] = agg.apply(
+            lambda r: round((r["sl_numerator"] / r["sl_denominator"] * 100.0), 1) if r["sl_denominator"] > 0 else np.nan,
+            axis=1
+        )
+        return agg.rename(columns={"servicio_sore": "servicio"})[[
+            "servicio", "trafico_real", "aht_real_seg", "ns_real", "tHandle_sum", "tHandle_count", "sl_numerator", "sl_denominator"
+        ]]
+    except Exception:
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_metricas_servicio_intradia(fecha_sel: str, srv_detalle: str) -> pd.DataFrame:
     """
@@ -799,6 +873,9 @@ def render_tab_capacidad(agentes_map: dict):
     # 2. Cargar presencia real de Genesys
     df_pres_rango = cargar_presencia_resumen_rango(fecha_desde, fecha_hasta, num_dias=num_dias)
 
+    # 3. Cargar métricas de Genesys GTR (Tráfico real, AHT real, NS 80/20 real)
+    df_gtr_rango = obtener_metricas_gtr_rango(fecha_desde, fecha_hasta)
+
     # Resumen agrupado del forecast por servicio
     fore_summary = df_fore_rango.groupby(["servicio", "tipo_mundo"]).agg({
         "traffic_forecast": "sum",
@@ -810,7 +887,7 @@ def render_tab_capacidad(agentes_map: dict):
     # FTEs requeridos en base a jornada estándar de 8 horas (480 minutos * num_dias)
     fore_summary["fte_dia_requerido"] = (fore_summary["minutos_req"] / (480.0 * num_dias)).round(1)
 
-    # 3. Unir Forecast y Real
+    # Unir Forecast y Real (Presencia)
     if not df_pres_rango.empty:
         matriz = pd.merge(fore_summary, df_pres_rango, on="servicio", how="left").fillna(0.0)
     else:
@@ -821,6 +898,18 @@ def render_tab_capacidad(agentes_map: dict):
         matriz["pct_auxiliares_real"] = 0.0
         matriz["fte_reales_conectados"] = 0.0
         matriz["fte_reales_disponibles"] = 0.0
+
+    # Unir Métricas de GTR (Tráfico, AHT, NS)
+    if not df_gtr_rango.empty:
+        matriz = pd.merge(matriz, df_gtr_rango, on="servicio", how="left")
+    else:
+        matriz["trafico_real"] = np.nan
+        matriz["aht_real_seg"] = np.nan
+        matriz["ns_real"] = np.nan
+        matriz["tHandle_sum"] = 0.0
+        matriz["tHandle_count"] = 0
+        matriz["sl_numerator"] = 0
+        matriz["sl_denominator"] = 0
 
     # Aplicar filtro por mundo
     if filtro_mundo == "📞 Línea / Inbound Voz":
@@ -844,10 +933,19 @@ def render_tab_capacidad(agentes_map: dict):
         fte_disp = row["fte_reales_disponibles"]
         aux_real = row["pct_auxiliares_real"]
         meta_aht = row["meta_aht_plana"]
+        meta_ns = row.get("meta_ns", 80.0)
         min_req = row["minutos_req"]
         min_disp = row["min_disponible"]
         min_con = row["min_conectado"]
         min_pau = row["min_pausas"]
+
+        traf_plan = row.get("traffic_forecast", 0.0)
+        traf_real = row.get("trafico_real")
+        aht_real = row.get("aht_real_seg")
+        ns_real = row.get("ns_real")
+
+        pct_desv_trafico = round(((traf_real - traf_plan) / traf_plan * 100.0), 1) if pd.notna(traf_real) and traf_plan > 0 else np.nan
+        pct_desv_aht = round(((aht_real - meta_aht) / meta_aht * 100.0), 1) if pd.notna(aht_real) and meta_aht > 0 else np.nan
 
         gap_fte = fte_con - fte_req
         pct_capacidad = (min_disp / min_req * 100.0) if min_req > 0 else 100.0
@@ -873,11 +971,22 @@ def render_tab_capacidad(agentes_map: dict):
             "% Aux Real": aux_real,
             "Meta Aux": META_AUXILIARES_OFICIAL,
             "Horas Fuga Aux": horas_exceso_aux,
+            "Tráfico Plan": traf_plan,
+            "Tráfico Real": traf_real if pd.notna(traf_real) else np.nan,
+            "% Desv Tráfico": pct_desv_trafico,
             "Meta AHT (s)": int(meta_aht),
+            "AHT Real (s)": aht_real if pd.notna(aht_real) else np.nan,
+            "% Desv AHT": pct_desv_aht,
+            "% NS": ns_real if pd.notna(ns_real) else np.nan,
+            "Meta NS": meta_ns,
             "% Capacidad": pct_capacidad,
             "Min. Requeridos": min_req,
             "Min. Disponibles": min_disp,
             "Min. Pausas": min_pau,
+            "tHandle_sum": row.get("tHandle_sum", 0.0),
+            "tHandle_count": row.get("tHandle_count", 0),
+            "sl_numerator": row.get("sl_numerator", 0),
+            "sl_denominator": row.get("sl_denominator", 0),
             "Diagnóstico Operativo": causa
         })
 
@@ -897,14 +1006,23 @@ def render_tab_capacidad(agentes_map: dict):
     tot_horas_fuga = df_ejecutiva["Horas Fuga Aux"].sum()
     fte_fuga_equivalentes = tot_horas_fuga / (8.0 * num_dias)
 
+    # Métricas consolidadas macro de GTR (NS y AHT ponderados)
+    tot_sl_num = df_ejecutiva["sl_numerator"].sum()
+    tot_sl_den = df_ejecutiva["sl_denominator"].sum()
+    ns_global = (tot_sl_num / tot_sl_den * 100.0) if tot_sl_den > 0 else np.nan
+
+    tot_th_sum = df_ejecutiva["tHandle_sum"].sum()
+    tot_th_cnt = df_ejecutiva["tHandle_count"].sum()
+    aht_global_seg = ((tot_th_sum / tot_th_cnt) / 1000.0) if tot_th_cnt > 0 else np.nan
+
     st.markdown("---")
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     with m1:
         color_cumpl = "normal" if cumpl_global >= 90 else "inverse"
         st.metric(
-            "Capacidad Neta Global",
+            "Capacidad Neta",
             f"{cumpl_global:.1f}%",
-            delta=f"{cumpl_global - 100.0:+.1f}% vs Requerido",
+            delta=f"{cumpl_global - 100.0:+.1f}% vs Req",
             delta_color=color_cumpl,
             help="% de minutos productivos reales frente al total requerido del mes."
         )
@@ -912,16 +1030,16 @@ def render_tab_capacidad(agentes_map: dict):
         color_gap = "normal" if gap_fte_global >= 0 else "inverse"
         delta_gap = f"{gap_fte_global:+.1f} FTEs" if num_dias == 1 else f"{gap_fte_global:+.1f} FTEs/día"
         st.metric(
-            "Balance de Personal (FTE)",
+            "Balance FTEs",
             f"{tot_fte_con:.1f} / {tot_fte_req:.1f}",
             delta=delta_gap,
             delta_color=color_gap,
-            help="Asesores equivalentes conectados vs asesores requeridos (promedio diario)."
+            help="Asesores equivalentes conectados vs asesores requeridos."
         )
     with m3:
         color_aux = "normal" if pct_aux_global <= META_AUXILIARES_OFICIAL else "inverse"
         st.metric(
-            "% Auxiliares Global",
+            "% Auxiliares",
             f"{pct_aux_global:.1f}%",
             delta=f"{pct_aux_global - META_AUXILIARES_OFICIAL:+.1f}% vs Meta (14%)",
             delta_color=color_aux,
@@ -930,12 +1048,36 @@ def render_tab_capacidad(agentes_map: dict):
     with m4:
         delta_fuga = f"≈ {fte_fuga_equivalentes:.1f} Asesores" if num_dias == 1 else f"≈ {fte_fuga_equivalentes:.1f} FTEs/día"
         st.metric(
-            "Horas Perdidas por Exceso",
+            "Fuga Auxiliares",
             f"{tot_horas_fuga:.1f} h",
             delta=delta_fuga,
             delta_color="off",
-            help="Horas hombre netas destruidas por haber superado el límite del 14% de auxiliares en el periodo."
+            help="Horas hombre netas destruidas por haber superado el 14% de auxiliares."
         )
+    with m5:
+        if pd.notna(ns_global):
+            color_ns = "normal" if ns_global >= 80.0 else "inverse"
+            delta_ns = f"{ns_global - 80.0:+.1f}% vs 80%"
+            st.metric(
+                "Nivel de Servicio",
+                f"{ns_global:.1f}%",
+                delta=delta_ns,
+                delta_color=color_ns,
+                help="Nivel de Servicio consolidado (80/20) de todas las llamadas/chats atendidos en Genesys."
+            )
+        else:
+            st.metric("Nivel de Servicio", "N/A", help="No aplica o sin datos en canales backoffice")
+    with m6:
+        if pd.notna(aht_global_seg):
+            st.metric(
+                "AHT Real Promedio",
+                f"{aht_global_seg:.0f} s",
+                delta=f"{aht_global_seg/60.0:.1f} min",
+                delta_color="off",
+                help="Tiempo medio de operación (Handle Time) real ponderado en Genesys."
+            )
+        else:
+            st.metric("AHT Real Promedio", "N/A", help="No aplica")
 
     st.markdown("---")
 
@@ -1002,6 +1144,20 @@ def render_tab_capacidad(agentes_map: dict):
     w_pct_pau_meta = -(w_h_pau_meta / w_h_req * 100.0) if w_h_req > 0 else 0.0
     w_pct_pau_fuga = -(w_h_pau_fuga / w_h_req * 100.0) if w_h_req > 0 else 0.0
 
+    # Métricas de GTR para el alcance seleccionado en el Árbol
+    if sel_alcance.startswith("🌐"):
+        w_traf_plan = df_ejecutiva["Tráfico Plan"].sum()
+        w_traf_real = df_ejecutiva["Tráfico Real"].sum(skipna=True)
+        w_aht_real = aht_global_seg
+        w_ns_real = ns_global
+        w_meta_ns = 80.0
+    else:
+        w_traf_plan = fila_s.get("Tráfico Plan", 0.0)
+        w_traf_real = fila_s.get("Tráfico Real", np.nan)
+        w_aht_real = fila_s.get("AHT Real (s)", np.nan)
+        w_ns_real = fila_s.get("% NS", np.nan)
+        w_meta_ns = fila_s.get("Meta NS", 80.0)
+
     col_wat, col_diag = st.columns([1.5, 1.1])
     with col_wat:
         if modo_eje == "Porcentaje de Capacidad (%)":
@@ -1049,11 +1205,44 @@ def render_tab_capacidad(agentes_map: dict):
         bg_card = "#f0fdf4" if w_pct_disp >= 95.0 else ("#fffbeb" if w_pct_disp >= 85.0 else "#fef2f2")
         border_card = "#10b981" if w_pct_disp >= 95.0 else ("#f59e0b" if w_pct_disp >= 85.0 else "#ef4444")
 
+        # Texto del impacto de AHT
+        if pd.notna(w_aht_real) and w_meta_aht and w_meta_aht > 0:
+            diff_aht_s = w_aht_real - w_meta_aht
+            pct_diff_aht = (diff_aht_s / w_meta_aht * 100.0)
+            if diff_aht_s > 0:
+                texto_linea_aht = f"🔴 <b>{w_aht_real:.0f}s vs {w_meta_aht:.0f}s</b> (+{pct_diff_aht:.1f}% desvío • Destruyó capacidad efectiva)"
+            else:
+                texto_linea_aht = f"🟢 <b>{w_aht_real:.0f}s vs {w_meta_aht:.0f}s</b> ({pct_diff_aht:.1f}% desvío • Aportó mayor productividad)"
+        elif pd.notna(w_aht_real):
+            texto_linea_aht = f"ℹ️ <b>{w_aht_real:.0f}s</b> (Promedio ponderado real)"
+        else:
+            texto_linea_aht = "ℹ️ No aplica (Canales Back Office / Casos)"
+
+        # Texto del impacto de Tráfico
+        if pd.notna(w_traf_real) and w_traf_plan > 0:
+            diff_traf = w_traf_real - w_traf_plan
+            pct_diff_traf = (diff_traf / w_traf_plan * 100.0)
+            if pct_diff_traf > 5.0:
+                texto_linea_traf = f"🔴 <b>{w_traf_real:,.0f} vs {w_traf_plan:,.0f}</b> (+{pct_diff_traf:+.1f}% sobre-demanda no prevista)"
+            elif pct_diff_traf < -5.0:
+                texto_linea_traf = f"🟡 <b>{w_traf_real:,.0f} vs {w_traf_plan:,.0f}</b> ({pct_diff_traf:+.1f}% menor volumen)"
+            else:
+                texto_linea_traf = f"🟢 <b>{w_traf_real:,.0f} vs {w_traf_plan:,.0f}</b> ({pct_diff_traf:+.1f}% alineado al forecast)"
+        else:
+            texto_linea_traf = "ℹ️ No reporta volumen de colas"
+
+        # Texto del impacto de Nivel de Servicio
+        if pd.notna(w_ns_real):
+            color_ns_txt = "#15803d" if w_ns_real >= w_meta_ns else ("#b45309" if w_ns_real >= (w_meta_ns - 10.0) else "#b91c1c")
+            texto_linea_ns = f"<span style='font-size: 14px; font-weight: 700; color: {color_ns_txt};'>{w_ns_real:.1f}%</span> (Meta: {w_meta_ns:.0f}%)"
+        else:
+            texto_linea_ns = "N/A"
+
         st.markdown(
             f"""
             <div style="background: {bg_card}; border: 1px solid {border_card}; border-radius: 10px; padding: 14px 16px; margin-top: 10px;">
                 <div style="font-weight: 700; font-size: 15px; color: #0f172a; margin-bottom: 8px;">
-                    ⚖️ Balance Analítico: ¿Qué suma y qué resta?
+                    ⚖️ Balance Analítico Completo: Oferta vs Demanda vs Eficiencia
                 </div>
                 <div style="font-size: 13px; color: #334155; line-height: 1.6;">
                     • <b>1. Base Requerida del Mes:</b> <code>100.0%</code> ({w_h_req:,.1f} h | {w_fte_req:.1f} FTEs{'/día' if num_dias > 1 else ''})<br>
@@ -1062,8 +1251,11 @@ def render_tab_capacidad(agentes_map: dict):
                     • <b>3. Pausas y Auxiliares:</b> <span style="color: #b91c1c; font-weight: 600;">{w_pct_pau:.1f}%</span> ({-w_h_pau:.1f} h)<br>
                     <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">– Pausas autorizadas (Meta 14%): {w_pct_pau_meta:.1f}% ({-w_h_pau_meta:.1f} h)</span><br>
                     <span style="font-size: 11.5px; color: #64748b; margin-left: 12px;">– Fuga por exceso de auxiliares: <b>{w_pct_pau_fuga:.1f}% ({-w_h_pau_fuga:.1f} h)</b></span><br>
-                    • <b>4. Capacidad Real Lograda:</b> <span style="font-size: 14px; font-weight: 700; color: {'#15803d' if es_cumplido else '#b91c1c'};">{w_pct_disp:.1f}%</span> ({w_h_disp:,.1f} h)<br>
-                    <span style="font-size: 12px; font-weight: 600; color: #475569; margin-left: 12px;">Brecha Neta Final: <b>{w_pct_disp - 100.0:+.1f}%</b> ({w_h_disp - w_h_req:+,.1f} h)</span>
+                    • <b>4. Capacidad Real Lograda:</b> <span style="font-size: 14px; font-weight: 700; color: {'#15803d' if es_cumplido else '#b91c1c'};">{w_pct_disp:.1f}%</span> ({w_h_disp:,.1f} h | Brecha: {w_pct_disp - 100.0:+.1f}%)<br>
+                    <hr style="margin: 8px 0; border: none; border-top: 1px dashed #cbd5e1;">
+                    • <b>5. Tráfico vs Forecast:</b> {texto_linea_traf}<br>
+                    • <b>6. Eficiencia de Manejo (AHT):</b> {texto_linea_aht}<br>
+                    • <b>🎯 Resultado Nivel de Servicio (NS 80/20):</b> {texto_linea_ns}
                 </div>
             </div>
             """,
@@ -1071,8 +1263,12 @@ def render_tab_capacidad(agentes_map: dict):
         )
 
         # Diagnóstico narrativo conciso
-        if w_pct_disp >= 95.0:
-            st.success(f"✅ **Operación Cumplida:** La capacidad disponible cubrió el **{w_pct_disp:.1f}%** de la base requerida del mes.")
+        if w_pct_disp >= 95.0 and (pd.isna(w_ns_real) or w_ns_real >= w_meta_ns):
+            st.success(f"✅ **Operación Cumplida:** La capacidad disponible cubrió el **{w_pct_disp:.1f}%** del requerimiento y el Nivel de Servicio cerró en meta ({w_ns_real:.1f}%).")
+        elif pd.notna(w_ns_real) and w_ns_real < w_meta_ns and pd.notna(w_aht_real) and w_meta_aht and (w_aht_real > w_meta_aht * 1.10):
+            st.error(
+                f"🚨 **Deterioro por AHT Desbordado:** Aunque la capacidad disponible fue del {w_pct_disp:.1f}%, el AHT excedió la meta en un **{(w_aht_real - w_meta_aht)/w_meta_aht*100.0:+.1f}%**, erosionando el tiempo productivo y hundiendo el NS al **{w_ns_real:.1f}%**."
+            )
         elif es_superavit_con and w_pct_pau_fuga < -5.0:
             st.warning(
                 f"🟠 **Déficit por Fuga en Auxiliares:** Se contó con suficiente personal ({w_pct_delta_con:+.1f}%), pero las pausas no autorizadas destruyeron **{w_h_pau_fuga:.1f} horas** ({w_pct_pau_fuga:.1f}%), tumbando el cumplimiento al **{w_pct_disp:.1f}%**."
@@ -1088,7 +1284,7 @@ def render_tab_capacidad(agentes_map: dict):
 
     # 6. Tabla Matriz Ejecutiva Panorámica
     st.markdown("#### 📊 Matriz Panorámica de Cumplimiento y Causa Raíz")
-    st.caption("Haz clic en cualquier servicio para desglosar su comportamiento en detalle.")
+    st.caption("Visión gerencial integral: Requerido vs Conectados vs Auxiliares vs Tráfico vs AHT vs Nivel de Servicio (NS 80/20). Haz clic en cualquier servicio para ver su detalle.")
 
     def estilo_gap(val):
         if pd.isna(val): return ""
@@ -1111,14 +1307,33 @@ def render_tab_capacidad(agentes_map: dict):
         else: color = "#ef4444"
         return f"background-color: {color}20; color: {color}; font-weight: 700;"
 
+    def estilo_ns(val):
+        if pd.isna(val): return ""
+        if val >= 80.0: color = "#10b981"
+        elif val >= 70.0: color = "#f59e0b"
+        else: color = "#ef4444"
+        return f"background-color: {color}20; color: {color}; font-weight: 700;"
+
+    def estilo_desv_trafico(val):
+        if pd.isna(val): return ""
+        if val <= 5.0: color = "#10b981"
+        elif val <= 15.0: color = "#f59e0b"
+        else: color = "#ef4444"
+        return f"background-color: {color}20; color: {color}; font-weight: 600;"
+
+    cols_matriz_ejecutiva = [
+        "Servicio", "Canal", "FTE Req", "FTE Con", "Brecha FTE",
+        "% Aux Real", "Meta Aux", "Tráfico Plan", "Tráfico Real", "% Desv Tráfico",
+        "Meta AHT (s)", "AHT Real (s)", "% NS", "% Capacidad", "Diagnóstico Operativo"
+    ]
+
     styler_matriz = (
-        df_ejecutiva[[
-            "Servicio", "Canal", "FTE Req", "FTE Con", "Brecha FTE",
-            "% Aux Real", "Meta Aux", "Meta AHT (s)", "% Capacidad", "Diagnóstico Operativo"
-        ]].style
+        df_ejecutiva[cols_matriz_ejecutiva].style
         .map(estilo_gap, subset=["Brecha FTE"])
         .map(estilo_cumpl, subset=["% Capacidad"])
         .map(estilo_aux, subset=["% Aux Real"])
+        .map(estilo_ns, subset=["% NS"])
+        .map(estilo_desv_trafico, subset=["% Desv Tráfico"])
     )
 
     evento = st.dataframe(
@@ -1134,10 +1349,15 @@ def render_tab_capacidad(agentes_map: dict):
             "FTE Req": st.column_config.NumberColumn("FTE Req", format="%.1f", help="Asesores requeridos en el mes"),
             "FTE Con": st.column_config.NumberColumn("FTE Con", format="%.1f", help="Asesores conectados en Genesys"),
             "Brecha FTE": st.column_config.NumberColumn("Brecha FTE", format="%+.1f", help="Diferencia de personal: Conectados - Requeridos"),
-            "% Aux Real": st.column_config.NumberColumn("% Aux Real", format="%.1f%%", help="% de tiempo en pausas y estados no productivos"),
+            "% Aux Real": st.column_config.NumberColumn("% Aux", format="%.1f%%", help="% de tiempo en pausas"),
             "Meta Aux": st.column_config.NumberColumn("Meta Aux", format="%.0f%%"),
-            "Meta AHT (s)": st.column_config.NumberColumn("Meta AHT", format="%d s", help="Meta plana fija oficial de dimensionamiento"),
-            "% Capacidad": st.column_config.NumberColumn("% Capacidad Neta", format="%.1f%%", help="Minutos disponibles ÷ Minutos requeridos"),
+            "Tráfico Plan": st.column_config.NumberColumn("Tráfico Plan", format="%.0f", help="Volumen proyectado en forecast"),
+            "Tráfico Real": st.column_config.NumberColumn("Tráfico Real", format="%.0f", help="Volumen real recibido en Genesys"),
+            "% Desv Tráfico": st.column_config.NumberColumn("% Desv Tráfico", format="%+.1f%%", help="Desviación de volumen vs Forecast"),
+            "Meta AHT (s)": st.column_config.NumberColumn("Meta AHT", format="%d s", help="Meta plana fija oficial"),
+            "AHT Real (s)": st.column_config.NumberColumn("AHT Real", format="%.0f s", help="Handle time real promedio"),
+            "% NS": st.column_config.NumberColumn("% NS", format="%.1f%%", help="Nivel de Servicio 80/20"),
+            "% Capacidad": st.column_config.NumberColumn("% Capacidad", format="%.1f%%", help="Minutos disponibles ÷ Minutos requeridos"),
             "Diagnóstico Operativo": st.column_config.TextColumn("Causa Raíz / Veredicto"),
         }
     )
@@ -1179,6 +1399,46 @@ def render_tab_capacidad(agentes_map: dict):
         else f"🟠 Se registró sobreconsumo de auxiliares con un **{d_aux:.1f}%** frente al 14% meta, destruyendo **{d_hfuga:.1f} horas de capacidad**"
     )
 
+    d_traf_plan = fila_detalle.get("Tráfico Plan", 0.0)
+    d_traf_real = fila_detalle.get("Tráfico Real", np.nan)
+    d_desv_traf = fila_detalle.get("% Desv Tráfico", np.nan)
+    d_aht_real = fila_detalle.get("AHT Real (s)", np.nan)
+    d_desv_aht = fila_detalle.get("% Desv AHT", np.nan)
+    d_ns = fila_detalle.get("% NS", np.nan)
+    d_meta_ns = fila_detalle.get("Meta NS", 80.0)
+
+    # Texto de demanda
+    if pd.notna(d_traf_real) and d_traf_plan > 0:
+        texto_demanda = (
+            f"🔴 Se atendió una sobre-demanda de **{d_traf_real:,.0f} interacciones** vs **{d_traf_plan:,.0f} planificadas** (**{d_desv_traf:+.1f}%** de sobrecarga no prevista)"
+            if d_desv_traf > 5.0
+            else f"🟢 El volumen de interacciones estuvo alineado con el forecast (**{d_traf_real:,.0f}** recibidas vs **{d_traf_plan:,.0f}** proyectadas, **{d_desv_traf:+.1f}%**)"
+        )
+    else:
+        texto_demanda = "ℹ️ Servicio sin medición de volumen de llamadas/chats en colas directas."
+
+    # Texto de AHT
+    if pd.notna(d_aht_real) and d_aht and d_aht > 0:
+        texto_aht_diag = (
+            f"🔴 El AHT real se desbordó a **{d_aht_real:.0f}s** frente a la meta plana de **{d_aht}s** (**{d_desv_aht:+.1f}%**), destruyendo capacidad operativa por interacción"
+            if d_aht_real > d_aht
+            else f"🟢 El AHT real estuvo eficiente en **{d_aht_real:.0f}s** (por debajo de la meta plana de **{d_aht}s**, **{d_desv_aht:+.1f}%**)"
+        )
+    elif pd.notna(d_aht_real):
+        texto_aht_diag = f"ℹ️ AHT promedio registrado: **{d_aht_real:.0f} segundos**."
+    else:
+        texto_aht_diag = f"ℹ️ Evaluado con meta plana de **{d_aht} segundos**."
+
+    # Texto de NS
+    if pd.notna(d_ns):
+        texto_ns_diag = (
+            f"🟢 **{d_ns:.1f}%** (Cumpliendo la meta de servicio del {d_meta_ns:.0f}%)"
+            if d_ns >= d_meta_ns
+            else f"🔴 **{d_ns:.1f}%** (Por debajo del objetivo del {d_meta_ns:.0f}%)"
+        )
+    else:
+        texto_ns_diag = "N/A (Back Office / Casos)"
+
     if num_dias == 1:
         texto_intro = f"Para el servicio <b>{srv_detalle}</b> el <b>{fecha_desde}</b>, la base del requerido del mes dimensionó una exigencia de <b>{d_mreq:,.0f} minutos hombre</b> ({d_req:.1f} FTEs)."
     else:
@@ -1191,14 +1451,16 @@ def render_tab_capacidad(agentes_map: dict):
 
     st.markdown(
         f"""
-        <div style="background: #ffffff; border-left: 5px solid {'#10b981' if d_cap >= 90 else '#ef4444'}; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 16px;">
-            <span style="font-size: 15px; font-weight: 700; color: #0f172a;">Resumen Ejecutivo de Capacidad:</span><br>
+        <div style="background: #ffffff; border-left: 5px solid {'#10b981' if d_cap >= 90 and (pd.isna(d_ns) or d_ns >= d_meta_ns) else '#ef4444'}; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 16px;">
+            <span style="font-size: 15px; font-weight: 700; color: #0f172a;">Diagnóstico Integral: Capacidad, Eficiencia y Nivel de Servicio:</span><br>
             <p style="font-size: 13.5px; color: #334155; margin-top: 6px; line-height: 1.6;">
                 {texto_intro}<br>
                 • <b>1. Conexión / Asistencia:</b> {texto_personas}.<br>
                 • <b>2. Auxiliares y Pausas:</b> {texto_aux}. De los minutos conectados, <b>{d_mpau:,.0f} minutos</b> se consumieron en pausas.<br>
-                • <b>3. Criterio de AHT:</b> Evaluado contra la meta plana de dimensionamiento de <b>{d_aht} segundos</b>.<br>
-                • <b>4. Capacidad Efectiva Lograda:</b> Quedaron <b>{d_mdisp:,.0f} minutos productivos disponibles</b>, alcanzando un <b>{d_cap:.1f}% de cumplimiento de capacidad</b> frente al plan.
+                • <b>3. Capacidad Neta Disponible:</b> Quedaron <b>{d_mdisp:,.0f} minutos productivos</b>, alcanzando un <b>{d_cap:.1f}% de capacidad</b> frente al plan.<br>
+                • <b>4. Tráfico y Demanda:</b> {texto_demanda}.<br>
+                • <b>5. Desempeño AHT:</b> {texto_aht_diag}.<br>
+                • <b>🎯 Resultado Nivel de Servicio (NS 80/20):</b> {texto_ns_diag}.
             </p>
         </div>
         """,
