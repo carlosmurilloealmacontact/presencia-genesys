@@ -67,6 +67,50 @@ CATALOGO_SERVICIOS_SORE = {
     "DREAM TEAM CASOS": {"tipo": "Back Office", "origen": "BO", "sheet": "DREAM TEAM CASOS", "meta_aht": 1150.0, "meta_ns": 85.0},
 }
 
+# ── MAPEOS DE HOMOLOGACIÓN OPERATIVA WFM vs GENESYS ─────────────────────────
+# 1. Homologación de presencia (de nombres en segments / nómina hacia SORE):
+HOMOLOGACION_PRESENCIA_A_SORE = {
+    # Agencias Voz: Niveles N1 y N3 se homologan a la exigencia de Agencias Target Voz
+    "AGY N1 ESP VOZ": "AGENCIAS TARGET ES",
+    "AGY N3 ESP VOZ": "AGENCIAS TARGET ES",
+
+    # Agencias Chat: Niveles N1 y N3 se homologan a la exigencia de Chat Agencias
+    "AGY N1 ESP CHAT": "CHAT AGENCIAS ESP",
+    "AGY N3 ESP CHAT": "CHAT AGENCIAS ESP",
+
+    # Back Office Reclamos: Customer Service Colombia
+    "BO_CUS_COL": "BO RECLAMOS AMC",
+
+    # Dream Team: Presencia unificada en Genesys al macro-servicio
+    "DT FFP AMC": "DT FFP AMC (DREAM TEAM)",
+}
+
+# 2. Homologación de requerimiento SORE (Consolidación de streams multi-canal):
+HOMOLOGACION_FORECAST_A_OPERATIVO = {
+    # Dream Team: 4 streams (Voz, Chat, WhatsApp y Casos BO) gestionados por el mismo equipo multi-skill
+    "CHAT DT FFP AMC ESP": "DT FFP AMC (DREAM TEAM)",
+    "DREAM TEAM WP": "DT FFP AMC (DREAM TEAM)",
+    "DREAM TEAM CASOS": "DT FFP AMC (DREAM TEAM)",
+    "DT FFP AMC": "DT FFP AMC (DREAM TEAM)",
+
+    # Back Office LTrade: Tarea residual absorbida por la mesa de Agencias Target
+    "BO AG LTRADE": "BO AGENCIAS TARGET",
+}
+
+
+def obtener_servicios_raw_para_sore(servicio_sore: str) -> list[str]:
+    """Retorna la lista de nombres en segments que corresponden a un servicio de SORE homologado."""
+    raws = []
+    for raw, mapped in HOMOLOGACION_PRESENCIA_A_SORE.items():
+        if mapped == servicio_sore:
+            raws.append(raw)
+    if not raws:
+        raws.append(servicio_sore)
+    if servicio_sore not in raws and "DREAM TEAM" not in servicio_sore:
+        raws.append(servicio_sore)
+    return list(set(raws))
+
+
 
 def parsear_archivos_sore_crudos() -> pd.DataFrame:
     """Parsea los libros de Excel de SORE (Inbound y Back Office) a un DataFrame unificado."""
@@ -133,6 +177,20 @@ def parsear_archivos_sore_crudos() -> pd.DataFrame:
         wb.close()
 
     df_out = pd.DataFrame(records)
+    if not df_out.empty:
+        # Aplicar homologación operativa de streams de requerimiento
+        df_out["servicio"] = df_out["servicio"].map(lambda s: HOMOLOGACION_FORECAST_A_OPERATIVO.get(s, s))
+        df_out.loc[df_out["servicio"] == "DT FFP AMC (DREAM TEAM)", "tipo_mundo"] = "Multi-canal (Voz, Chat, BO)"
+
+        # Agrupar intervalos consolidados (por ejemplo los 4 componentes de Dream Team en cada fecha e intervalo)
+        df_out = df_out.groupby(["servicio", "tipo_mundo", "fecha", "intervalo"], as_index=False).agg({
+            "traffic_forecast": "sum",
+            "aht_forecast": "mean",
+            "asesores_req": "sum",
+            "minutos_req": "sum",
+            "meta_aht_plana": "mean",
+            "meta_ns": "mean"
+        })
     return df_out
 
 
@@ -176,7 +234,8 @@ def cargar_presencia_resumen_rango(fecha_desde: str, fecha_hasta: str, num_dias:
     Agrupa los minutos de presencia real de Genesys para un rango de fechas (o un solo día).
     Reconoce de forma inteligente los estados productivos según el tipo de servicio:
     - Inbound / Voz: Available y On Queue son productivos.
-    - Back Office: Casos Backoffice, Available y On Queue son productivos.
+    - Back Office y Dream Team: Casos Backoffice, Available y On Queue son productivos.
+    Aplica homologación operativa de servicios para alinear con SORE.
     """
     real_db_path = Path(__file__).parent / DB_PATH
     if not os.path.exists(real_db_path):
@@ -190,13 +249,13 @@ def cargar_presencia_resumen_rango(fecha_desde: str, fecha_hasta: str, num_dias:
             SUM(duracion_min) as min_total,
             SUM(CASE WHEN presence_label NOT IN ('Offline') THEN duracion_min ELSE 0 END) as min_conectado,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' THEN
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
                     CASE WHEN presence_label IN ('Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
                 ELSE
                     CASE WHEN presence_label IN ('Available', 'On Queue') THEN duracion_min ELSE 0 END
             END) as min_disponible,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' THEN
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
                     CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
                 ELSE
                     CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue') THEN duracion_min ELSE 0 END
@@ -209,6 +268,16 @@ def cargar_presencia_resumen_rango(fecha_desde: str, fecha_hasta: str, num_dias:
     conn.close()
 
     if not df_pres.empty:
+        # Homologar nombres de servicio de nómina a la nomenclatura oficial de dimensionamiento
+        df_pres["servicio"] = df_pres["servicio"].map(lambda s: HOMOLOGACION_PRESENCIA_A_SORE.get(s, s))
+        df_pres = df_pres.groupby("servicio", as_index=False).agg({
+            "asesores_conectados": "sum",
+            "min_total": "sum",
+            "min_conectado": "sum",
+            "min_disponible": "sum",
+            "min_pausas": "sum"
+        })
+
         df_pres["pct_auxiliares_real"] = df_pres.apply(
             lambda r: (r["min_pausas"] / r["min_conectado"] * 100.0) if r["min_conectado"] > 0 else 0.0, axis=1
         ).round(1)
@@ -236,30 +305,34 @@ def calcular_evolucion_diaria_servicio(
     if not os.path.exists(real_db_path):
         return pd.DataFrame()
 
+    raws = obtener_servicios_raw_para_sore(servicio_sel)
+    placeholders = ", ".join("?" for _ in raws)
+
     conn = sqlite3.connect(real_db_path)
-    query = """
+    query = f"""
         SELECT 
             fecha,
             COUNT(DISTINCT agente_id) as asesores_conectados,
             SUM(duracion_min) as min_total,
             SUM(CASE WHEN presence_label NOT IN ('Offline') THEN duracion_min ELSE 0 END) as min_conectado,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' THEN
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
                     CASE WHEN presence_label IN ('Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
                 ELSE
                     CASE WHEN presence_label IN ('Available', 'On Queue') THEN duracion_min ELSE 0 END
             END) as min_disponible,
             SUM(CASE 
-                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' THEN
+                WHEN UPPER(TRIM(servicio)) LIKE '%BO%' OR UPPER(TRIM(servicio)) LIKE '%BACKOFFICE%' OR UPPER(TRIM(servicio)) LIKE '%DT%' OR UPPER(TRIM(servicio)) LIKE '%DREAM%' THEN
                     CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue', 'Casos Backoffice') THEN duracion_min ELSE 0 END
                 ELSE
                     CASE WHEN presence_label NOT IN ('Offline', 'Available', 'On Queue') THEN duracion_min ELSE 0 END
             END) as min_pausas
         FROM segments
-        WHERE fecha >= ? AND fecha <= ? AND UPPER(TRIM(servicio)) = UPPER(TRIM(?))
+        WHERE fecha >= ? AND fecha <= ? AND UPPER(TRIM(servicio)) IN ({placeholders})
         GROUP BY fecha
     """
-    df_pres = pd.read_sql(query, conn, params=(fecha_desde, fecha_hasta, servicio_sel))
+    params = (fecha_desde, fecha_hasta, *[r.upper().strip() for r in raws])
+    df_pres = pd.read_sql(query, conn, params=params)
     conn.close()
 
     sub_f = df_fore_all[
@@ -299,13 +372,17 @@ def calcular_capacidad_intervalos_real(fecha_str: str, servicio_sel: str) -> pd.
     if not os.path.exists(real_db_path):
         return pd.DataFrame()
 
+    raws = obtener_servicios_raw_para_sore(servicio_sel)
+    placeholders = ", ".join("?" for _ in raws)
+
     conn = sqlite3.connect(real_db_path)
-    query = """
+    query = f"""
         SELECT agente, presence_label, system_presence, inicio, fin, duracion_min
         FROM segments
-        WHERE fecha = ? AND UPPER(TRIM(servicio)) = UPPER(TRIM(?))
+        WHERE fecha = ? AND UPPER(TRIM(servicio)) IN ({placeholders})
     """
-    df_seg = pd.read_sql(query, conn, params=(fecha_str, servicio_sel))
+    params = (fecha_str, *[r.upper().strip() for r in raws])
+    df_seg = pd.read_sql(query, conn, params=params)
     conn.close()
 
     if df_seg.empty:
@@ -316,7 +393,7 @@ def calcular_capacidad_intervalos_real(fecha_str: str, servicio_sel: str) -> pd.
         df_seg["dt_ini"] + pd.to_timedelta(df_seg["duracion_min"], unit="m")
     )
 
-    es_bo = ("BO" in servicio_sel.upper()) or ("BACKOFFICE" in servicio_sel.upper())
+    es_bo = ("BO" in servicio_sel.upper()) or ("BACKOFFICE" in servicio_sel.upper()) or ("DREAM" in servicio_sel.upper()) or ("DT" in servicio_sel.upper())
     estados_productivos = ["Available", "On Queue", "Casos Backoffice"] if es_bo else ["Available", "On Queue"]
 
     day_dt = pd.to_datetime(fecha_str)
@@ -608,11 +685,11 @@ def render_tab_capacidad(agentes_map: dict):
 
     # Aplicar filtro por mundo
     if filtro_mundo == "📞 Línea / Inbound Voz":
-        matriz = matriz[matriz["tipo_mundo"] == "Línea / Inbound Voz"]
+        matriz = matriz[matriz["tipo_mundo"].str.contains("Línea|Voz|Multi", case=False, na=False)]
     elif filtro_mundo == "💬 Canales Digitales":
-        matriz = matriz[matriz["tipo_mundo"] == "Canales Digitales"]
+        matriz = matriz[matriz["tipo_mundo"].str.contains("Digital|Multi", case=False, na=False)]
     elif filtro_mundo == "📂 Back Office":
-        matriz = matriz[matriz["tipo_mundo"] == "Back Office"]
+        matriz = matriz[matriz["tipo_mundo"].str.contains("Back|BO|Multi", case=False, na=False)]
 
     if matriz.empty:
         st.info("Sin registros para los filtros seleccionados.")
@@ -967,6 +1044,11 @@ def render_tab_capacidad(agentes_map: dict):
         texto_intro = f"Para el servicio <b>{srv_detalle}</b> el <b>{fecha_desde}</b>, la base del requerido del mes dimensionó una exigencia de <b>{d_mreq:,.0f} minutos hombre</b> ({d_req:.1f} FTEs)."
     else:
         texto_intro = f"Para el servicio <b>{srv_detalle}</b> en el periodo <b>del {fecha_desde} al {fecha_hasta}</b> ({num_dias} días evaluados), la base del requerido dimensionó una exigencia promedio de <b>{d_req:.1f} FTEs/día</b> ({d_mreq:,.0f} minutos hombre acumulados)."
+
+    if "DREAM TEAM" in srv_detalle.upper() or "DT FFP" in srv_detalle.upper():
+        st.info("ℹ️ **Operación Homologada Dream Team:** Se consolida la presencia del equipo multi-skill de Genesys con la exigencia unificada de Voz, Chat, WhatsApp y Casos Backoffice (con Casos Backoffice computado como estado productivo).")
+    elif "AGENCIAS" in srv_detalle.upper():
+        st.info("ℹ️ **Operación Homologada Agencias:** Se unifican los niveles operativos (N1 y N3) registrados en nómina contra la proyección de dimensionamiento.")
 
     st.markdown(
         f"""
