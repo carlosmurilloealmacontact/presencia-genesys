@@ -13,11 +13,13 @@ import pickle
 import sqlite3
 from datetime import datetime, date, timedelta
 from pathlib import Path
+import numpy as np
 import openpyxl
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from config import DB_PATH
+from live_engine import obtener_token_genesys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_FORECAST_IN = os.path.join(BASE_DIR, "../09. Intraday Forecast IN Septiembre - Latam.xlsx")
@@ -455,10 +457,61 @@ def diagnosticar_causa_raiz(gap_personas: float, aux_real: float, aux_meta: floa
     return "🔴 " + " • ".join(causas)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def obtener_metricas_servicio_intradia(fecha_sel: str, srv_detalle: str) -> pd.DataFrame:
+    """
+    Obtiene las métricas de GTR de Genesys Cloud (Tráfico real recibido, AHT real, NS real %)
+    por cada intervalo de 30 min para un servicio específico.
+    """
+    token = obtener_token_genesys()
+    if not token:
+        return pd.DataFrame()
+    try:
+        from gtr_engine import obtener_metricas_gtr_api
+        df_metrics, err, _ = obtener_metricas_gtr_api(token, fecha_desde=fecha_sel, fecha_hasta=fecha_sel)
+        if df_metrics.empty:
+            return pd.DataFrame()
+
+        srv_u = srv_detalle.upper()
+        if "DREAM TEAM" in srv_u or "DT FFP" in srv_u:
+            sub = df_metrics[df_metrics["servicio"].isin(["DT FFP AMC", "CHAT DT FFP AMC ESP", "DREAM TEAM WP"])]
+        elif "AGENCIAS" in srv_u and "CHAT" not in srv_u:
+            sub = df_metrics[df_metrics["servicio"].str.contains("Agencias|AGY", case=False, na=False) & (df_metrics["canal"] == "VOZ")]
+        elif "AGENCIAS" in srv_u and "CHAT" in srv_u:
+            sub = df_metrics[df_metrics["servicio"].str.contains("Agencias|AGY", case=False, na=False) & (df_metrics["canal"] == "CHAT")]
+        else:
+            sub = df_metrics[df_metrics["servicio"].str.upper() == srv_u]
+
+        if sub.empty:
+            return pd.DataFrame()
+
+        agg = sub.groupby("intervalo").agg({
+            "nOffered": "sum",
+            "tAnswered_count": "sum",
+            "tHandle_sum": "sum",
+            "tHandle_count": "sum",
+            "sl_numerator": "sum",
+            "sl_denominator": "sum"
+        }).reset_index()
+
+        agg["trafico_real"] = agg["nOffered"]
+        agg["aht_real_seg"] = agg.apply(
+            lambda r: int(round((r["tHandle_sum"] / r["tHandle_count"]) / 1000.0)) if r["tHandle_count"] > 0 else np.nan,
+            axis=1
+        )
+        agg["ns_real"] = agg.apply(
+            lambda r: round((r["sl_numerator"] / r["sl_denominator"] * 100.0), 1) if r["sl_denominator"] > 0 else np.nan,
+            axis=1
+        )
+        return agg[["intervalo", "trafico_real", "aht_real_seg", "ns_real"]]
+    except Exception:
+        return pd.DataFrame()
+
+
 def _render_curva_y_tabla_intradia(fecha_sel: str, srv_detalle: str, df_fore_all: pd.DataFrame):
     """
     Renderiza la gráfica de 48 intervalos de 30 min y la tabla detallada
-    para una fecha y servicio específicos.
+    con FTEs, Demanda/Tráfico real vs plan, AHT real vs meta, NS 80/20 y Capacidad Neta.
     """
     df_fore_dia = df_fore_all[df_fore_all["fecha"] == fecha_sel].copy()
     sub_f_int = df_fore_dia[df_fore_dia["servicio"] == srv_detalle].copy()
@@ -478,6 +531,15 @@ def _render_curva_y_tabla_intradia(fecha_sel: str, srv_detalle: str, df_fore_all
         ])
 
     merged_int = pd.merge(sub_f_int, sub_r_int, on="intervalo", how="left").fillna(0.0)
+
+    # Cruzar con métricas GTR en vivo / históricas
+    df_gtr_int = obtener_metricas_servicio_intradia(fecha_sel, srv_detalle)
+    if not df_gtr_int.empty:
+        merged_int = pd.merge(merged_int, df_gtr_int, on="intervalo", how="left")
+    else:
+        merged_int["trafico_real"] = np.nan
+        merged_int["aht_real_seg"] = np.nan
+        merged_int["ns_real"] = np.nan
 
     fig_int = go.Figure()
     fig_int.add_trace(go.Scatter(
@@ -513,41 +575,118 @@ def _render_curva_y_tabla_intradia(fecha_sel: str, srv_detalle: str, df_fore_all
     st.plotly_chart(fig_int, use_container_width=True)
 
     with st.expander(f"📋 Ver Tabla Detallada Intervalo a Intervalo ({srv_detalle} - {fecha_sel})", expanded=False):
-        df_mostrar_int = merged_int[[
-            "intervalo", "traffic_forecast", "asesores_req", "fte_conectado", "fte_disponible",
-            "minutos_req", "min_conectado", "min_pausas", "min_disponible"
-        ]].copy()
+        c_tog, _ = st.columns([3, 2])
+        with c_tog:
+            mostrar_minutos = st.checkbox(
+                "🔍 Ver columnas de minutos brutos (Min. Requeridos, Min. Pausas, Min. Disponibles)",
+                value=False,
+                key=f"cap_toggle_min_{srv_detalle}_{fecha_sel}"
+            )
 
-        df_mostrar_int["% Capacidad"] = df_mostrar_int.apply(
-            lambda r: (r["min_disponible"] / r["minutos_req"] * 100.0) if r["minutos_req"] > 0 else 100.0, axis=1
+        df_calc = merged_int.copy()
+        df_calc["Brecha FTE"] = (df_calc["fte_conectado"] - df_calc["asesores_req"]).round(2)
+        df_calc["% Desv Tráfico"] = df_calc.apply(
+            lambda r: round(((r["trafico_real"] - r["traffic_forecast"]) / r["traffic_forecast"] * 100.0), 1)
+            if pd.notna(r.get("trafico_real")) and r["traffic_forecast"] > 0 else np.nan,
+            axis=1
+        )
+        meta_plana_val = int(round(sub_f_int["meta_aht_plana"].iloc[0])) if not sub_f_int.empty and "meta_aht_plana" in sub_f_int.columns else 800
+        df_calc["AHT Plan"] = meta_plana_val
+        df_calc["% Capacidad"] = df_calc.apply(
+            lambda r: (r["min_disponible"] / r["minutos_req"] * 100.0) if r["minutos_req"] > 0 else 100.0,
+            axis=1
         ).round(1)
 
-        st.dataframe(
-            df_mostrar_int.rename(columns={
-                "intervalo": "Intervalo",
-                "traffic_forecast": "Tráfico Plan",
-                "asesores_req": "FTE Requerido",
-                "fte_conectado": "FTE Conectado",
-                "fte_disponible": "FTE Disponible",
-                "minutos_req": "Min. Requeridos",
-                "min_conectado": "Min. Conectados",
-                "min_pausas": "Min. Pausas",
-                "min_disponible": "Min. Disponibles",
-            }),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Intervalo": st.column_config.TextColumn(width="small"),
-                "Tráfico Plan": st.column_config.NumberColumn(format="%.1f"),
-                "FTE Requerido": st.column_config.NumberColumn(format="%.2f"),
-                "FTE Conectado": st.column_config.NumberColumn(format="%.2f"),
-                "FTE Disponible": st.column_config.NumberColumn(format="%.2f"),
+        cols_base = [
+            "intervalo", "asesores_req", "fte_conectado", "fte_disponible", "Brecha FTE",
+            "traffic_forecast", "trafico_real", "% Desv Tráfico",
+            "AHT Plan", "aht_real_seg", "ns_real", "% Capacidad"
+        ]
+        if mostrar_minutos:
+            cols_base.extend(["minutos_req", "min_conectado", "min_pausas", "min_disponible"])
+
+        df_mostrar_int = df_calc[cols_base].rename(columns={
+            "intervalo": "Intervalo",
+            "asesores_req": "FTE Req",
+            "fte_conectado": "FTE Con",
+            "fte_disponible": "FTE Disp",
+            "traffic_forecast": "Tráfico Plan",
+            "trafico_real": "Tráfico Real",
+            "aht_real_seg": "AHT Real (s)",
+            "ns_real": "% NS",
+            "minutos_req": "Min. Requeridos",
+            "min_conectado": "Min. Conectados",
+            "min_pausas": "Min. Pausas",
+            "min_disponible": "Min. Disponibles",
+        })
+
+        # Estilos condicionales ejecutivos
+        def c_ns(val):
+            if pd.isna(val): return ""
+            if val >= 80.0: return "background-color: rgba(16, 185, 129, 0.20); color: #10b981; font-weight: 700;"
+            elif val >= 70.0: return "background-color: rgba(245, 158, 11, 0.20); color: #f59e0b; font-weight: 700;"
+            return "background-color: rgba(239, 68, 68, 0.20); color: #ef4444; font-weight: 700;"
+
+        def c_desv(val):
+            if pd.isna(val): return ""
+            if val <= 5.0: return "background-color: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 600;"
+            elif val <= 15.0: return "background-color: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 600;"
+            return "background-color: rgba(239, 68, 68, 0.20); color: #ef4444; font-weight: 700;"
+
+        def c_gap(val):
+            if pd.isna(val): return ""
+            if val >= 0: return "background-color: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700;"
+            elif val >= -1.0: return "background-color: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 700;"
+            return "background-color: rgba(239, 68, 68, 0.20); color: #ef4444; font-weight: 700;"
+
+        def c_cap(val):
+            if pd.isna(val): return ""
+            if val >= 95.0: return "background-color: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700;"
+            elif val >= 85.0: return "background-color: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 700;"
+            return "background-color: rgba(239, 68, 68, 0.20); color: #ef4444; font-weight: 700;"
+
+        def c_aht(val):
+            if pd.isna(val) or val == 0: return ""
+            if val <= meta_plana_val: return "background-color: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 600;"
+            elif val <= meta_plana_val * 1.10: return "background-color: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 600;"
+            return "background-color: rgba(239, 68, 68, 0.20); color: #ef4444; font-weight: 700;"
+
+        styler_int = (
+            df_mostrar_int.style
+            .map(c_ns, subset=["% NS"])
+            .map(c_desv, subset=["% Desv Tráfico"])
+            .map(c_gap, subset=["Brecha FTE"])
+            .map(c_cap, subset=["% Capacidad"])
+            .map(c_aht, subset=["AHT Real (s)"])
+        )
+
+        col_configs = {
+            "Intervalo": st.column_config.TextColumn(width="small"),
+            "FTE Req": st.column_config.NumberColumn("FTE Req", format="%.2f"),
+            "FTE Con": st.column_config.NumberColumn("FTE Con", format="%.2f"),
+            "FTE Disp": st.column_config.NumberColumn("FTE Disp", format="%.2f"),
+            "Brecha FTE": st.column_config.NumberColumn("Brecha FTE", format="%+.2f"),
+            "Tráfico Plan": st.column_config.NumberColumn("Tráfico Plan", format="%.1f"),
+            "Tráfico Real": st.column_config.NumberColumn("Tráfico Real", format="%.0f"),
+            "% Desv Tráfico": st.column_config.NumberColumn("% Desv Tráfico", format="%+.1f%%"),
+            "AHT Plan": st.column_config.NumberColumn("AHT Plan", format="%d s"),
+            "AHT Real (s)": st.column_config.NumberColumn("AHT Real", format="%.0f s"),
+            "% NS": st.column_config.NumberColumn("% NS", format="%.1f%%"),
+            "% Capacidad": st.column_config.NumberColumn("% Capacidad", format="%.1f%%"),
+        }
+        if mostrar_minutos:
+            col_configs.update({
                 "Min. Requeridos": st.column_config.NumberColumn(format="%.1f m"),
                 "Min. Conectados": st.column_config.NumberColumn(format="%.1f m"),
                 "Min. Pausas": st.column_config.NumberColumn(format="%.1f m"),
                 "Min. Disponibles": st.column_config.NumberColumn(format="%.1f m"),
-                "% Capacidad": st.column_config.NumberColumn(format="%.1f%%"),
-            }
+            })
+
+        st.dataframe(
+            styler_int,
+            use_container_width=True,
+            hide_index=True,
+            column_config=col_configs
         )
 
 

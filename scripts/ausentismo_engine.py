@@ -27,6 +27,30 @@ from live_engine import obtener_token_genesys, obtener_presencia_en_vivo, cargar
 from audit_engine import _obtener_db_url, registrar_evento
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SEDES_JSON_PATH = os.path.join(BASE_DIR, "../data/agentes_sede.json")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cargar_mapa_sedes() -> dict:
+    """Carga el mapa BP -> Sede (Bogotá / Medellín) cacheado."""
+    if os.path.exists(SEDES_JSON_PATH):
+        try:
+            with open(SEDES_JSON_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def estilo_ausentismo_meta(val):
+    """Estilo condicional: resalta en rojo todo ausentismo superior a la meta oficial del 8%."""
+    if pd.isna(val):
+        return ""
+    if val <= 8.0:
+        return "background-color: rgba(16, 185, 129, 0.20); color: #10b981; font-weight: 700;"
+    elif val <= 10.0:
+        return "background-color: rgba(245, 158, 11, 0.20); color: #f59e0b; font-weight: 700;"
+    return "background-color: rgba(239, 68, 68, 0.25); color: #ef4444; font-weight: 700;"
 
 
 def numero_agente(agente_nombre: str) -> str:
@@ -324,6 +348,7 @@ def construir_radar_ausentismo(
         return pd.DataFrame()
 
     socio_map = cargar_sociodemografico_db()
+    sede_map = cargar_mapa_sedes()
 
     df_just = cargar_justificaciones_db(fecha_str)
     just_map = {}
@@ -514,11 +539,14 @@ def construir_radar_ausentismo(
             justificacion_val = tipo_just or "Sin Justificar"
             es_justificado_str = "Sí" if (tipo_just and es_justificado) else ("No" if (tipo_just and not es_justificado) else "Pendiente")
 
+        sede_val = sede_map.get(bp, "Medellín")
+
         filas.append({
             "Semaforo": semaforo,
             "Estado": estado_asistencia,
             "BP": bp,
             "Agente": agente_nom,
+            "Sede": sede_val,
             "Supervisor": sup,
             "Coordinador": coord,
             "Servicio": srv,
@@ -630,12 +658,20 @@ def render_tab_ausentismo(agentes_map: dict):
             return
 
         # Filtros dinámicos
-        c_f2, c_f3, c_f4, c_f5 = st.columns([1.3, 1.3, 1.2, 1.0])
+        c_f2, c_f_sede, c_f3, c_f4, c_f5 = st.columns([1.2, 1.0, 1.2, 1.1, 0.9])
         with c_f2:
             coords = sorted(df_radar["Coordinador"].dropna().unique())
             coord_sel = st.multiselect("Filtrar Coordinador:", options=coords, default=[], key="aus_coord_sel")
+        with c_f_sede:
+            sedes_disp = sorted(df_radar["Sede"].dropna().unique())
+            sede_sel = st.multiselect("Ciudad / Sede:", options=sedes_disp, default=[], key="aus_sede_sel")
         with c_f3:
-            sups_disp = df_radar["Supervisor"].dropna().unique() if not coord_sel else df_radar[df_radar["Coordinador"].isin(coord_sel)]["Supervisor"].dropna().unique()
+            df_sup_filter = df_radar
+            if coord_sel:
+                df_sup_filter = df_sup_filter[df_sup_filter["Coordinador"].isin(coord_sel)]
+            if sede_sel:
+                df_sup_filter = df_sup_filter[df_sup_filter["Sede"].isin(sede_sel)]
+            sups_disp = df_sup_filter["Supervisor"].dropna().unique()
             sup_sel = st.multiselect("Filtrar Supervisor:", options=sorted(sups_disp), default=[], key="aus_sup_sel")
         with c_f4:
             servicios_disp = df_radar["Servicio"].dropna().unique()
@@ -647,6 +683,8 @@ def render_tab_ausentismo(agentes_map: dict):
         df_view = df_radar.copy()
         if excluir_cargo:
             df_view = df_view[~df_view["Es Cargo"]]
+        if sede_sel:
+            df_view = df_view[df_view["Sede"].isin(sede_sel)]
         if coord_sel:
             df_view = df_view[df_view["Coordinador"].isin(coord_sel)]
         if sup_sel:
@@ -723,7 +761,7 @@ def render_tab_ausentismo(agentes_map: dict):
                 df_radar_show = df_view
 
             cols_tabla_radar = [
-                "Semaforo", "Estado", "BP", "Agente", "Supervisor", "Servicio",
+                "Semaforo", "Estado", "BP", "Agente", "Sede", "Supervisor", "Servicio",
                 "Hora Inicio", "Min Retraso", "Estado Genesys", "Justificación", "Es Justificado", "Observación"
             ]
 
@@ -736,6 +774,7 @@ def render_tab_ausentismo(agentes_map: dict):
                     "Estado": st.column_config.TextColumn("Estado Entrada", width="medium"),
                     "BP": st.column_config.TextColumn("BP", width="small"),
                     "Agente": st.column_config.TextColumn("Nombre Asesor", width="large"),
+                    "Sede": st.column_config.TextColumn("Sede", width="small"),
                     "Supervisor": st.column_config.TextColumn("Supervisor", width="medium"),
                     "Hora Inicio": st.column_config.TextColumn("Turno Inicio", width="small"),
                     "Min Retraso": st.column_config.NumberColumn("Retraso (min)", format="%d m"),
@@ -824,9 +863,12 @@ def render_tab_ausentismo(agentes_map: dict):
         # ─────────────────────────────────────────────────────────────────────────
         # SUBPESTAÑA 3: IMPACTO Y DIAGNÓSTICO POR SUPERVISOR
         # ─────────────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────────
+        # SUBPESTAÑA 3: IMPACTO Y DIAGNÓSTICO POR SUPERVISOR, SEDE Y SERVICIO
+        # ─────────────────────────────────────────────────────────────────────────
         with tab_analisis:
             st.markdown("#### 📊 Diagnóstico de Ausentismo e Impacto en Capacidad")
-            st.caption("Permite a la gerencia identificar qué equipos y servicios están afectando más la capacidad operativa.")
+            st.caption("Identifica qué sedes, servicios y supervisores superan la meta corporativa del **8.0%** de ausentismo.")
 
             c_g1, c_g2 = st.columns(2)
 
@@ -872,9 +914,57 @@ def render_tab_ausentismo(agentes_map: dict):
                 fig_mot.update_layout(height=380, margin=dict(l=20, r=20, t=40, b=20))
                 st.plotly_chart(fig_mot, use_container_width=True)
 
-            st.markdown("##### 📑 Matriz Detallada por Supervisor:")
+            # ── DESGLOSE POR SEDE Y POR SERVICIO ─────────────────────────────
+            c_sede_diag, c_srv_diag = st.columns(2)
+
+            resumen_sede = evaluables_sup.groupby("Sede").agg(
+                Programados=("BP", "count"),
+                Conectados=("Esta Conectado", "sum"),
+                Ausentes=("Es Ausente", "sum"),
+                Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
+            ).reset_index()
+            resumen_sede["% Ausentismo"] = (resumen_sede["Ausentes"] / resumen_sede["Programados"] * 100.0).round(1)
+            resumen_sede = resumen_sede.sort_values(by="Ausentes", ascending=False)
+
+            resumen_srv = evaluables_sup.groupby("Servicio").agg(
+                Programados=("BP", "count"),
+                Conectados=("Esta Conectado", "sum"),
+                Ausentes=("Es Ausente", "sum"),
+                Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
+            ).reset_index()
+            resumen_srv["% Ausentismo"] = (resumen_srv["Ausentes"] / resumen_srv["Programados"] * 100.0).round(1)
+            resumen_srv = resumen_srv.sort_values(by=["Ausentes", "% Ausentismo"], ascending=[False, False])
+
+            with c_sede_diag:
+                st.markdown("##### 🏢 Ausentismo por Ciudad / Sede:")
+                styler_sede = resumen_sede.style.map(estilo_ausentismo_meta, subset=["% Ausentismo"])
+                st.dataframe(
+                    styler_sede,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "% Ausentismo": st.column_config.NumberColumn("% Ausentismo", format="%.1f%%"),
+                        "Horas_Perdidas": st.column_config.NumberColumn("Horas Perdidas", format="%.1f h")
+                    }
+                )
+
+            with c_srv_diag:
+                st.markdown("##### 🎧 Top Servicios con Mayor Ausentismo:")
+                styler_srv = resumen_srv.head(10).style.map(estilo_ausentismo_meta, subset=["% Ausentismo"])
+                st.dataframe(
+                    styler_srv,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "% Ausentismo": st.column_config.NumberColumn("% Ausentismo", format="%.1f%%"),
+                        "Horas_Perdidas": st.column_config.NumberColumn("Horas Perdidas", format="%.1f h")
+                    }
+                )
+
+            st.markdown("##### 📑 Matriz Detallada por Supervisor (Meta corporativa: 8.0%):")
+            styler_sup = resumen_sup.style.map(estilo_ausentismo_meta, subset=["% Ausentismo"])
             st.dataframe(
-                resumen_sup,
+                styler_sup,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -884,27 +974,54 @@ def render_tab_ausentismo(agentes_map: dict):
             )
 
         # ─────────────────────────────────────────────────────────────────────────
-        # SUBPESTAÑA 4: EXPORTACIÓN OFICIAL A EXCEL
+        # SUBPESTAÑA 4: EXPORTACIÓN OFICIAL Y ENCUADRE GTR
         # ─────────────────────────────────────────────────────────────────────────
         with tab_export:
-            st.markdown("#### 📥 Exportar Reporte Consolidado de Ausentismo")
+            st.markdown("#### 📋 Encuadre GTR & Exportación Oficial a Excel")
             st.markdown(
                 """
-                Descarga un libro Excel listo para enviar a Operaciones, WFM y Gerencia, 
-                con el desglose individual por asesor, causales registradas y resumen consolidado por supervisor.
+                Estructura consolidada por **Servicio** y **Sede** lista para cuadrar capacidad con GTR y WFM.
+                Incluye desglose individual por asesor, causales registradas y resumen ejecutivo.
                 """
+            )
+
+            # Construir tabla de encuadre GTR: Servicio x Sede
+            df_encuadre = evaluables_sup.groupby(["Servicio", "Sede"]).agg(
+                Programados=("BP", "count"),
+                Conectados=("Esta Conectado", "sum"),
+                Ausentes=("Es Ausente", "sum"),
+                Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
+            ).reset_index()
+            df_encuadre["% Ausentismo"] = (df_encuadre["Ausentes"] / df_encuadre["Programados"] * 100.0).round(1)
+            df_encuadre["Capacidad Efectiva %"] = (100.0 - df_encuadre["% Ausentismo"]).round(1)
+            df_encuadre = df_encuadre.sort_values(by=["Servicio", "Sede"])
+
+            st.markdown("##### 📌 Matriz de Encuadre Operativo (Servicio • Sede):")
+            styler_encuadre = df_encuadre.style.map(estilo_ausentismo_meta, subset=["% Ausentismo"])
+            st.dataframe(
+                styler_encuadre,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "% Ausentismo": st.column_config.NumberColumn("% Ausentismo", format="%.1f%%"),
+                    "Capacidad Efectiva %": st.column_config.NumberColumn("% Efectiva", format="%.1f%%"),
+                    "Horas_Perdidas": st.column_config.NumberColumn("Horas Perdidas", format="%.1f h")
+                }
             )
 
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df_view.to_excel(writer, sheet_name="Detalle Ausentismo", index=False)
+                df_encuadre.to_excel(writer, sheet_name="Encuadre GTR", index=False)
+                resumen_sede.to_excel(writer, sheet_name="Resumen Sedes", index=False)
+                resumen_srv.to_excel(writer, sheet_name="Resumen Servicios", index=False)
                 resumen_sup.to_excel(writer, sheet_name="Resumen Supervisores", index=False)
+                df_view.to_excel(writer, sheet_name="Detalle Asesores", index=False)
 
             excel_data = output.getvalue()
-            file_name = f"Reporte_Ausentismo_Genesys_{fecha_str}.xlsx"
+            file_name = f"Reporte_Ausentismo_Encuadre_GTR_{fecha_str}.xlsx"
 
             st.download_button(
-                label="📊 Descargar Reporte de Ausentismo (Excel)",
+                label="📊 Descargar Libro Completo de Encuadre GTR (Excel)",
                 data=excel_data,
                 file_name=file_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
