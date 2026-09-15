@@ -57,104 +57,136 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
     # SUBMÓDULO 1: COMMAND CENTER (CHATS EN VIVO)
     # ---------------------------------------------------------------------
     if sub_activo == "⚡ Command Center (Chats en Vivo)":
-        df_queues, df_agents, latest_ts = sle.get_latest_live_state()
-        st.caption(f"🟢 **Command Center en Vivo:** Sincronizado a las **{latest_ts}** con Salesforce Omni-Channel • ⏱️ Próximo ciclo en 30s")
+        col_cc_title, col_cc_ref, col_cc_btn = st.columns([2.2, 1.4, 1.2])
+        with col_cc_title:
+            st.markdown("#### ⚡ Monitoreo de Chats y Colas en Vivo")
+            st.caption("Omni-Channel / Salesforce Service Cloud — Operación AMC B2B")
 
-        alerts = sle.detect_live_anomalies(df_queues, df_agents)
-        if alerts:
-            for al in alerts[:2]:
-                if al["type"] == "critical":
-                    st.error(f"🚨 **{al['title']}**: {al['message']}")
+        with col_cc_ref:
+            opciones_refresh = ["Cada 30 seg", "Cada 1 min", "Cada 2 min", "Desactivado (Manual)"]
+            refresco_sel = st.selectbox(
+                "Auto-Actualización:",
+                options=opciones_refresh,
+                index=0,
+                key="sf_b2b_live_refresh",
+                help="Recarga automáticamente los chats, colas y asesores en tiempo real."
+            )
+
+        with col_cc_btn:
+            st.write("")
+            btn_forzar = st.button("🔄 Actualizar Ahora", key="btn_refrescar_sf_live", type="primary", use_container_width=True)
+
+        refresh_sec = None
+        if refresco_sel != "Desactivado (Manual)":
+            if "30 seg" in refresco_sel:
+                refresh_sec = 30
+            elif "1 min" in refresco_sel:
+                refresh_sec = 60
+            elif "2 min" in refresco_sel:
+                refresh_sec = 120
+
+        @st.fragment(run_every=refresh_sec)
+        def render_live_command_center(force_update: bool = False):
+            df_queues, df_agents, latest_ts = sle.get_latest_live_state(force_fresh=force_update)
+            st.caption(f"🟢 **Estado en Vivo:** Sincronizado a las **{latest_ts}** con Omni-Channel • ⏱️ Modo: **{refresco_sel}**")
+
+            alerts = sle.detect_live_anomalies(df_queues, df_agents)
+            if alerts:
+                for al in alerts[:2]:
+                    if al["type"] == "critical":
+                        st.error(f"🚨 **{al['title']}**: {al['message']}")
+                    else:
+                        st.warning(f"⚠️ **{al['title']}**: {al['message']}")
+
+            total_waiting = int(df_queues["chats_in_queue"].sum()) if not df_queues.empty else 0
+            max_wait = round(int(df_queues["longest_wait_sec"].max()) / 60, 1) if not df_queues.empty else 0
+            total_active_chats = int(df_agents["active_chats"].sum()) if not df_agents.empty else 0
+            avail = len(df_agents[df_agents["status"] == "Available"])
+            busy = len(df_agents[df_agents["status"] == "Busy"])
+            in_break = len(df_agents[df_agents["status"] == "Break"])
+
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.metric("Chats en Espera AMC", total_waiting, delta="Colas: Agencias & Corp")
+            with k2:
+                st.metric("Mayor Espera en Cola", f"{max_wait} min", delta="Tiempo acumulado", delta_color="inverse" if max_wait > 5 else "normal")
+            with k3:
+                st.metric("Chats en Curso", total_active_chats, delta="Atención simultánea")
+            with k4:
+                st.metric("Dotación Chat", len(df_agents), delta=f"🟢 {avail} | 🟡 {busy} | 🔴 {in_break}", delta_color="off")
+
+            st.write("")
+            c_q, c_a = st.columns([1, 1.5])
+            with c_q:
+                st.markdown("##### 📊 Colas AMC en Espera")
+                fig_q = px.bar(
+                    df_queues,
+                    x="chats_in_queue",
+                    y="queue_name",
+                    orientation="h",
+                    text="chats_in_queue",
+                    color="chats_in_queue",
+                    color_continuous_scale="Reds",
+                    labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola"}
+                )
+                fig_q.update_traces(textposition="outside")
+                fig_q.update_layout(template="plotly_dark", height=300, margin=dict(l=10, r=10, t=20, b=10), showlegend=False)
+                st.plotly_chart(fig_q, use_container_width=True)
+
+            with c_a:
+                st.markdown("##### 👥 Asesores en Línea (Con Supervisor y Nivel)")
+                df_disp = df_agents.copy()
+
+                def enrich_live_row(name):
+                    info = mse.get_asesor_info(name)
+                    return pd.Series([
+                        info.get("nombre_completo", name),
+                        info.get("nivel", "N/A"),
+                        info.get("servicio", "AMC"),
+                        info.get("supervisor", "Sin Supervisor")
+                    ])
+
+                if df_disp.empty:
+                    df_disp["Nombre Real"] = []
+                    df_disp["Nivel"] = []
+                    df_disp["Campaña"] = []
+                    df_disp["Supervisor"] = []
+                    df_disp["Simultaneidad"] = []
+                    df_disp["Tiempo"] = []
                 else:
-                    st.warning(f"⚠️ **{al['title']}**: {al['message']}")
+                    enriched = df_disp["agent_name"].apply(enrich_live_row)
+                    df_disp[["Nombre Real", "Nivel", "Campaña", "Supervisor"]] = enriched
+                    df_disp["Simultaneidad"] = df_disp["active_chats"].astype(str) + " de 3 (" + df_disp["capacity_pct"].astype(str) + "%)"
+                    df_disp["Tiempo"] = (df_disp["time_in_status_sec"] // 60).astype(str) + " min"
 
-        total_waiting = int(df_queues["chats_in_queue"].sum()) if not df_queues.empty else 0
-        max_wait = round(int(df_queues["longest_wait_sec"].max()) / 60, 1) if not df_queues.empty else 0
-        total_active_chats = int(df_agents["active_chats"].sum()) if not df_agents.empty else 0
-        avail = len(df_agents[df_agents["status"] == "Available"])
-        busy = len(df_agents[df_agents["status"] == "Busy"])
-        in_break = len(df_agents[df_agents["status"] == "Break"])
+                fl_c1, fl_c2, fl_c3 = st.columns([1.5, 1.2, 1.2])
+                with fl_c1:
+                    supervisores_en_vivo = ["Todos los Supervisores"] + sorted([s for s in df_disp["Supervisor"].unique() if s != "Sin Supervisor"])
+                    sel_sup_live = st.selectbox("Supervisor:", supervisores_en_vivo, key="live_b2b_sup_filter")
+                with fl_c2:
+                    niveles_en_vivo = ["Todos", "N1", "N2", "N3"]
+                    sel_niv_live = st.selectbox("Nivel:", niveles_en_vivo, key="live_b2b_niv_filter")
+                with fl_c3:
+                    estados_en_vivo = ["Todos", "Available", "Busy", "Break"]
+                    sel_est_live = st.selectbox("Estado:", estados_en_vivo, key="live_b2b_est_filter")
 
-        k1, k2, k3, k4 = st.columns(4)
-        with k1:
-            st.metric("Chats en Espera AMC", total_waiting, delta="Colas: Agencias & Corp")
-        with k2:
-            st.metric("Mayor Espera en Cola", f"{max_wait} min", delta="Tiempo acumulado", delta_color="inverse" if max_wait > 5 else "normal")
-        with k3:
-            st.metric("Chats en Curso", total_active_chats, delta="Atención simultánea")
-        with k4:
-            st.metric("Dotación Chat", len(df_agents), delta=f"🟢 {avail} | 🟡 {busy} | 🔴 {in_break}", delta_color="off")
+                if sel_sup_live != "Todos los Supervisores":
+                    df_disp = df_disp[df_disp["Supervisor"] == sel_sup_live]
+                if sel_niv_live != "Todos":
+                    df_disp = df_disp[df_disp["Nivel"].str.contains(sel_niv_live, na=False)]
+                if sel_est_live != "Todos":
+                    df_disp = df_disp[df_disp["status"] == sel_est_live]
 
-        st.write("")
-        c_q, c_a = st.columns([1, 1.5])
-        with c_q:
-            st.markdown("##### 📊 Colas AMC en Espera")
-            fig_q = px.bar(
-                df_queues,
-                x="chats_in_queue",
-                y="queue_name",
-                orientation="h",
-                text="chats_in_queue",
-                color="chats_in_queue",
-                color_continuous_scale="Reds",
-                labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola"}
-            )
-            fig_q.update_traces(textposition="outside")
-            fig_q.update_layout(template="plotly_dark", height=300, margin=dict(l=10, r=10, t=20, b=10), showlegend=False)
-            st.plotly_chart(fig_q, use_container_width=True)
+                st.dataframe(
+                    df_disp[["Nombre Real", "Nivel", "Supervisor", "status", "Simultaneidad", "Tiempo"]].rename(columns={
+                        "status": "Estado Chat",
+                        "Tiempo": "En Estado"
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-        with c_a:
-            st.markdown("##### 👥 Asesores en Línea (Con Supervisor y Nivel)")
-            df_disp = df_agents.copy()
-
-            def enrich_live_row(name):
-                info = mse.get_asesor_info(name)
-                return pd.Series([
-                    info.get("nombre_completo", name),
-                    info.get("nivel", "N/A"),
-                    info.get("servicio", "AMC"),
-                    info.get("supervisor", "Sin Supervisor")
-                ])
-
-            if df_disp.empty:
-                df_disp["Nombre Real"] = []
-                df_disp["Nivel"] = []
-                df_disp["Campaña"] = []
-                df_disp["Supervisor"] = []
-                df_disp["Simultaneidad"] = []
-                df_disp["Tiempo"] = []
-            else:
-                enriched = df_disp["agent_name"].apply(enrich_live_row)
-                df_disp[["Nombre Real", "Nivel", "Campaña", "Supervisor"]] = enriched
-                df_disp["Simultaneidad"] = df_disp["active_chats"].astype(str) + " de 3 (" + df_disp["capacity_pct"].astype(str) + "%)"
-                df_disp["Tiempo"] = (df_disp["time_in_status_sec"] // 60).astype(str) + " min"
-
-            fl_c1, fl_c2, fl_c3 = st.columns([1.5, 1.2, 1.2])
-            with fl_c1:
-                supervisores_en_vivo = ["Todos los Supervisores"] + sorted([s for s in df_disp["Supervisor"].unique() if s != "Sin Supervisor"])
-                sel_sup_live = st.selectbox("Supervisor:", supervisores_en_vivo, key="live_b2b_sup_filter")
-            with fl_c2:
-                niveles_en_vivo = ["Todos", "N1", "N2", "N3"]
-                sel_niv_live = st.selectbox("Nivel:", niveles_en_vivo, key="live_b2b_niv_filter")
-            with fl_c3:
-                estados_en_vivo = ["Todos", "Available", "Busy", "Break"]
-                sel_est_live = st.selectbox("Estado:", estados_en_vivo, key="live_b2b_est_filter")
-
-            if sel_sup_live != "Todos los Supervisores":
-                df_disp = df_disp[df_disp["Supervisor"] == sel_sup_live]
-            if sel_niv_live != "Todos":
-                df_disp = df_disp[df_disp["Nivel"].str.contains(sel_niv_live, na=False)]
-            if sel_est_live != "Todos":
-                df_disp = df_disp[df_disp["status"] == sel_est_live]
-
-            st.dataframe(
-                df_disp[["Nombre Real", "Nivel", "Supervisor", "status", "Simultaneidad", "Tiempo"]].rename(columns={
-                    "status": "Estado Chat",
-                    "Tiempo": "En Estado"
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
+        render_live_command_center(force_update=btn_forzar)
 
     # ---------------------------------------------------------------------
     # SUBMÓDULO 2: NIVELES DE SERVICIO B2B MULTICANAL

@@ -168,7 +168,7 @@ def generate_simulated_live_tick():
     return queues_data, agents_data
 
 
-def get_latest_live_state():
+def get_latest_live_state(force_fresh: bool = False):
     """Obtiene el ultimo estado registrado de colas y agentes."""
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
@@ -178,14 +178,14 @@ def get_latest_live_state():
     cur.execute("SELECT COUNT(*) FROM live_chat_queues")
     count = cur.fetchone()[0]
 
-    if count == 0:
+    if count == 0 or force_fresh:
         conn.close()
-        # Generar primer snapshot si esta vacio
+        # Generar snapshot fresco
         generate_simulated_live_tick()
         conn = sqlite3.connect(LIVE_DB_PATH)
+        cur = conn.cursor()
 
     # Obtener el timestamp mas reciente
-    cur = conn.cursor()
     cur.execute("SELECT MAX(timestamp) FROM live_chat_queues")
     latest_ts = cur.fetchone()[0]
 
