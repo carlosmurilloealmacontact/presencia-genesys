@@ -1,0 +1,42 @@
+﻿TICKET_GROUP_NAME,TICKET_STATUS,Tickets
+Autorización SOP LUA AMC,Cerrado,169
+Autorización Supervisor AMC,Abierto,7
+Autorización Supervisor AMC,Cerrado,314581
+Autorización Supervisor AMC,Nuevo,6
+Autorización Supervisor AMC,Resuelto,1
+Autorización Supervisor HVC AMC ES,Abierto,50
+Autorización Supervisor HVC AMC ES,Cerrado,34148
+Autorización Supervisor HVC AMC ES,Nuevo,11
+BO AMC - Especialistas,Cerrado,26181
+BO AMC - Especialistas PT,Cerrado,226
+BO AMC ESPECIALISTAS ,Cerrado,1
+Célula PI AMC ES,Abierto,48
+Célula PI AMC ES,Cerrado,27979
+Célula PI AMC ES,En espera,10
+Célula PI AMC ES,Nuevo,5
+Célula PI AMC ES,Resuelto,172
+DT AMC IN,Cerrado,164655
+DT FFP AMC,Abierto,830
+DT FFP AMC,Cerrado,730195
+DT FFP AMC,En espera,252
+DT FFP AMC,Nuevo,117
+DT FFP AMC,Pendiente,1152
+DT FFP AMC,Resuelto,1709
+Equipajes AMC SSC,Abierto,419
+Equipajes AMC SSC,Cerrado,629959
+Equipajes AMC SSC,En espera,90
+Equipajes AMC SSC,Nuevo,17
+Equipajes AMC SSC,Pendiente,333
+Equipajes AMC SSC,Resuelto,570
+HVC AMC BR,Cerrado,812621
+HVC AMC SSC,Cerrado,227769
+HVC AMC SSC,Nuevo,1
+LUA AMC,Abierto,478
+LUA AMC,Cerrado,4460134
+LUA AMC,En espera,29
+LUA AMC,Nuevo,920
+LUA AMC,Pendiente,179
+LUA AMC,Resuelto,1418
+LUA AMC IN,Cerrado,184201
+Servicing AMC,Cerrado,117376
+WhatsApp SSC -AMC,Cerrado,1685320

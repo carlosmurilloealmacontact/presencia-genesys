@@ -27,6 +27,12 @@ except Exception as _sf_err:
     def render_tab_salesforce_b2b(email_usuario=""):
         st.error(f"Error cargando módulo Salesforce B2B: {_sf_err}")
 
+try:
+    from zendesk_engine import render_tab_zendesk
+except Exception as _zd_err:
+    def render_tab_zendesk(email_usuario=""):
+        st.error(f"Error cargando módulo Zendesk: {_zd_err}")
+
 st.set_page_config(page_title="Radar Genesys", layout="wide")
 
 from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, DOMINIOS_CORPORATIVOS, ADMINS_AUTORIZADOS
@@ -937,6 +943,14 @@ USUARIOS_SALESFORCE_AUTORIZADOS = {
 if current_email in USUARIOS_SALESFORCE_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("☁️ Salesforce B2B")
 
+# Pestaña de Zendesk:
+# Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
+USUARIOS_ZENDESK_AUTORIZADOS = {
+    "carlosmurilloe.almacontact@outsourcing-account.com",
+}
+if current_email in USUARIOS_ZENDESK_AUTORIZADOS or not auth_configurado:
+    SECCIONES_APP.append("🎫 Zendesk")
+
 # Pestaña de Capacidad y Diagnóstico Operativo (WFM SORE vs Real):
 # Acceso exclusivo para administradores autorizados (Carlos Murillo)
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
@@ -1716,6 +1730,9 @@ elif seccion_activa == "Niveles de Servicio":
 
 elif seccion_activa == "☁️ Salesforce B2B":
     render_tab_salesforce_b2b(current_email)
+
+elif seccion_activa == "🎫 Zendesk":
+    render_tab_zendesk(current_email)
 
 elif seccion_activa == "🧭 Capacidad y Diagnóstico":
     render_tab_capacidad(cargar_agentes_map_base())

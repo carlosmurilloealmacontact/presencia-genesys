@@ -1,0 +1,1023 @@
+"""
+Módulo Autónomo e Independiente: Zendesk Support Engine
+Encapsula al 100% la funcionalidad de reportería y monitoreo operativo de Zendesk para Almacontact.
+
+Diseñado para integrarse en Radar Genesys sin alterar ninguna línea de los motores existentes
+(live_engine, gtr_engine, capacidad_engine, ausentismo_engine, salesforce_b2b_engine).
+
+Sub-módulos integrados:
+1. 📅 Productividad Diaria y Fechas
+2. ⏳ Antigüedad del Backlog (Imágenes 1, 2 y 3)
+3. ⏱️ Cortes Intradía por Asesor (Imagen 4)
+4. 🚨 Backlog en Cola (Monitoreo en Vivo)
+5. 👤 Desempeño y Jerarquía de Asesores
+6. 🏷️ Tipología de Gestión
+7. ⏱️ Tiempos de Servicio (SLAs)
+8. 📊 Volumen Histórico
+"""
+
+import os
+import sys
+import json
+import time
+import unicodedata
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Tuple
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+# Rutas relativas del repositorio
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data" / "zendesk"
+
+RANGOS_ORDEN = ["<48H", ">48H<=15DIAS", ">15Y<=30DIAS", ">30DIAS"]
+
+
+# ── HELPERS DE SOCIO MAESTRO Y ANTIGÜEDAD ─────────────────────────────────────
+
+def normalizar(s: str) -> str:
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return " ".join(s.strip().upper().split())
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def cargar_roster_maestro() -> pd.DataFrame:
+    socio_file = DATA_DIR / "servicios_socio_maestro.csv"
+    if not socio_file.exists():
+        return pd.DataFrame()
+    try:
+        d2 = pd.read_csv(socio_file, low_memory=False)
+        m = d2[["name", "jefe", "coordinador", "servicio"]].dropna(subset=["name"]).drop_duplicates(subset=["name"]).copy()
+        m["norm_name"] = m["name"].apply(normalizar)
+        m["servicio"] = m["servicio"].fillna("Por Definir")
+        m["jefe"] = m["jefe"].fillna("Por Asignar")
+        m["coordinador"] = m["coordinador"].fillna("Por Asignar")
+        return m
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def cargar_condicion_antiguedad() -> dict:
+    estados_file = DATA_DIR / "estados_asesores.csv"
+    if not estados_file.exists():
+        return {}
+    try:
+        df_est = pd.read_csv(estados_file, low_memory=False).dropna(subset=["Asesor"])
+        return {
+            normalizar(r["Asesor"]): ("NUEVO" if pd.notna(r.get("Antiguedad_Dias")) and r.get("Antiguedad_Dias") <= 90 else "ANTIGUO")
+            for _, r in df_est.iterrows()
+        }
+    except Exception:
+        return {}
+
+
+def enriquecer_con_socio(df: pd.DataFrame, solo_almacontact: bool = True) -> pd.DataFrame:
+    """Filtra asesores de Almacontact y cruza con la jerarquía de Socio Maestro y condición de antigüedad."""
+    if df is None or df.empty:
+        return df
+
+    df_out = df.copy()
+
+    if solo_almacontact and "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_out.columns:
+        is_alma = df_out["TICKET_ASSIGNEE_PRIMARY_EMAIL"].str.contains(
+            r"almacontact|\.alma@|@almacontact", case=False, na=False
+        )
+        df_out = df_out[is_alma].copy()
+
+    maestro = cargar_roster_maestro()
+    cond_map = cargar_condicion_antiguedad()
+
+    cache_matches = {}
+
+    def obtener_jerarquia(email):
+        if email in cache_matches:
+            return cache_matches[email]
+
+        prefix = str(email).split("@")[0].split(".")[0].lower().strip()
+        if len(prefix) < 4:
+            res = (str(email).split("@")[0], "Sin Supervisor", "Sin Coordinador", "Almacontact General")
+            cache_matches[email] = res
+            return res
+
+        if not maestro.empty:
+            for _, row in maestro.iterrows():
+                n = row["norm_name"].lower().replace(" ", "")
+                if prefix in n or (len(prefix) > 6 and (prefix[:5] in n and prefix[-3:] in n)):
+                    res = (row["name"], row["jefe"], row["coordinador"], row["servicio"])
+                    cache_matches[email] = res
+                    return res
+
+        nombre_legible = prefix.title()
+        res = (nombre_legible, "Sin Supervisor Asignado", "Sin Coordinador Asignado", "Almacontact Operación")
+        cache_matches[email] = res
+        return res
+
+    if "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_out.columns:
+        jerarquia = df_out["TICKET_ASSIGNEE_PRIMARY_EMAIL"].apply(obtener_jerarquia)
+        df_out["Nombre_Asesor"] = [j[0] for j in jerarquia]
+        df_out["Supervisor"] = [j[1] for j in jerarquia]
+        df_out["Coordinador"] = [j[2] for j in jerarquia]
+        df_out["Servicio"] = [j[3] for j in jerarquia]
+    else:
+        if "Nombre_Asesor" not in df_out.columns:
+            df_out["Nombre_Asesor"] = "Sin Asignar"
+        if "Supervisor" not in df_out.columns:
+            df_out["Supervisor"] = "Sin Supervisor"
+        if "Coordinador" not in df_out.columns:
+            df_out["Coordinador"] = "Sin Coordinador"
+        if "Servicio" not in df_out.columns:
+            df_out["Servicio"] = "Almacontact Operación"
+
+    df_out["Condicion"] = df_out["Nombre_Asesor"].apply(
+        lambda nom: cond_map.get(normalizar(nom), "ANTIGUO")
+    )
+
+    return df_out
+
+
+# ── HELPERS DE ANTIGÜEDAD Y CORTES INTRADÍA ───────────────────────────────────
+
+def clasificar_antiguedad_ticket(horas: float, dias: float) -> str:
+    if horas < 48:
+        return "<48H"
+    elif dias <= 15:
+        return ">48H<=15DIAS"
+    elif dias <= 30:
+        return ">15Y<=30DIAS"
+    else:
+        return ">30DIAS"
+
+
+def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if df_backlog is None or df_backlog.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    df = df_backlog.copy()
+    now_utc = pd.Timestamp.now(tz=timezone.utc)
+
+    df["ts_created"] = pd.to_datetime(df["created_at"], utc=True)
+    df["horas_antiguedad"] = (now_utc - df["ts_created"]).dt.total_seconds() / 3600.0
+    df["dias_antiguedad"] = df["horas_antiguedad"] / 24.0
+
+    df["Rango_Antiguedad"] = [
+        clasificar_antiguedad_ticket(h, d) for h, d in zip(df["horas_antiguedad"], df["dias_antiguedad"])
+    ]
+
+    map_estados = {
+        "new": "Nuevo",
+        "open": "Abierto",
+        "pending": "Pendiente",
+        "hold": "En espera",
+        "solved": "Resuelto",
+        "closed": "Cerrado"
+    }
+    df["Estado"] = df["status"].map(map_estados).fillna(df["status"].str.title())
+    df["Servicio"] = df["grupo"].fillna("Sin Grupo")
+
+    # Tabla 1: Matriz de Porcentajes
+    ct_counts = pd.crosstab(df["Servicio"], df["Rango_Antiguedad"])
+    for r in RANGOS_ORDEN:
+        if r not in ct_counts.columns:
+            ct_counts[r] = 0
+    ct_counts = ct_counts[RANGOS_ORDEN]
+
+    ct_pct = ct_counts.div(ct_counts.sum(axis=1), axis=0) * 100.0
+    total_col_counts = ct_counts.sum(axis=0)
+    total_fabrica_pct = (total_col_counts / total_col_counts.sum()) * 100.0 if total_col_counts.sum() > 0 else total_col_counts
+
+    matriz_pct = ct_pct.copy()
+    matriz_pct.loc["FABRICA"] = total_fabrica_pct
+    matriz_pct["FABRICA"] = 100.0
+    matriz_display = matriz_pct.map(lambda x: f"{x:.1f}%".replace(".", ","))
+    matriz_display.index.name = "SERVICIO"
+    matriz_display.reset_index(inplace=True)
+
+    # Tabla 2: Desglose por Servicio y Estado
+    filas_desglose = []
+    servicios_unicos = sorted(list(df["Servicio"].unique()))
+    total_general_fabrica = len(df)
+
+    for srv in servicios_unicos:
+        df_srv = df[df["Servicio"] == srv]
+        total_srv = len(df_srv)
+
+        fila_srv = {"SERVICIO": srv, "ESTADO": ""}
+        for r in RANGOS_ORDEN:
+            c = (df_srv["Rango_Antiguedad"] == r).sum()
+            p = (c / total_srv * 100.0) if total_srv > 0 else 0.0
+            fila_srv[f"{r} CASOS"] = c
+            fila_srv[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
+        fila_srv["Total CASOS"] = total_srv
+        filas_desglose.append(fila_srv)
+
+        estados_srv = sorted(list(df_srv["Estado"].unique()))
+        for est in estados_srv:
+            df_est = df_srv[df_srv["Estado"] == est]
+            total_est = len(df_est)
+            fila_est = {"SERVICIO": f"    {est}", "ESTADO": est}
+            for r in RANGOS_ORDEN:
+                c = (df_est["Rango_Antiguedad"] == r).sum()
+                p = (c / total_est * 100.0) if total_est > 0 else 0.0
+                fila_est[f"{r} CASOS"] = c
+                fila_est[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
+            fila_est["Total CASOS"] = total_est
+            filas_desglose.append(fila_est)
+
+    fila_total = {"SERVICIO": "TOTAL FABRICA", "ESTADO": ""}
+    for r in RANGOS_ORDEN:
+        c = (df["Rango_Antiguedad"] == r).sum()
+        p = (c / total_general_fabrica * 100.0) if total_general_fabrica > 0 else 0.0
+        fila_total[f"{r} CASOS"] = c
+        fila_total[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
+    fila_total["Total CASOS"] = total_general_fabrica
+    filas_desglose.append(fila_total)
+
+    df_desglose = pd.DataFrame(filas_desglose)
+    return df, matriz_display, df_desglose
+
+
+def procesar_cortes_intradia(df_prod: pd.DataFrame, cortes_hora: List[int] = None) -> pd.DataFrame:
+    if df_prod is None or df_prod.empty:
+        return pd.DataFrame()
+
+    if not cortes_hora:
+        cortes_hora = [8, 10, 14]
+
+    df = df_prod.copy()
+    df = enriquecer_con_socio(df, solo_almacontact=False)
+
+    df["ts_local"] = pd.to_datetime(df["updated_at"], utc=True).dt.tz_convert("America/Bogota")
+    df["hora_local"] = df["ts_local"].dt.hour + (df["ts_local"].dt.minute / 60.0)
+
+    def formato_corte(h: int) -> str:
+        if h < 12:
+            return f"{h}:00:00 a. m."
+        elif h == 12:
+            return "12:00:00 m."
+        else:
+            return f"{h-12}:00:00 p. m."
+
+    nombres_cortes = [formato_corte(h) for h in cortes_hora]
+
+    for h, nombre_corte in zip(cortes_hora, nombres_cortes):
+        df[nombre_corte] = (df["hora_local"] <= h).astype(int)
+
+    df["TAG_GRUPO"] = df["grupo"].fillna("Sin Grupo")
+    df["CONDICION"] = df.get("Condicion", "ANTIGUO").fillna("ANTIGUO")
+    df["AGENTE"] = df["Nombre_Asesor"].fillna(df["TICKET_ASSIGNEE_PRIMARY_EMAIL"]).fillna("Sin Asignar")
+
+    filas_intradia = []
+    grupos_unicos = sorted(list(df["TAG_GRUPO"].unique()))
+
+    cols_sum = nombres_cortes + ["Total general"]
+    df["Total general"] = 1
+    total_general_acum = {c: df[c].sum() for c in cols_sum}
+
+    for grp in grupos_unicos:
+        df_g = df[df["TAG_GRUPO"] == grp]
+        subtot_g = {"TAG / AGENTE": grp, "TIPO": "GRUPO"}
+        for c in cols_sum:
+            subtot_g[c] = df_g[c].sum()
+        filas_intradia.append(subtot_g)
+
+        for cond in ["ANTIGUO", "NUEVO"]:
+            df_gc = df_g[df_g["CONDICION"] == cond]
+            if df_gc.empty:
+                continue
+
+            subtot_c = {"TAG / AGENTE": f"  {cond}", "TIPO": "CONDICION"}
+            for c in cols_sum:
+                subtot_c[c] = df_gc[c].sum()
+            filas_intradia.append(subtot_c)
+
+            asesores_gc = df_gc.groupby("AGENTE")[cols_sum].sum().sort_values(by="Total general", ascending=False)
+            for as_name, as_row in asesores_gc.iterrows():
+                fila_as = {"TAG / AGENTE": f"    {as_name}", "TIPO": "AGENTE"}
+                for c in cols_sum:
+                    val = as_row[c]
+                    fila_as[c] = val if val > 0 else ""
+                filas_intradia.append(fila_as)
+
+    fila_total = {"TAG / AGENTE": "Total general", "TIPO": "TOTAL"}
+    for c in cols_sum:
+        fila_total[c] = total_general_acum[c]
+    filas_intradia.append(fila_total)
+
+    return pd.DataFrame(filas_intradia)
+
+
+# ── RENDERIZADOR PRINCIPAL DEL MÓDULO ZENDESK ─────────────────────────────────
+
+def render_tab_zendesk(email_usuario: str = ""):
+    """Renderiza el módulo integral de Zendesk dentro de Radar Genesys."""
+    st.markdown("### 🎫 Zendesk Support — Reportería y Control Operativo Almacontact")
+    st.caption("Extracción en vivo: Antigüedad de Backlog, Cortes Intradía, Productividad Diaria, Tipologías de Gestión y SLAs.")
+
+    # Cargar datasets
+    file_asesores = DATA_DIR / "asesores_tipologia_metricas.csv"
+    file_diario = DATA_DIR / "productividad_diaria_fechas.csv"
+    file_prod_hoy = DATA_DIR / "productividad_hoy_en_vivo.csv"
+    file_b_vivo = DATA_DIR / "backlog_en_vivo.csv"
+
+    df_raw = pd.read_csv(file_asesores) if file_asesores.exists() else None
+    df_diario_raw = pd.read_csv(file_diario) if file_diario.exists() else None
+
+    # Integrar productividad hoy en vivo si existe
+    if file_prod_hoy.exists():
+        try:
+            df_hoy = pd.read_csv(file_prod_hoy)
+            if not df_hoy.empty and "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_hoy.columns and "Tipo_de_Gestion" in df_hoy.columns:
+                df_hoy_agg = df_hoy.groupby(["Fecha", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Tipo_de_Gestion"]).size().reset_index(name="Recuento_Tickets")
+                df_hoy_agg["Fecha_Timestamp"] = df_hoy_agg["Fecha"] + " 00:00:00"
+                df_hoy_agg["Tipo_de_Gestion_RAW"] = df_hoy_agg["Tipo_de_Gestion"]
+
+                if df_diario_raw is not None and not df_diario_raw.empty:
+                    fechas_hoy = df_hoy_agg["Fecha"].unique()
+                    df_diario_raw = df_diario_raw[~df_diario_raw["Fecha"].isin(fechas_hoy)]
+                    df_diario_raw = pd.concat([df_diario_raw, df_hoy_agg], ignore_index=True)
+                else:
+                    df_diario_raw = df_hoy_agg
+        except Exception:
+            pass
+
+    # Barra superior de estado de sincronización
+    latest_mtime = 0
+    if file_b_vivo.exists():
+        latest_mtime = max(latest_mtime, file_b_vivo.stat().st_mtime)
+    if file_prod_hoy.exists():
+        latest_mtime = max(latest_mtime, file_prod_hoy.stat().st_mtime)
+
+    col_h1, col_h2 = st.columns([3, 1.2])
+    with col_h1:
+        if latest_mtime > 0:
+            hora_s = datetime.fromtimestamp(latest_mtime).strftime('%d/%m/%Y %H:%M:%S')
+            st.info(f"🕒 **Última sincronización con Zendesk:** `{hora_s}` | **Colas activas:** 15 grupos AMC | **Estado:** Operativo en Vivo")
+        else:
+            st.info("🕒 Estado de Zendesk: Datos históricos cargados.")
+
+    with col_h2:
+        # Si existe el script local de sincronización, permitir refresco local
+        local_sync_script = Path(r"C:\Proyecto 3.0\Zendesk\zendesk_sync_service.py")
+        if local_sync_script.exists():
+            if st.button("🔄 Sincronizar en Vivo", type="primary", use_container_width=True, help="Ejecuta en segundo plano una consulta a Zendesk Support para actualizar el backlog y los casos resueltos hoy."):
+                with st.status("🔄 Sincronizando Zendesk...", expanded=True) as status_box:
+                    st.write("Iniciando sesión segura...")
+                    import subprocess
+                    try:
+                        proc = subprocess.Popen(
+                            [sys.executable, "-u", str(local_sync_script)],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            encoding="utf-8",
+                            errors="replace",
+                            cwd=str(local_sync_script.parent)
+                        )
+                        res_data = None
+                        for line in iter(proc.stdout.readline, ""):
+                            lc = line.strip()
+                            if "Backlog en Vivo" in lc:
+                                st.write("📥 Consultando Backlog activo (15 colas)...")
+                            elif "Productividad resuelta" in lc:
+                                st.write("📊 Consultando Resueltos hoy...")
+                            elif "RESULTADO_JSON:" in lc:
+                                try:
+                                    res_data = json.loads(lc.split("RESULTADO_JSON:")[-1].strip())
+                                except Exception:
+                                    pass
+                        proc.wait(timeout=120)
+
+                        if res_data and res_data.get("status") == "ok":
+                            # Copiar archivos actualizados a data/zendesk
+                            import shutil
+                            for src_f in (local_sync_script.parent / "data" / "processed").glob("*.*"):
+                                shutil.copy2(src_f, DATA_DIR / src_f.name)
+
+                            bc = res_data.get("backlog_count", 0)
+                            sc = res_data.get("solved_count", 0)
+                            status_box.update(label=f"✅ Listo: {bc} backlog | {sc} resueltos", state="complete", expanded=False)
+                            st.toast(f"¡Sincronizado! {bc} en cola | {sc} resueltos hoy")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            err = res_data.get("error") if res_data else f"Salida: {proc.returncode}"
+                            status_box.update(label=f"❌ Error: {err}", state="error")
+                    except Exception as ex:
+                        status_box.update(label=f"❌ Error: {ex}", state="error")
+        else:
+            st.caption("☁️ Modo Cloud: Visualizando última sincronización de Zendesk Support.")
+
+    # ── FILTROS SUPERIORES DE OPERACIÓN ──────────────────────────────────────
+    with st.expander("🎯 Filtros de Operación y Jerarquía Socio Maestro", expanded=False):
+        c_f0, c_f1, c_f2, c_f3, c_f4 = st.columns([1.2, 1.2, 1.2, 1.2, 1.2])
+
+        with c_f0:
+            solo_alma = st.checkbox("Solo asesores Almacontact", value=True, key="zd_solo_alma")
+
+        df_enriquecido = enriquecer_con_socio(df_raw, solo_almacontact=solo_alma) if df_raw is not None else None
+        df_diario_enr = enriquecer_con_socio(df_diario_raw, solo_almacontact=solo_alma) if df_diario_raw is not None else None
+
+        sel_servicio = "Todos"
+        sel_coord = "Todos"
+        sel_sup = "Todos"
+        sel_asesor = "Todos"
+
+        if df_enriquecido is not None and not df_enriquecido.empty:
+            with c_f1:
+                servicios = ["Todos"] + sorted(list(df_enriquecido["Servicio"].unique()))
+                sel_servicio = st.selectbox("🏢 Servicio:", servicios, index=0, key="zd_sel_srv")
+            df_step1 = df_enriquecido if sel_servicio == "Todos" else df_enriquecido[df_enriquecido["Servicio"] == sel_servicio]
+
+            with c_f2:
+                coordinadores = ["Todos"] + sorted(list(df_step1["Coordinador"].unique()))
+                sel_coord = st.selectbox("👔 Coordinador:", coordinadores, index=0, key="zd_sel_coord")
+            df_step2 = df_step1 if sel_coord == "Todos" else df_step1[df_step1["Coordinador"] == sel_coord]
+
+            with c_f3:
+                supervisores = ["Todos"] + sorted(list(df_step2["Supervisor"].unique()))
+                sel_sup = st.selectbox("🧑‍💼 Supervisor:", supervisores, index=0, key="zd_sel_sup")
+            df_step3 = df_step2 if sel_sup == "Todos" else df_step2[df_step2["Supervisor"] == sel_sup]
+
+            with c_f4:
+                asesores_disp = ["Todos"] + sorted(list(df_step3["Nombre_Asesor"].unique()))
+                sel_asesor = st.selectbox("👤 Asesor:", asesores_disp, index=0, key="zd_sel_asesor")
+            df_filtrado = df_step3 if sel_asesor == "Todos" else df_step3[df_step3["Nombre_Asesor"] == sel_asesor]
+        else:
+            df_filtrado = None
+
+        # Filtrar df_diario
+        if df_diario_enr is not None:
+            d_f = df_diario_enr.copy()
+            if sel_servicio != "Todos":
+                d_f = d_f[d_f["Servicio"] == sel_servicio]
+            if sel_coord != "Todos":
+                d_f = d_f[d_f["Coordinador"] == sel_coord]
+            if sel_sup != "Todos":
+                d_f = d_f[d_f["Supervisor"] == sel_sup]
+            if sel_asesor != "Todos":
+                d_f = d_f[d_f["Nombre_Asesor"] == sel_asesor]
+            df_diario_filtrado = d_f
+        else:
+            df_diario_filtrado = None
+
+    # Sub-navegación por pestañas de Zendesk
+    tab_zd_diario, tab_zd_antiguedad, tab_zd_intradia, tab_zd_backlog, tab_zd_asesores, tab_zd_tipologia, tab_zd_tiempos, tab_zd_volumen = st.tabs([
+        "📅 Productividad Diaria",
+        "⏳ Antigüedad del Backlog",
+        "⏱️ Cortes Intradía",
+        "🚨 Backlog en Cola",
+        "👤 Desempeño Asesores",
+        "🏷️ Tipología de Gestión",
+        "⏱️ SLAs y Tiempos",
+        "📊 Volumen Histórico"
+    ])
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 1: PRODUCTIVIDAD DIARIA
+    # ---------------------------------------------------------------------
+    with tab_zd_diario:
+        st.subheader("📅 Productividad Diaria por Fecha de Resolución")
+        st.caption("Casos resueltos por día, cruzados por Servicio, Supervisor y Asesor de Almacontact.")
+
+        if df_diario_filtrado is not None and not df_diario_filtrado.empty:
+            total_periodo = df_diario_filtrado["Recuento_Tickets"].sum()
+            dias_activos = df_diario_filtrado[df_diario_filtrado["Fecha"] != "Sin Fecha"]["Fecha"].nunique()
+            prom_dia = (total_periodo / dias_activos) if dias_activos > 0 else total_periodo
+            asesores_activos = df_diario_filtrado["Nombre_Asesor"].nunique()
+
+            kd1, kd2, kd3, kd4 = st.columns(4)
+            kd1.metric("Tickets en Periodo", f"{total_periodo:,.0f}")
+            kd2.metric("Días con Operación", f"{dias_activos}")
+            kd3.metric("Promedio Casos / Día", f"{prom_dia:,.1f}")
+            kd4.metric("Asesores Productivos", f"{asesores_activos:,}")
+
+            st.markdown("---")
+            c_d1, c_d2 = st.columns([3, 2])
+
+            with c_d1:
+                st.subheader("📈 Evolución Diaria de Casos Resueltos")
+                df_dia_grp = df_diario_filtrado[df_diario_filtrado["Fecha"] != "Sin Fecha"].groupby(["Fecha", "Servicio"])["Recuento_Tickets"].sum().reset_index()
+                fig_dia = px.bar(
+                    df_dia_grp,
+                    x="Fecha",
+                    y="Recuento_Tickets",
+                    color="Servicio",
+                    barmode="stack",
+                    text="Recuento_Tickets",
+                    title="Casos Resueltos por Día y Servicio"
+                )
+                fig_dia.update_layout(height=420, margin=dict(l=10, r=10))
+                st.plotly_chart(fig_dia, use_container_width=True)
+
+            with c_d2:
+                st.subheader("🏆 Top Asesores en el Periodo")
+                df_as_periodo = df_diario_filtrado.groupby(["Nombre_Asesor", "Supervisor", "Servicio"])["Recuento_Tickets"].sum().reset_index().sort_values(by="Recuento_Tickets", ascending=False).head(12)
+                fig_top_p = px.bar(
+                    df_as_periodo.sort_values(by="Recuento_Tickets", ascending=True),
+                    x="Recuento_Tickets",
+                    y="Nombre_Asesor",
+                    orientation="h",
+                    color="Supervisor",
+                    text="Recuento_Tickets",
+                    title="Casos Resueltos por Asesor"
+                )
+                fig_top_p.update_layout(height=420, yaxis=dict(title=""), margin=dict(l=10, r=10))
+                st.plotly_chart(fig_top_p, use_container_width=True)
+
+            st.subheader("📋 Detalle de Productividad Diaria por Asesor y Tipología")
+            st.dataframe(
+                df_diario_filtrado[["Fecha", "Nombre_Asesor", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Supervisor", "Servicio", "Tipo_de_Gestion", "Recuento_Tickets"]]
+                .rename(columns={
+                    "TICKET_ASSIGNEE_PRIMARY_EMAIL": "Correo",
+                    "Nombre_Asesor": "Asesor",
+                    "Tipo_de_Gestion": "Tipología",
+                    "Recuento_Tickets": "Casos Resueltos"
+                })
+                .sort_values(by="Casos Resueltos", ascending=False),
+                use_container_width=True
+            )
+        else:
+            st.info("No hay registros diarios disponibles para los filtros seleccionados.")
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 2: ANTIGÜEDAD DEL BACKLOG (IMÁGENES 1, 2, 3)
+    # ---------------------------------------------------------------------
+    with tab_zd_antiguedad:
+        st.subheader("⏳ Matriz de Antigüedad del Backlog Operativo")
+        st.caption("Distribución por rangos temporales según fecha de creación del caso en Zendesk (<48H, >48H<=15D, >15Y<=30D, >30D).")
+
+        if file_b_vivo.exists():
+            df_b_raw = pd.read_csv(file_b_vivo)
+            df_full, m_resumen, d_desglose = procesar_antiguedad_backlog(df_b_raw)
+
+            if not df_full.empty:
+                tot_bl = len(df_full)
+                c_48 = (df_full["Rango_Antiguedad"] == "<48H").sum()
+                c_15 = (df_full["Rango_Antiguedad"] == ">48H<=15DIAS").sum()
+                c_30 = (df_full["Rango_Antiguedad"] == ">15Y<=30DIAS").sum()
+                c_mas30 = (df_full["Rango_Antiguedad"] == ">30DIAS").sum()
+
+                ka1, ka2, ka3, ka4, ka5 = st.columns(5)
+                ka1.metric("🚨 Total Fábrica", f"{tot_bl:,}")
+                ka2.metric("🟢 Fresco (<48H)", f"{c_48:,}", f"{(c_48/tot_bl)*100:.1f}%")
+                ka3.metric("🟡 Operativo (2 a 15 D)", f"{c_15:,}", f"{(c_15/tot_bl)*100:.1f}%")
+                ka4.metric("🟠 En Riesgo (15 a 30 D)", f"{c_30:,}", f"{(c_30/tot_bl)*100:.1f}%", delta_color="inverse")
+                ka5.metric("🔴 Crítico (>30 Días)", f"{c_mas30:,}", f"{(c_mas30/tot_bl)*100:.1f}%", delta_color="inverse")
+
+                st.markdown("---")
+
+                # Matriz 1 (Imagen 1)
+                st.subheader("📊 1. Matriz Resumen de Antigüedad por Servicio (% FÁBRICA)")
+                st.caption("Participación porcentual de cada rango de antigüedad sobre el total de casos del servicio.")
+
+                def destacar_fabrica(row):
+                    if row["SERVICIO"] == "FABRICA":
+                        return ["background-color: #1F4E79; color: white; font-weight: bold;"] * len(row)
+                    return [""] * len(row)
+
+                st.dataframe(
+                    m_resumen.style.apply(destacar_fabrica, axis=1),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.markdown("---")
+
+                # Tabla 2 (Imágenes 2 y 3)
+                st.subheader("📑 2. Desglose Operativo por Servicio y Estado del Ticket")
+                st.caption("Volumen de CASOS y % ANTIGÜEDAD para cada rango temporal, detallado por Estado (Abierto, En espera, Nuevo, Pendiente).")
+
+                lista_servicios = ["Todos los Servicios"] + sorted(list(df_full["Servicio"].unique()))
+                sel_srv_desglose = st.selectbox("Filtrar Desglose por Servicio:", lista_servicios, key="zd_sel_srv_bl_desglose")
+
+                df_desglose_mostrar = d_desglose.copy()
+                if sel_srv_desglose != "Todos los Servicios":
+                    df_desglose_mostrar = df_desglose_mostrar[
+                        (df_desglose_mostrar["SERVICIO"] == sel_srv_desglose) |
+                        (df_desglose_mostrar["SERVICIO"].str.strip().isin(df_full[df_full['Servicio'] == sel_srv_desglose]['Estado'].unique())) |
+                        (df_desglose_mostrar["SERVICIO"] == "TOTAL FABRICA")
+                    ]
+
+                def estilo_desglose(row):
+                    srv = str(row["SERVICIO"])
+                    if srv == "TOTAL FABRICA":
+                        return ["background-color: #002060; color: white; font-weight: bold;"] * len(row)
+                    elif not srv.startswith("    "):
+                        return ["background-color: #D9E1F2; color: #002060; font-weight: bold;"] * len(row)
+                    else:
+                        return [""] * len(row)
+
+                st.dataframe(
+                    df_desglose_mostrar.style.apply(estilo_desglose, axis=1),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.markdown("---")
+                st.subheader("📈 Distribución Visual de Antigüedad por Grupo")
+                df_plot = df_full.groupby(["Servicio", "Rango_Antiguedad"]).size().reset_index(name="Tickets")
+                fig_ant = px.bar(
+                    df_plot,
+                    x="Servicio",
+                    y="Tickets",
+                    color="Rango_Antiguedad",
+                    barmode="stack",
+                    color_discrete_map={
+                        "<48H": "#2CA02C",
+                        ">48H<=15DIAS": "#1F77B4",
+                        ">15Y<=30DIAS": "#FF7F0E",
+                        ">30DIAS": "#D62728"
+                    },
+                    title="Composición de Antigüedad por Cola de Atención"
+                )
+                fig_ant.update_layout(xaxis_tickangle=-30, height=440)
+                st.plotly_chart(fig_ant, use_container_width=True)
+            else:
+                st.info("No hay datos de backlog disponibles.")
+        else:
+            st.warning("No se encontró el archivo de backlog en vivo.")
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 3: CORTES INTRADÍA (IMAGEN 4)
+    # ---------------------------------------------------------------------
+    with tab_zd_intradia:
+        st.subheader("⏱️ Seguimiento Intradía por Cortes Horarios")
+        st.caption("Casos resueltos hoy acumulados por asesor en cada corte de turno, categorizados por Condición (ANTIGUO / NUEVO).")
+
+        if file_prod_hoy.exists():
+            df_p_raw = pd.read_csv(file_prod_hoy)
+            if not df_p_raw.empty:
+                total_res_hoy = len(df_p_raw)
+                df_enr_hoy = enriquecer_con_socio(df_p_raw, solo_almacontact=False)
+                asesores_hoy = df_enr_hoy["Nombre_Asesor"].nunique()
+                antiguos_count = (df_enr_hoy["Condicion"] == "ANTIGUO").sum()
+                nuevos_count = (df_enr_hoy["Condicion"] == "NUEVO").sum()
+
+                ki1, ki2, ki3, ki4 = st.columns(4)
+                ki1.metric("🎯 Total Resueltos Hoy", f"{total_res_hoy:,}")
+                ki2.metric("👥 Asesores en Gestión", f"{asesores_hoy:,}")
+                ki3.metric("👔 Gestión Antiguos", f"{antiguos_count:,}", f"{(antiguos_count/total_res_hoy)*100:.1f}%")
+                ki4.metric("🌱 Gestión Nuevos", f"{nuevos_count:,}", f"{(nuevos_count/total_res_hoy)*100:.1f}%")
+
+                st.markdown("---")
+
+                col_ci1, col_ci2 = st.columns([3, 1])
+                with col_ci1:
+                    cortes_opciones = {
+                        "8:00 AM": 8,
+                        "10:00 AM": 10,
+                        "12:00 PM": 12,
+                        "2:00 PM": 14,
+                        "4:00 PM": 16,
+                        "6:00 PM": 18
+                    }
+                    sel_cortes_labels = st.multiselect(
+                        "Selecciona los cortes horarios a visualizar:",
+                        options=list(cortes_opciones.keys()),
+                        default=["8:00 AM", "10:00 AM", "2:00 PM"],
+                        key="zd_sel_cortes"
+                    )
+                    cortes_num = sorted([cortes_opciones[l] for l in sel_cortes_labels]) if sel_cortes_labels else [8, 10, 14]
+
+                with col_ci2:
+                    grupos_disp = ["Todos los Grupos"] + sorted(list(df_p_raw["grupo"].unique()))
+                    sel_grp_intra = st.selectbox("Filtrar Grupo / TAG:", grupos_disp, key="zd_sel_grp_intra")
+
+                df_p_filtrada = df_p_raw.copy()
+                if sel_grp_intra != "Todos los Grupos":
+                    df_p_filtrada = df_p_filtrada[df_p_filtrada["grupo"] == sel_grp_intra]
+
+                df_intradia = procesar_cortes_intradia(df_p_filtrada, cortes_hora=cortes_num)
+
+                if not df_intradia.empty:
+                    def estilo_intradia(row):
+                        tipo = row.get("TIPO", "")
+                        if tipo == "GRUPO":
+                            return ["background-color: #2F5597; color: white; font-weight: bold;"] * len(row)
+                        elif tipo == "CONDICION":
+                            return ["background-color: #D9E1F2; color: #1F4E79; font-weight: bold; font-style: italic;"] * len(row)
+                        elif tipo == "TOTAL":
+                            return ["background-color: #1F4E79; color: white; font-weight: bold; border-top: 2px solid black;"] * len(row)
+                        return [""] * len(row)
+
+                    cols_view = [c for c in df_intradia.columns if c != "TIPO"]
+                    st.dataframe(
+                        df_intradia[cols_view].style.apply(estilo_intradia, axis=1),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=580
+                    )
+                else:
+                    st.info("No hay datos de cortes para el filtro seleccionado.")
+            else:
+                st.info("No hay casos resueltos registrados hoy.")
+        else:
+            st.warning("No se encontró el archivo de productividad en vivo.")
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 4: BACKLOG EN VIVO (DETALLE Y ESTADOS)
+    # ---------------------------------------------------------------------
+    with tab_zd_backlog:
+        st.subheader("🚨 Monitoreo de Backlog en Vivo (Tiempo Real)")
+        st.caption("Tickets actualmente activos (status < solved) en las colas de Almacontact directamente desde la API de Zendesk.")
+
+        if file_b_vivo.exists():
+            df_bv = pd.read_csv(file_b_vivo)
+            map_estados = {
+                "new": "Nuevo",
+                "open": "Abierto",
+                "pending": "Pendiente",
+                "hold": "En Espera",
+                "solved": "Resuelto",
+                "closed": "Cerrado"
+            }
+            df_bv["Estado_Legible"] = df_bv["status"].map(map_estados).fillna(df_bv["status"].str.title())
+
+            if solo_alma and "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_bv.columns:
+                df_bv_asig = df_bv[df_bv["TICKET_ASSIGNEE_PRIMARY_EMAIL"].astype(str).str.len() > 3].copy()
+                if not df_bv_asig.empty:
+                    df_bv_enr = enriquecer_con_socio(df_bv_asig, solo_almacontact=False)
+                    if df_bv_enr is not None and not df_bv_enr.empty:
+                        email_map = dict(zip(df_bv_enr["TICKET_ASSIGNEE_PRIMARY_EMAIL"], df_bv_enr["Nombre_Asesor"]))
+                        sup_map = dict(zip(df_bv_enr["TICKET_ASSIGNEE_PRIMARY_EMAIL"], df_bv_enr["Supervisor"]))
+                        df_bv["Nombre_Asesor"] = df_bv["TICKET_ASSIGNEE_PRIMARY_EMAIL"].map(email_map).fillna(df_bv["Nombre_Asesor"])
+                        df_bv["Supervisor"] = df_bv["TICKET_ASSIGNEE_PRIMARY_EMAIL"].map(sup_map).fillna("Sin Supervisor")
+
+            col_fb1, col_fb2 = st.columns([2, 1])
+            with col_fb1:
+                grupos_b = ["Todos los Grupos"] + sorted(list(df_bv["grupo"].unique()))
+                sel_b_grp = st.selectbox("Filtrar Backlog por Grupo:", grupos_b, key="zd_sel_b_grp")
+            with col_fb2:
+                estados_b = ["Todos los Estados"] + sorted(list(df_bv["Estado_Legible"].unique()))
+                sel_b_est = st.selectbox("Filtrar por Estado:", estados_b, key="zd_sel_b_est")
+
+            df_bv_view = df_bv.copy()
+            if sel_b_grp != "Todos los Grupos":
+                df_bv_view = df_bv_view[df_bv_view["grupo"] == sel_b_grp]
+            if sel_b_est != "Todos los Estados":
+                df_bv_view = df_bv_view[df_bv_view["Estado_Legible"] == sel_b_est]
+
+            total_bv = len(df_bv_view)
+            nuevos_bv = len(df_bv_view[df_bv_view["status"] == "new"])
+            abiertos_bv = len(df_bv_view[df_bv_view["status"] == "open"])
+            espera_bv = len(df_bv_view[df_bv_view["status"].isin(["hold", "pending"])])
+
+            cb1, cb2, cb3, cb4 = st.columns(4)
+            cb1.metric("🚨 Total Backlog en Cola", f"{total_bv:,}")
+            cb2.metric("🆕 Nuevos (Por Iniciar)", f"{nuevos_bv:,}")
+            cb3.metric("📂 Abiertos (En Gestión)", f"{abiertos_bv:,}")
+            cb4.metric("⏳ En Espera / Pendientes", f"{espera_bv:,}")
+
+            st.markdown("---")
+
+            col_g1, col_g2 = st.columns([3, 2])
+            with col_g1:
+                st.subheader("📊 Backlog Activo por Grupo y Estado")
+                df_grp_est = df_bv_view.groupby(["grupo", "Estado_Legible"]).size().reset_index(name="Tickets")
+                fig_b_grp = px.bar(
+                    df_grp_est,
+                    x="grupo",
+                    y="Tickets",
+                    color="Estado_Legible",
+                    barmode="stack",
+                    text="Tickets",
+                    title="Casos Activos por Cola de Atención"
+                )
+                fig_b_grp.update_layout(xaxis_tickangle=-30, height=430, margin=dict(l=10, r=10))
+                st.plotly_chart(fig_b_grp, use_container_width=True)
+
+            with col_g2:
+                st.subheader("🏷️ Top Motivos / Tipologías en Cola")
+                df_tip_b = df_bv_view["tipo_gestion"].value_counts().head(10).reset_index()
+                df_tip_b.columns = ["Tipología", "Tickets"]
+                fig_tip_b = px.bar(
+                    df_tip_b.sort_values(by="Tickets", ascending=True),
+                    x="Tickets",
+                    y="Tipología",
+                    orientation="h",
+                    text="Tickets",
+                    title="Tipologías Más Acumuladas en Backlog"
+                )
+                fig_tip_b.update_layout(yaxis=dict(title=""), height=430, margin=dict(l=10, r=10))
+                st.plotly_chart(fig_tip_b, use_container_width=True)
+
+            st.subheader("📋 Detalle de Tickets en Cola de Espera")
+            cols_mostrar = ["id", "subject", "grupo", "Estado_Legible", "priority", "tipo_gestion", "Nombre_Asesor", "created_at"]
+            st.dataframe(
+                df_bv_view[[c for c in cols_mostrar if c in df_bv_view.columns]]
+                .rename(columns={
+                    "id": "Ticket ID",
+                    "subject": "Asunto",
+                    "grupo": "Grupo",
+                    "Estado_Legible": "Estado",
+                    "priority": "Prioridad",
+                    "tipo_gestion": "Tipología",
+                    "Nombre_Asesor": "Asesor Asignado",
+                    "created_at": "Fecha Creación"
+                }),
+                use_container_width=True
+            )
+        else:
+            st.info("No hay datos de backlog disponibles.")
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 5: DESEMPEÑO Y JERARQUÍA DE ASESORES
+    # ---------------------------------------------------------------------
+    with tab_zd_asesores:
+        if df_filtrado is not None and not df_filtrado.empty:
+            st.subheader("👤 Desempeño Operativo de Asesores Almacontact (Corte Global)")
+            st.caption("Cruzado con Socio Maestro: visualiza métricas individuales por Servicio, Coordinador y Supervisor.")
+
+            df_as_summary = df_filtrado.groupby(["Nombre_Asesor", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Supervisor", "Coordinador", "Servicio"]).agg(
+                Total_Tickets=("Recuento_Tickets", "sum"),
+                Mediana_FRT_min=("Mediana_FRT_min", "median"),
+                Mediana_RWT_hrs=("Mediana_RWT_hrs", "median"),
+                Tipologias=("Tipo_de_Gestion", "nunique")
+            ).reset_index().sort_values(by="Total_Tickets", ascending=False).reset_index(drop=True)
+
+            total_t_sel = df_as_summary["Total_Tickets"].sum()
+            frt_med_sel = df_as_summary["Mediana_FRT_min"].median()
+            rwt_med_sel = df_as_summary["Mediana_RWT_hrs"].median()
+            asesores_count = len(df_as_summary)
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Asesores en la Vista", f"{asesores_count:,}")
+            k2.metric("Total Tickets Gestionados", f"{total_t_sel:,.0f}")
+            k3.metric("Mediana 1ra Respuesta (FRT)", f"{frt_med_sel:.1f} min" if not pd.isna(frt_med_sel) else "N/A")
+            k4.metric("Mediana Espera (RWT)", f"{rwt_med_sel:.1f} hrs" if not pd.isna(rwt_med_sel) else "N/A")
+
+            st.markdown("---")
+
+            col1, col2 = st.columns([3, 2])
+            with col1:
+                st.subheader("Top Asesores por Volumen de Tickets Resueltos")
+                top15_as = df_as_summary.head(15).sort_values(by="Total_Tickets", ascending=True)
+                fig_as = px.bar(
+                    top15_as,
+                    x="Total_Tickets",
+                    y="Nombre_Asesor",
+                    orientation="h",
+                    color="Supervisor",
+                    text=top15_as["Total_Tickets"].apply(lambda x: f"{x:,.0f}"),
+                    title="Tickets por Asesor (Color = Supervisor)"
+                )
+                fig_as.update_layout(height=480, yaxis=dict(title=""), margin=dict(l=10, r=10))
+                st.plotly_chart(fig_as, use_container_width=True)
+
+            with col2:
+                st.subheader("Tiempos de Atención: FRT vs RWT")
+                fig_scat = px.scatter(
+                    df_as_summary,
+                    x="Mediana_FRT_min",
+                    y="Mediana_RWT_hrs",
+                    size="Total_Tickets",
+                    color="Supervisor",
+                    hover_name="Nombre_Asesor",
+                    hover_data={"Total_Tickets": ":,d", "Mediana_FRT_min": ":.1f min", "Mediana_RWT_hrs": ":.1f hrs"},
+                    title="Velocidad de Respuesta vs Tiempo de Cierre"
+                )
+                fig_scat.update_layout(height=480, margin=dict(l=10, r=10))
+                st.plotly_chart(fig_scat, use_container_width=True)
+
+            st.subheader("📋 Ficha y Expediente Detallado de Asesores")
+            st.dataframe(
+                df_as_summary.rename(columns={
+                    "Nombre_Asesor": "Asesor",
+                    "TICKET_ASSIGNEE_PRIMARY_EMAIL": "Correo",
+                    "Total_Tickets": "Tickets",
+                    "Mediana_FRT_min": "FRT (min)",
+                    "Mediana_RWT_hrs": "RWT (hrs)",
+                    "Tipologias": "Tipologías"
+                })
+                .style.format({
+                    "Tickets": "{:,.0f}",
+                    "FRT (min)": "{:.1f}",
+                    "RWT (hrs)": "{:.1f}"
+                }),
+                use_container_width=True
+            )
+        else:
+            st.info("No hay datos de asesores para los filtros seleccionados.")
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 6: TIPOLOGÍA DE GESTIÓN
+    # ---------------------------------------------------------------------
+    with tab_zd_tipologia:
+        if df_filtrado is not None and not df_filtrado.empty:
+            st.subheader("🏷️ Tipologías de Gestión Atendidas")
+
+            df_tip = df_filtrado.groupby("Tipo_de_Gestion").agg(
+                Tickets=("Recuento_Tickets", "sum"),
+                Mediana_FRT_min=("Mediana_FRT_min", "median"),
+                Mediana_RWT_hrs=("Mediana_RWT_hrs", "median"),
+                Asesores=("Nombre_Asesor", "nunique")
+            ).reset_index().sort_values(by="Tickets", ascending=False).reset_index(drop=True)
+
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                st.subheader("Top Tipologías Más Frecuentes")
+                fig_t = px.bar(
+                    df_tip.head(12).sort_values(by="Tickets", ascending=True),
+                    x="Tickets",
+                    y="Tipo_de_Gestion",
+                    orientation="h",
+                    color="Tickets",
+                    color_continuous_scale="Blues",
+                    text=df_tip.head(12).sort_values(by="Tickets", ascending=True)["Tickets"].apply(lambda x: f"{x:,.0f}")
+                )
+                fig_t.update_layout(height=450, yaxis=dict(title=""), coloraxis_showscale=False)
+                st.plotly_chart(fig_t, use_container_width=True)
+
+            with col_t2:
+                st.subheader("Mayor Tiempo de Espera (RWT en Horas)")
+                fig_r = px.bar(
+                    df_tip[df_tip["Tickets"] >= 10].sort_values(by="Mediana_RWT_hrs", ascending=False).head(12),
+                    x="Mediana_RWT_hrs",
+                    y="Tipo_de_Gestion",
+                    orientation="h",
+                    color="Mediana_RWT_hrs",
+                    color_continuous_scale="Reds",
+                    text=df_tip[df_tip["Tickets"] >= 10].sort_values(by="Mediana_RWT_hrs", ascending=False).head(12)["Mediana_RWT_hrs"].apply(lambda x: f"{x:.1f} h")
+                )
+                fig_r.update_layout(height=450, yaxis=dict(title="", autorange="reversed"), coloraxis_showscale=False)
+                st.plotly_chart(fig_r, use_container_width=True)
+
+            st.dataframe(
+                df_tip.rename(columns={
+                    "Tipo_de_Gestion": "Tipología",
+                    "Mediana_FRT_min": "FRT (min)",
+                    "Mediana_RWT_hrs": "RWT (hrs)"
+                })
+                .style.format({
+                    "Tickets": "{:,.0f}",
+                    "FRT (min)": "{:.1f}",
+                    "RWT (hrs)": "{:.1f}"
+                }),
+                use_container_width=True
+            )
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 7: TIEMPOS DE SERVICIO (SLAS)
+    # ---------------------------------------------------------------------
+    with tab_zd_tiempos:
+        file_tiempos = DATA_DIR / "tiempos_respuesta_amc.csv"
+        if file_tiempos.exists():
+            df_t = pd.read_csv(file_tiempos)
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("⚡ 1ra Respuesta LUA AMC", "2.0 min", "Líder en rapidez")
+            k2.metric("⚡ 1ra Respuesta WhatsApp", "3.0 min", "Atención inmediata")
+            k3.metric("⚠️ Cuello Botella Resolución", "Equipajes SSC", "117.2 hrs (~4.9 días)")
+            k4.metric("⚠️ Cuello Botella DT FFP", "DT FFP AMC", "75.3 hrs (~3.1 días)")
+
+            st.markdown("---")
+            st.subheader("🎯 Matriz de Eficiencia Operativa (Respuesta vs Resolución por Grupo)")
+            fig_quad = px.scatter(
+                df_t,
+                x="Mediana_FRT_min",
+                y="Mediana_Resolucion_hrs",
+                size="Tickets",
+                color="TICKET_GROUP_NAME",
+                hover_name="TICKET_GROUP_NAME",
+                hover_data={"Tickets": ":,d", "Mediana_FRT_min": ":.1f min", "Mediana_Resolucion_hrs": ":.1f hrs"},
+                log_x=True,
+                log_y=True,
+                title="Relación entre Primera Respuesta y Tiempo Total de Cierre (Escala Log)"
+            )
+            fig_quad.update_layout(height=480)
+            st.plotly_chart(fig_quad, use_container_width=True)
+
+            st.dataframe(
+                df_t[["TICKET_GROUP_NAME", "Tickets", "Mediana_FRT_min", "Mediana_Resolucion_hrs", "Mediana_Resolucion_dias"]]
+                .rename(columns={"TICKET_GROUP_NAME": "Grupo", "Mediana_FRT_min": "1ra Respuesta (min)", "Mediana_Resolucion_hrs": "Resolución (hrs)", "Mediana_Resolucion_dias": "Resolución (días)"})
+                .style.format({"Tickets": "{:,.0f}", "1ra Respuesta (min)": "{:.1f}", "Resolución (hrs)": "{:.1f}", "Resolución (días)": "{:.2f}"}),
+                use_container_width=True
+            )
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 8: VOLUMEN HISTÓRICO
+    # ---------------------------------------------------------------------
+    with tab_zd_volumen:
+        file_volumen = DATA_DIR / "volumen_grupos_amc.csv"
+        if file_volumen.exists():
+            df_v = pd.read_csv(file_volumen).sort_values(by="Tickets", ascending=False).reset_index(drop=True)
+            total_v = df_v["Tickets"].sum()
+            df_v["% Participación"] = (df_v["Tickets"] / total_v) * 100
+            df_v["% Acumulado"] = df_v["% Participación"].cumsum()
+
+            fig_v = go.Figure()
+            fig_v.add_trace(go.Bar(x=df_v["TICKET_GROUP_NAME"], y=df_v["Tickets"], name="Tickets", marker_color="#2E7D32"))
+            fig_v.add_trace(go.Scatter(x=df_v["TICKET_GROUP_NAME"], y=df_v["% Acumulado"], name="% Acumulado (Pareto)", yaxis="y2", mode="lines+markers", marker=dict(color="#D32F2F")))
+            fig_v.update_layout(
+                title="Distribución Total de Volumen por Grupo",
+                xaxis=dict(tickangle=-40),
+                yaxis2=dict(title="% Acumulado", overlaying="y", side="right", range=[0, 105]),
+                height=480
+            )
+            st.plotly_chart(fig_v, use_container_width=True)
+            st.dataframe(df_v.style.format({"Tickets": "{:,.0f}", "% Participación": "{:.2f}%", "% Acumulado": "{:.2f}%"}), use_container_width=True)
