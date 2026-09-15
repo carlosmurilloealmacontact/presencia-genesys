@@ -25,12 +25,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 import salesforce_engine as sfe
 import salesforce_live_engine as sle
 import mapeo_socios_engine as mse
+from glosario_b2b_engine import render_glosario_b2b
 
 
 def render_tab_salesforce_b2b(email_usuario: str = ""):
-    """Renderiza la pestaña unificada de Salesforce B2B con sus 5 sub-módulos."""
+    """Renderiza la pestaña unificada de Salesforce B2B con sus 6 sub-módulos."""
     st.markdown("### ☁️ Operación Salesforce B2B — AMC LATAM")
-    st.caption("Command Center en Vivo (Chats), Niveles de Servicio B2B Multicanal, Backlog SLA 24h y Productividad de Casos.")
+    st.caption("Command Center en Vivo (Chats), Niveles de Servicio B2B Multicanal, Backlog SLA 24h, Productividad y Glosario Metodológico.")
 
     # Sub-navegación limpia con segmented_control
     SUBMODULOS_SF = [
@@ -38,7 +39,8 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
         "📊 Niveles de Servicio B2B",
         "📋 Backlog & SLA 24h",
         "🏆 Productividad en Turno",
-        "⏸️ Control de Pausas Salesforce"
+        "⏸️ Control de Pausas Salesforce",
+        "📚 Glosario & Guía B2B"
     ]
 
     sub_activo = st.segmented_control(
@@ -545,3 +547,10 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             {"Asesor": "ESTRADA SALDARRIAGA JULIANA", "Nivel": "N/A", "Supervisor": "AGUIRRE GUISAO DIEGO ALEJANDRO", "Estado SF": "Break Omni-Channel", "Programado WFM": "10:30 - 10:50 (20 min)", "Real Marcado": "10:30 - 10:49 (19 min)", "Desvío Horario": "0 min", "Desvío Duración": "-1 min", "Diagnóstico": "🟢 Conforme"}
         ]
         st.dataframe(pd.DataFrame(malla_vs_real_data), use_container_width=True, hide_index=True)
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 6: GLOSARIO & GUÍA METODOLÓGICA B2B
+    # ---------------------------------------------------------------------
+    elif sub_activo == "📚 Glosario & Guía B2B":
+        render_glosario_b2b()
+
