@@ -206,7 +206,11 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
         df_srv = df[df["Servicio"] == srv]
         total_srv = len(df_srv)
 
-        fila_srv = {"SERVICIO": srv, "ESTADO": ""}
+        fila_srv = {
+            "SERVICIO": srv,
+            "SERVICIO_PADRE": srv,
+            "TIPO_FILA": "SERVICIO"
+        }
         for r in RANGOS_ORDEN:
             c = (df_srv["Rango_Antiguedad"] == r).sum()
             p = (c / total_srv * 100.0) if total_srv > 0 else 0.0
@@ -215,11 +219,15 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
         fila_srv["Total CASOS"] = total_srv
         filas_desglose.append(fila_srv)
 
-        estados_srv = sorted(list(df_srv["Estado"].unique()))
+        estados_srv = df_srv["Estado"].value_counts().index.tolist()
         for est in estados_srv:
             df_est = df_srv[df_srv["Estado"] == est]
             total_est = len(df_est)
-            fila_est = {"SERVICIO": f"    {est}", "ESTADO": est}
+            fila_est = {
+                "SERVICIO": f"    {est}",
+                "SERVICIO_PADRE": srv,
+                "TIPO_FILA": "ESTADO"
+            }
             for r in RANGOS_ORDEN:
                 c = (df_est["Rango_Antiguedad"] == r).sum()
                 p = (c / total_est * 100.0) if total_est > 0 else 0.0
@@ -228,7 +236,11 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
             fila_est["Total CASOS"] = total_est
             filas_desglose.append(fila_est)
 
-    fila_total = {"SERVICIO": "TOTAL FABRICA", "ESTADO": ""}
+    fila_total = {
+        "SERVICIO": "TOTAL FABRICA",
+        "SERVICIO_PADRE": "TOTAL FABRICA",
+        "TIPO_FILA": "TOTAL"
+    }
     for r in RANGOS_ORDEN:
         c = (df["Rango_Antiguedad"] == r).sum()
         p = (c / total_general_fabrica * 100.0) if total_general_fabrica > 0 else 0.0
@@ -598,22 +610,23 @@ def render_tab_zendesk(email_usuario: str = ""):
                 df_desglose_mostrar = d_desglose.copy()
                 if sel_srv_desglose != "Todos los Servicios":
                     df_desglose_mostrar = df_desglose_mostrar[
-                        (df_desglose_mostrar["SERVICIO"] == sel_srv_desglose) |
-                        (df_desglose_mostrar["SERVICIO"].str.strip().isin(df_full[df_full['Servicio'] == sel_srv_desglose]['Estado'].unique())) |
-                        (df_desglose_mostrar["SERVICIO"] == "TOTAL FABRICA")
+                        (df_desglose_mostrar["SERVICIO_PADRE"] == sel_srv_desglose) |
+                        (df_desglose_mostrar["TIPO_FILA"] == "TOTAL")
                     ]
 
+                cols_mostrar = [c for c in df_desglose_mostrar.columns if c not in ["SERVICIO_PADRE", "TIPO_FILA", "ESTADO"]]
+
                 def estilo_desglose(row):
-                    srv = str(row["SERVICIO"])
-                    if srv == "TOTAL FABRICA":
+                    tipo = row.get("TIPO_FILA", "")
+                    if tipo == "TOTAL":
                         return ["background-color: #002060; color: white; font-weight: bold;"] * len(row)
-                    elif not srv.startswith("    "):
+                    elif tipo == "SERVICIO":
                         return ["background-color: #D9E1F2; color: #002060; font-weight: bold;"] * len(row)
                     else:
                         return [""] * len(row)
 
                 st.dataframe(
-                    df_desglose_mostrar.style.apply(estilo_desglose, axis=1),
+                    df_desglose_mostrar[cols_mostrar].style.apply(estilo_desglose, axis=1),
                     use_container_width=True,
                     hide_index=True
                 )
