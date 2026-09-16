@@ -971,6 +971,7 @@ USUARIOS_SALESFORCE_AUTORIZADOS = {
     # Marelin Cardona
     "marelyn.cardona@almaexperience.co",
     "marelyn.cardona.almacontact@outsourcing-account.com",
+    "marelyncardona.almacontact@outsourcing-account.com",
     "marelyn.cardona@almacontactcol.info",
     "marelync@almaexperience.co",
     "marelync@almacontactcol.info",
@@ -997,6 +998,7 @@ def es_usuario_salesforce_autorizado(email: str) -> bool:
     patrones_autorizados = [
         "carlosmurillo",
         "marelyn.cardona",
+        "marelyncardona",
         "marelin.cardona",
         "marelync",
         "andres.rodriguez",
@@ -1018,8 +1020,64 @@ if current_email in USUARIOS_ZENDESK_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("🎫 Zendesk")
 
 # Pestaña de Capacidad y Diagnóstico Operativo (WFM SORE vs Real):
-# Acceso exclusivo para administradores autorizados (Carlos Murillo)
-if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
+# Acceso para Carlos Murillo, Marelyn Cardona, Andrés Rodríguez y Andrés Urrego
+USUARIOS_CAPACIDAD_AUTORIZADOS = {
+    "carlosmurilloe.almacontact@outsourcing-account.com",
+    # Marelyn Cardona
+    "marelyn.cardona@almaexperience.co",
+    "marelyn.cardona.almacontact@outsourcing-account.com",
+    "marelyncardona.almacontact@outsourcing-account.com",
+    "marelyn.cardona@almacontactcol.info",
+    "marelync@almaexperience.co",
+    "marelync@almacontactcol.info",
+    "marelin.cardona@almaexperience.co",
+    "marelin.cardona.almacontact@outsourcing-account.com",
+    "marelin.cardona@almacontactcol.info",
+    # Andrés Rodríguez
+    "andres.rodriguez@almaexperience.co",
+    "andres.rodriguez.almacontact@outsourcing-account.com",
+    "andres.rodriguez@almacontactcol.info",
+    "andresr@almaexperience.co",
+    "andresr@almacontactcol.info",
+    "andres.rodriguez.uribe@almaexperience.co",
+    "andres.rodriguez.uribe.almacontact@outsourcing-account.com",
+    # Andrés Urrego
+    "andresfelipeurrego.almacontact@outsourcing-account.com",
+    "andres.urrego@almaexperience.co",
+    "andres.urrego.almacontact@outsourcing-account.com",
+    "andres.urrego@almacontactcol.info",
+    "andresurrego@almaexperience.co",
+    "andres.urrego.castano@almaexperience.co",
+    "andres.urrego.castano.almacontact@outsourcing-account.com",
+}
+
+
+def es_usuario_capacidad_autorizado(email: str) -> bool:
+    if not email:
+        return False
+    em = email.strip().lower()
+    if em in USUARIOS_CAPACIDAD_AUTORIZADOS:
+        return True
+    if em in ADMINS_AUTORIZADOS:
+        return True
+    patrones_capacidad = [
+        "carlosmurillo",
+        "marelyn.cardona",
+        "marelyncardona",
+        "marelin.cardona",
+        "marelync",
+        "andres.rodriguez",
+        "andresrodriguez",
+        "andresr",
+        "andresfelipeurrego",
+        "andres.urrego",
+        "andresurrego",
+        "urrego",
+    ]
+    return any(p in em for p in patrones_capacidad)
+
+
+if es_usuario_capacidad_autorizado(current_email) or not auth_configurado:
     SECCIONES_APP.append("🧭 Capacidad y Diagnóstico")
     SECCIONES_APP.append("🚨 Control de Ausentismo")
 
