@@ -602,8 +602,11 @@ def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFra
 
     # Complementar con cierres auditados de Salesforce y servicios B2B (Chats, Casos y Corporate Pyme)
     try:
-        from cierres_semanales_loader import obtener_metricas_salesforce_para_capacidad, cargar_todos_los_cierres_b2b
-        df_sf = obtener_metricas_salesforce_para_capacidad(fecha_desde, fecha_hasta)
+        try:
+            import cierres_semanales_loader as csl_cap
+        except ImportError:
+            from scripts import cierres_semanales_loader as csl_cap
+        df_sf = csl_cap.obtener_metricas_salesforce_para_capacidad(fecha_desde, fecha_hasta)
         if not df_sf.empty:
             if df_agg.empty:
                 df_agg = df_sf
@@ -615,7 +618,7 @@ def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFra
                     df_agg = pd.concat([df_agg, nuevos_sf], ignore_index=True)
 
         # Si Corporate Pyme o Target no vinieron por API, extraer de cierres auditados
-        cierres_dict = cargar_todos_los_cierres_b2b()
+        cierres_dict = csl_cap.cargar_todos_los_cierres_b2b()
         fechas_sel = [f for f in sorted(cierres_dict.keys()) if fecha_desde <= f <= fecha_hasta]
         if not fechas_sel and cierres_dict:
             fechas_sel = [sorted(cierres_dict.keys())[-1]]

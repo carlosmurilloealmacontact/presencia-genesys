@@ -12,6 +12,7 @@ Garantiza la separación estricta:
 """
 
 import os
+import json
 import glob
 import re
 from datetime import datetime, date, timedelta
@@ -19,6 +20,7 @@ import pandas as pd
 import numpy as np
 
 PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+JSON_CONSOLIDADO_PATH = os.path.join(PROJECT_ROOT, "data", "cierres_b2b_consolidado.json")
 
 _CACHE_CIERRES_B2B = None
 _CACHE_SIGNATURE = None
@@ -92,7 +94,25 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
         if firma_actual == _CACHE_SIGNATURE:
             return _CACHE_CIERRES_B2B
 
-    import pyxlsb
+    # 1. Intentar importar pyxlsb de forma segura
+    try:
+        import pyxlsb
+        has_pyxlsb = True
+    except ImportError:
+        has_pyxlsb = False
+
+    # 2. Si no hay archivos .xlsb o no está pyxlsb instalado (ej. Streamlit Cloud), usar el JSON consolidado
+    if not archivos or not has_pyxlsb:
+        if os.path.exists(JSON_CONSOLIDADO_PATH):
+            try:
+                with open(JSON_CONSOLIDADO_PATH, "r", encoding="utf-8") as f:
+                    data_json = json.load(f)
+                _CACHE_CIERRES_B2B = data_json
+                _CACHE_SIGNATURE = firma_actual
+                return data_json
+            except Exception:
+                pass
+        return {}
 
     resumen_por_fecha = {}
 
@@ -235,6 +255,20 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                 }
 
         resumen_por_fecha[fecha_oficial] = servicios_dia
+
+    if resumen_por_fecha:
+        try:
+            os.makedirs(os.path.dirname(JSON_CONSOLIDADO_PATH), exist_ok=True)
+            with open(JSON_CONSOLIDADO_PATH, "w", encoding="utf-8") as f:
+                json.dump(resumen_por_fecha, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    elif os.path.exists(JSON_CONSOLIDADO_PATH):
+        try:
+            with open(JSON_CONSOLIDADO_PATH, "r", encoding="utf-8") as f:
+                resumen_por_fecha = json.load(f)
+        except Exception:
+            pass
 
     _CACHE_CIERRES_B2B = resumen_por_fecha
     _CACHE_SIGNATURE = firma_actual

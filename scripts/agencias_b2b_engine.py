@@ -32,6 +32,13 @@ import salesforce_engine as sfe
 import salesforce_live_engine as sle
 import mapeo_socios_engine as mse
 import gtr_engine as gtr
+try:
+    import cierres_semanales_loader as csl
+except ImportError:
+    try:
+        from scripts import cierres_semanales_loader as csl
+    except ImportError:
+        csl = None
 
 
 # ── UTILIDADES DE FORMATO Y ESTILOS ──────────────────────────────────────────
@@ -415,8 +422,7 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None):
     2. Salesforce Messaging: AG CHAT ES, AG CORPORATE CHAT, AG CELULA REMISION (chats).
     3. Salesforce Service Cloud: BO AGENCIAS TARGET, BO_CORPORATE (casos 24h).
     """
-    from cierres_semanales_loader import obtener_cierre_b2b_por_fecha
-    cierres_dia = obtener_cierre_b2b_por_fecha(fecha_sel if fecha_sel != "live" else None)
+    cierres_dia = csl.obtener_cierre_b2b_por_fecha(fecha_sel if fecha_sel != "live" else None) if csl else {}
 
     token = obtener_token_genesys()
     gtr_cfg = gtr.cargar_config_gtr()
@@ -574,8 +580,7 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None):
 
 def render_subtab_niveles_servicio_unificado():
     """Renderiza la vista unificada de Niveles de Servicio Multicanal para Agencias B2B."""
-    from cierres_semanales_loader import cargar_todos_los_cierres_b2b
-    cierres_all = cargar_todos_los_cierres_b2b()
+    cierres_all = csl.cargar_todos_los_cierres_b2b() if csl else {}
     fechas_lista = sorted(cierres_all.keys(), reverse=True) if cierres_all else []
 
     col_title, col_fecha = st.columns([3.0, 2.0])
