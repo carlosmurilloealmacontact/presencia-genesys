@@ -57,14 +57,14 @@ def load_and_clean_cases_data(file_path=None):
         if os.path.exists(cache_pkl):
             try:
                 df_pkl = pd.read_pickle(cache_pkl)
-                if "Work Queue Control" in df_pkl.columns and "Número del caso" in df_pkl.columns:
+                if "Work Queue Control" in df_pkl.columns and "Es_Infraccion" in df_pkl.columns:
                     return df_pkl
             except Exception as e:
                 print(f"[!] Error leyendo pickle: {e}")
         if os.path.exists(cache_csv):
             try:
                 df_csv = pd.read_csv(cache_csv)
-                if "Work Queue Control" in df_csv.columns and "Número del caso" in df_csv.columns:
+                if "Work Queue Control" in df_csv.columns and "Es_Infraccion" in df_csv.columns:
                     if "Fecha_Inicio_dt" in df_csv.columns:
                         df_csv["Fecha_Inicio_dt"] = pd.to_datetime(df_csv["Fecha_Inicio_dt"], errors="coerce")
                     if "Fecha_Finalizacion_dt" in df_csv.columns:
@@ -79,7 +79,7 @@ def load_and_clean_cases_data(file_path=None):
         try:
             if os.path.getmtime(cache_pkl) >= os.path.getmtime(file_path):
                 df_pkl = pd.read_pickle(cache_pkl)
-                if "Work Queue Control" in df_pkl.columns and "Número del caso" in df_pkl.columns:
+                if "Work Queue Control" in df_pkl.columns and "Es_Infraccion" in df_pkl.columns:
                     return df_pkl
         except Exception:
             pass
@@ -92,14 +92,21 @@ def load_and_clean_cases_data(file_path=None):
         header_row = 13  # Default estandar observado en el reporte
         for idx, row in df_preview.iterrows():
             row_str = " ".join([str(v) for v in row.dropna()]).lower()
-            if "work queue" in row_str or "número del caso" in row_str or "numero del caso" in row_str:
+            if "work queue" in row_str or "número del caso" in row_str or "numero del caso" in row_str or "mero del caso" in row_str:
                 header_row = idx
                 break
 
         df = pd.read_excel(file_path, skiprows=header_row)
     else:
         # Archivo CSV
-        df = pd.read_csv(file_path, skiprows=13, encoding="utf-8", encoding_errors="replace")
+        with open(file_path, "r", encoding="latin-1", errors="replace") as f_chk:
+            first_line = f_chk.readline()
+        sep = ";" if ";" in first_line else ","
+        skip = 0 if any(k in first_line.lower() for k in ["estado", "número", "numero", "work queue", "prioridad"]) else 13
+        try:
+            df = pd.read_csv(file_path, skiprows=skip, sep=sep, encoding="latin-1")
+        except Exception:
+            df = pd.read_csv(file_path, skiprows=skip, sep=sep, encoding="utf-8", encoding_errors="replace")
 
     # Limpieza exhaustiva de nombres de columnas (remover flechas de ordenamiento, espacios y caracteres raros)
     def clean_col(c):
@@ -114,18 +121,22 @@ def load_and_clean_cases_data(file_path=None):
         cl = c.lower()
         if "work queue" in cl or "cola" in cl:
             col_map[c] = "Work Queue Control"
-        elif "número del caso" in cl or "numero del caso" in cl:
+        elif "mero del caso" in cl or "numero" in cl or "número" in cl:
             col_map[c] = "Número del caso"
-        elif "fecha/hora de cierre" in cl or "fecha de cierre" in cl:
+        elif "fecha/hora de cierre" in cl or "fecha de cierre" in cl or "cierre" in cl:
             col_map[c] = "Fecha/Hora de cierre"
         elif "fecha de inicio" in cl:
             col_map[c] = "Fecha de inicio"
-        elif "fecha de finalización" in cl or "fecha de finalizacion" in cl:
+        elif "finaliza" in cl:
             col_map[c] = "Fecha de finalización"
-        elif "infracción" in cl or "infraccion" in cl:
+        elif "infracci" in cl:
             col_map[c] = "Infracción"
-        elif "alias del propietario" in cl:
+        elif "alias del propietario" in cl or "propietario" in cl:
             col_map[c] = "Alias del propietario del caso"
+        elif "evento" in cl:
+            col_map[c] = "Evento clave"
+        elif "estado" in cl:
+            col_map[c] = "Estado"
     if col_map:
         df.rename(columns=col_map, inplace=True)
 

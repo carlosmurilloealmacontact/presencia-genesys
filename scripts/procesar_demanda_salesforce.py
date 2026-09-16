@@ -51,61 +51,23 @@ def procesar_casos_y_demanda_salesforce(file_path: str = None) -> bool:
     print(f'Tamano: {os.path.getsize(file_path) / (1024 * 1024):.2f} MB')
     print('=' * 75)
 
-    is_excel = file_path.lower().endswith(('.xlsx', '.xls'))
-    if is_excel:
-        df_preview = pd.read_excel(file_path, header=None, nrows=30)
-        header_row = 13
-        for idx, row in df_preview.iterrows():
-            row_str = ' '.join([str(v) for v in row.dropna()]).lower()
-            if 'work queue' in row_str or 'numero del caso' in row_str or 'número del caso' in row_str:
-                header_row = idx
-                break
-        print(f'[*] Encabezado detectado en fila: {header_row}')
-        df = pd.read_excel(file_path, skiprows=header_row)
-    else:
-        df = pd.read_csv(file_path, skiprows=13, encoding='utf-8', encoding_errors='replace')
+    import salesforce_engine as sfe
+    df_amc = sfe.load_and_clean_cases_data(file_path)
 
-    df.columns = [str(c).replace('\u2191', '').replace('\u2193', '').strip() for c in df.columns]
-    print(f'[*] Filas leidas en bruto: {len(df):,}')
-
-    if 'Work Queue Control' in df.columns:
-        df['Work Queue Control'] = df['Work Queue Control'].ffill()
-    if 'Fecha/Hora de cierre' in df.columns:
-        df['Fecha/Hora de cierre'] = df['Fecha/Hora de cierre'].ffill()
-
-    if 'Work Queue Control' in df.columns:
-        df_amc = df[df['Work Queue Control'].astype(str).str.contains('AMC', case=False, na=False)].copy()
-    else:
-        df_amc = df.copy()
-
-    print(f'[*] Filas pertenecientes a AMC: {len(df_amc):,}')
+    print(f'[*] Filas pertenecientes a AMC procesadas: {len(df_amc):,}')
     if df_amc.empty:
         print('[!] No se encontraron registros AMC en el archivo.')
         return False
 
-    if 'Fecha de inicio' in df_amc.columns:
-        df_amc['Fecha_Inicio_dt'] = pd.to_datetime(df_amc['Fecha de inicio'], errors='coerce', dayfirst=True)
-    elif 'Fecha_Inicio_dt' not in df_amc.columns:
-        df_amc['Fecha_Inicio_dt'] = pd.NaT
-
-    col_fin = None
-    for cand in ['Fecha de finalizacion', 'Fecha de finalización', 'Fecha/Hora de cierre', 'Fecha de cierre', 'ClosedDate']:
-        if cand in df_amc.columns:
-            col_fin = cand
-            break
-
-    if col_fin:
-        df_amc['Fecha_Finalizacion_dt'] = pd.to_datetime(df_amc[col_fin], errors='coerce', dayfirst=True)
-    elif 'Fecha_Finalizacion_dt' not in df_amc.columns:
-        df_amc['Fecha_Finalizacion_dt'] = pd.NaT
-
-    df_amc['fecha_inflow'] = df_amc['Fecha_Inicio_dt'].dt.strftime('%Y-%m-%d')
-    df_amc['fecha_outflow'] = df_amc['Fecha_Finalizacion_dt'].dt.strftime('%Y-%m-%d')
+    if 'fecha_inflow' not in df_amc.columns and 'Fecha_Inicio_dt' in df_amc.columns:
+        df_amc['fecha_inflow'] = df_amc['Fecha_Inicio_dt'].dt.strftime('%Y-%m-%d')
+    if 'fecha_outflow' not in df_amc.columns and 'Fecha_Finalizacion_dt' in df_amc.columns:
+        df_amc['fecha_outflow'] = df_amc['Fecha_Finalizacion_dt'].dt.strftime('%Y-%m-%d')
 
     os.makedirs(DATA_DIR, exist_ok=True)
     df_amc.to_pickle(OUTPUT_CASES_PKL)
     df_amc.to_csv(OUTPUT_CASES_CSV, index=False)
-    print(f'[OK] Base maestra de casos guardada: {OUTPUT_CASES_PKL} ({len(df_amc)} casos)')
+    print(f'[OK] Base maestra de casos enriquecida guardada: {OUTPUT_CASES_PKL} ({len(df_amc)} casos)')
 
     df_inflow = (
         df_amc.dropna(subset=['fecha_inflow'])

@@ -28,10 +28,10 @@ except Exception as _sf_err:
         st.error(f"Error cargando módulo Salesforce B2B: {_sf_err}")
 
 try:
-    from coordinacion_marilyn_engine import render_tab_coordinacion_marilyn
-except Exception as _cm_err:
-    def render_tab_coordinacion_marilyn():
-        st.error(f"Error cargando módulo Coordinación Marilyn: {_cm_err}")
+    from agencias_b2b_engine import render_tab_agencias_b2b
+except Exception as _ag_err:
+    def render_tab_agencias_b2b(*args, **kwargs):
+        st.error(f"Error cargando módulo Agencias B2B: {_ag_err}")
 
 try:
     from zendesk_engine import render_tab_zendesk
@@ -1006,8 +1006,8 @@ def es_usuario_salesforce_autorizado(email: str) -> bool:
 
 
 if es_usuario_salesforce_autorizado(current_email) or not auth_configurado:
+    SECCIONES_APP.append("🏢 Agencias B2B")
     SECCIONES_APP.append("☁️ Salesforce B2B")
-    SECCIONES_APP.append("👩‍💼 Coordinación Marilyn")
 
 # Pestaña de Zendesk:
 # Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
@@ -1029,8 +1029,8 @@ if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
 col_nav, col_auth = st.columns([4, 1.2])
 with col_nav:
     default_tab = SECCIONES_APP[0]
-    if any(k in current_email for k in ["marelyn.cardona", "marelin.cardona", "marelync"]) and "👩‍💼 Coordinación Marilyn" in SECCIONES_APP:
-        default_tab = "👩‍💼 Coordinación Marilyn"
+    if any(k in current_email for k in ["marelyn.cardona", "marelin.cardona", "marelync", "andres.rodriguez", "andresr"]) and "🏢 Agencias B2B" in SECCIONES_APP:
+        default_tab = "🏢 Agencias B2B"
 
     seccion_activa = st.segmented_control(
         "Navegación del Tablero",
@@ -1053,7 +1053,7 @@ if "seccion_audit_actual" not in st.session_state or st.session_state["seccion_a
     st.session_state["seccion_audit_actual"] = seccion_activa
     registrar_evento(current_email, current_name, seccion_activa, "cambio_seccion")
 
-def render_tab_asesores_historico():
+def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: str = ""):
     rango_disponible = cargar_rango_fechas()
     if not rango_disponible:
         st.warning("Todavía no hay datos extraídos. Corre `python extract_presencia.py` primero.")
@@ -1063,50 +1063,57 @@ def render_tab_asesores_historico():
     fecha_max_disp_d = pd.Timestamp(fecha_max_disp).date()
     fecha_min_disp_d = pd.Timestamp(fecha_min_disp).date()
     
-    if "desde" not in st.session_state:
-        st.session_state["desde"] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=6))
-        st.session_state["hasta"] = fecha_max_disp_d
+    k_desde = f"{key_prefix}desde"
+    k_hasta = f"{key_prefix}hasta"
+    k_estado = f"{key_prefix}estado_laboral_sel"
+
+    if k_desde not in st.session_state:
+        st.session_state[k_desde] = max(fecha_min_disp_d, fecha_max_disp_d - pd.Timedelta(days=6))
+        st.session_state[k_hasta] = fecha_max_disp_d
     
     col_desde, col_hasta, col_estado, col_coord, col_servicio, col_superv, col_agente = st.columns(
         [1.0, 1.0, 1.1, 1.3, 1.3, 1.3, 1.6]
     )
     with col_desde:
-        st.date_input("Desde", key="desde", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
+        st.date_input("Desde", key=k_desde, min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
     with col_hasta:
-        st.date_input("Hasta", key="hasta", min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
+        st.date_input("Hasta", key=k_hasta, min_value=fecha_min_disp_d, max_value=fecha_max_disp_d)
     with col_estado:
-        st.selectbox("Estado", ["Activos", "Retiros", "Todos"], index=0, key="estado_laboral_sel")
+        st.selectbox("Estado", ["Activos", "Retiros", "Todos"], index=0, key=k_estado)
     
     col_rango1, col_rango2, col_rango3, col_rango4, _, col_caption = st.columns([1, 1, 1, 1, 1, 4])
     def set_rango(dias):
-        st.session_state["hasta"] = fecha_max_disp_d
-        st.session_state["desde"] = fecha_max_disp_d - pd.Timedelta(days=dias - 1) if dias else fecha_min_disp_d
-        if st.session_state["desde"] < fecha_min_disp_d:
-            st.session_state["desde"] = fecha_min_disp_d
+        st.session_state[k_hasta] = fecha_max_disp_d
+        st.session_state[k_desde] = fecha_max_disp_d - pd.Timedelta(days=dias - 1) if dias else fecha_min_disp_d
+        if st.session_state[k_desde] < fecha_min_disp_d:
+            st.session_state[k_desde] = fecha_min_disp_d
     
     with col_rango1:
-        st.button("7 días", on_click=set_rango, args=(7,), use_container_width=True)
+        st.button("7 días", key=f"{key_prefix}btn_7d", on_click=set_rango, args=(7,), use_container_width=True)
     with col_rango2:
-        st.button("14 días", on_click=set_rango, args=(14,), use_container_width=True)
+        st.button("14 días", key=f"{key_prefix}btn_14d", on_click=set_rango, args=(14,), use_container_width=True)
     with col_rango3:
-        st.button("30 días", on_click=set_rango, args=(30,), use_container_width=True)
+        st.button("30 días", key=f"{key_prefix}btn_30d", on_click=set_rango, args=(30,), use_container_width=True)
     with col_rango4:
-        st.button("Todo", on_click=set_rango, args=(None,), use_container_width=True)
+        st.button("Todo", key=f"{key_prefix}btn_todo", on_click=set_rango, args=(None,), use_container_width=True)
     with col_caption:
         st.markdown(
             f"<p style='text-align:right; color:gray; padding-top:0.5rem;'>Datos disponibles: {fecha_min_disp} → {fecha_max_disp}</p>",
             unsafe_allow_html=True,
         )
     
-    fecha_desde = str(st.session_state["desde"])
-    fecha_hasta = str(st.session_state["hasta"])
+    fecha_desde = str(st.session_state[k_desde])
+    fecha_hasta = str(st.session_state[k_hasta])
     if fecha_desde > fecha_hasta:
         st.error("La fecha 'Desde' es posterior a 'Hasta'.")
         return
     
     df = cargar_rango(fecha_desde, fecha_hasta)
+    if coordinador_forzado and not df.empty and "coordinador" in df.columns:
+        df = df[df["coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
+
     if "estado_laboral" in df.columns:
-        sel_estado = st.session_state.get("estado_laboral_sel", "Activos")
+        sel_estado = st.session_state.get(k_estado, "Activos")
         if sel_estado == "Activos":
             df = df[df["estado_laboral"].str.upper() == "ACTIVO"]
         elif sel_estado == "Retiros":
@@ -1116,13 +1123,21 @@ def render_tab_asesores_historico():
         st.info("Sin tramos para este rango y estado laboral seleccionado.")
         return
     
-    FILTROS = [
-        ("coord_sel", "coordinador", "Coordinador", col_coord),
-        ("servicio_sel", "servicio", "Servicio", col_servicio),
-        ("superv_sel", "jefe_inmediato", "Supervisor", col_superv),
-        ("agentes_sel", "agente", "Agente", col_agente),
-    ]
-    
+    if coordinador_forzado:
+        with col_coord:
+            st.text_input("Coordinador", value=coordinador_forzado, disabled=True, key=f"{key_prefix}coord_fixed")
+        FILTROS = [
+            (f"{key_prefix}servicio_sel", "servicio", "Servicio", col_servicio),
+            (f"{key_prefix}superv_sel", "jefe_inmediato", "Supervisor", col_superv),
+            (f"{key_prefix}agentes_sel", "agente", "Agente", col_agente),
+        ]
+    else:
+        FILTROS = [
+            (f"{key_prefix}coord_sel", "coordinador", "Coordinador", col_coord),
+            (f"{key_prefix}servicio_sel", "servicio", "Servicio", col_servicio),
+            (f"{key_prefix}superv_sel", "jefe_inmediato", "Supervisor", col_superv),
+            (f"{key_prefix}agentes_sel", "agente", "Agente", col_agente),
+        ]
     
     def aplicar_filtros(df: pd.DataFrame, excluir_key: str | None) -> pd.DataFrame:
         vista = df
@@ -1133,7 +1148,6 @@ def render_tab_asesores_historico():
             if seleccion:
                 vista = vista[vista[columna].isin(seleccion)]
         return vista
-    
     
     for key, columna, label, col in FILTROS:
         opciones = opciones_validas(aplicar_filtros(df, excluir_key=key)[columna])
@@ -1155,6 +1169,7 @@ def render_tab_asesores_historico():
             penalizar_available = st.toggle(
                 "⚠️ Penalizar Available como Fuga",
                 value=True,
+                key=f"{key_prefix}penalizar_available",
                 help="Penaliza el tiempo en Available/Conectado para asesores que deberían estar en cola (On Queue).",
             )
         with c_av2:
@@ -1165,6 +1180,7 @@ def render_tab_asesores_historico():
                     "🛡️ Asesores autorizados en Available (Lista blanca / No penalizar):",
                     options=todos_los_agentes,
                     default=default_excluidos,
+                    key=f"{key_prefix}excluidos_available",
                     help="Los asesores aquí seleccionados (Backoffice, Equipajes, Cargo, etc.) NO serán penalizados por estar en Available (computa como Productivo).",
                 )
             ) if penalizar_available else set()
@@ -1426,7 +1442,7 @@ def render_tab_asesores_historico():
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
-        key="tabla_agentes",
+        key=f"{key_prefix}tabla_agentes",
     )
     
     # ── Exportar Excel ───────────────────────────────────────────────────────
@@ -1460,6 +1476,7 @@ def render_tab_asesores_historico():
         buffer.getvalue(),
         file_name=f"radar_genesys_{fecha_desde}_a_{fecha_hasta}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"{key_prefix}btn_exportar_excel",
     )
     
     # ── Detalle del agente seleccionado ─────────────────────────────────────
@@ -1798,11 +1815,11 @@ elif seccion_activa == "Control de Estados (en Vivo)":
 elif seccion_activa == "Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())
 
+elif seccion_activa == "🏢 Agencias B2B":
+    render_tab_agencias_b2b(cargar_agentes_map_base(), current_email, render_tab_asesores_historico)
+
 elif seccion_activa == "☁️ Salesforce B2B":
     render_tab_salesforce_b2b(current_email)
-
-elif seccion_activa == "👩‍💼 Coordinación Marilyn":
-    render_tab_coordinacion_marilyn()
 
 elif seccion_activa == "🎫 Zendesk":
     render_tab_zendesk(current_email)

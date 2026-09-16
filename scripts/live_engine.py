@@ -358,7 +358,7 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
 
 
 @st.fragment(run_every=30)
-def render_tab_en_vivo(agentes_map: dict):
+def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_prefix: str = ""):
     token = obtener_token_genesys()
     if not token:
         st.warning(
@@ -371,20 +371,34 @@ def render_tab_en_vivo(agentes_map: dict):
 
     catalog = cargar_catalogo_presencias(token)
 
+    # Filtrar mapa de agentes si hay coordinador forzado
+    agentes_scope = agentes_map
+    if coordinador_forzado:
+        agentes_scope = {
+            k: v for k, v in agentes_map.items()
+            if "MARELYN" in (v.get("coordinador") or "").upper() or "CARDONA" in (v.get("coordinador") or "").upper()
+        }
+
     # Encabezado
     col_t, col_btn = st.columns([4, 1.2])
     with col_t:
-        st.subheader("🔴 Monitoreo de Piso y Estados en Vivo")
+        sub_titulo = "🔴 Monitoreo de Piso y Estados en Vivo"
+        if coordinador_forzado:
+            sub_titulo += f" — Coordinación {coordinador_forzado}"
+        st.subheader(sub_titulo)
         st.caption("Auto-actualización cada 30 segundos con cronómetros en tiempo real")
 
     with col_btn:
         st.write("")
-        if st.button("🔄 Actualizar Ahora", key="btn_refrescar_live", width="stretch"):
+        if st.button("🔄 Actualizar Ahora", key=f"{key_prefix}btn_refrescar_live", width="stretch"):
             st.rerun(scope="fragment")
 
     t0 = time.time()
-    df_live = obtener_presencia_en_vivo(token, agentes_map, catalog)
+    df_live = obtener_presencia_en_vivo(token, agentes_scope, catalog)
     t_descarga = time.time() - t0
+
+    if coordinador_forzado and not df_live.empty and "coordinador" in df_live.columns:
+        df_live = df_live[df_live["coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
 
     if df_live.empty:
         st.info("Sin datos recibidos de Genesys Cloud en este momento.")
@@ -404,30 +418,34 @@ def render_tab_en_vivo(agentes_map: dict):
     st.markdown("##### Filtros de Piso")
     f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns([1.2, 1.2, 1.2, 1.3, 1.1])
 
-    coords_disp = sorted([c for c in df_live["coordinador"].unique() if c and pd.notna(c)])
-    with f_col1:
-        coord_sel = st.multiselect("Coordinador", options=coords_disp, placeholder="Todos", key="live_coord_sel")
-
     df_filtrado = df_live.copy()
-    if coord_sel:
-        df_filtrado = df_filtrado[df_filtrado["coordinador"].isin(coord_sel)]
+
+    if coordinador_forzado:
+        with f_col1:
+            st.text_input("Coordinador", value=coordinador_forzado, disabled=True, key=f"{key_prefix}live_coord_fixed")
+    else:
+        coords_disp = sorted([c for c in df_live["coordinador"].unique() if c and pd.notna(c)])
+        with f_col1:
+            coord_sel = st.multiselect("Coordinador", options=coords_disp, placeholder="Todos", key=f"{key_prefix}live_coord_sel")
+        if coord_sel:
+            df_filtrado = df_filtrado[df_filtrado["coordinador"].isin(coord_sel)]
 
     servicios_disp = sorted([s for s in df_filtrado["servicio"].unique() if s and pd.notna(s)])
     with f_col2:
-        serv_sel = st.multiselect("Servicio", options=servicios_disp, placeholder="Todos", key="live_serv_sel")
+        serv_sel = st.multiselect("Servicio", options=servicios_disp, placeholder="Todos", key=f"{key_prefix}live_serv_sel")
 
     if serv_sel:
         df_filtrado = df_filtrado[df_filtrado["servicio"].isin(serv_sel)]
 
     supervs_disp = sorted([sp for sp in df_filtrado["supervisor"].unique() if sp and pd.notna(sp)])
     with f_col3:
-        superv_sel = st.multiselect("Supervisor", options=supervs_disp, placeholder="Todos", key="live_superv_sel")
+        superv_sel = st.multiselect("Supervisor", options=supervs_disp, placeholder="Todos", key=f"{key_prefix}live_superv_sel")
 
     if superv_sel:
         df_filtrado = df_filtrado[df_filtrado["supervisor"].isin(superv_sel)]
 
     with f_col4:
-        buscar_agente = st.text_input("Buscar por Asesor o BP", placeholder="Ej: 4512348...", key="live_buscar_agente")
+        buscar_agente = st.text_input("Buscar por Asesor o BP", placeholder="Ej: 4512348...", key=f"{key_prefix}live_buscar_agente")
 
     if buscar_agente:
         df_filtrado = df_filtrado[df_filtrado["agente"].str.contains(buscar_agente, case=False, na=False)]
@@ -439,7 +457,7 @@ def render_tab_en_vivo(agentes_map: dict):
             max_value=120,
             value=15,
             step=5,
-            key="live_umbral_llamada",
+            key=f"{key_prefix}live_umbral_llamada",
             help="Marca como llamada prolongada las llamadas en curso que superen estos minutos.",
         )
 

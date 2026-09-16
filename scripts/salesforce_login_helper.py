@@ -89,7 +89,7 @@ def run_login_helper():
 
         while time.time() - start_time < max_wait:
             curr_url = page.url.lower()
-            if "lightning.force.com" in curr_url and "login" not in curr_url:
+            if ("lightning" in curr_url or "my.salesforce.com" in curr_url) and "login" not in curr_url:
                 logged_in = True
                 print("\n[✓] ¡SESIÓN INICIADA CON ÉXITO EN SALESFORCE LIGHTNING!")
                 print(f"URL actual: {page.url}")
