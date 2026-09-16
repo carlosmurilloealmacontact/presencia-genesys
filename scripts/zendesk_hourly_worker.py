@@ -17,6 +17,13 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import pandas as pd
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_ZD_DIR = PROJECT_ROOT / "data" / "zendesk"
 DATA_ZD_DIR.mkdir(parents=True, exist_ok=True)
