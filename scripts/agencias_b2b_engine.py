@@ -756,7 +756,13 @@ def render_subtab_backlog_casos_b2b():
     if "Coordinador" in df_cases_raw.columns:
         df_cases_raw = df_cases_raw[df_cases_raw["Coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
 
-    kpis = sfe.calculate_kpis(df_cases_raw)
+    # Filtrar solo casos abiertos (Backlog Activo en Gestión)
+    if "Estado" in df_cases_raw.columns:
+        df_cases_bk = df_cases_raw[df_cases_raw["Estado"].isin(["En proceso", "Nuevo", "Abierto", "Pendiente", "Escalado"])].copy()
+    else:
+        df_cases_bk = df_cases_raw.copy()
+
+    kpis = sfe.calculate_kpis(df_cases_bk)
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
@@ -772,7 +778,7 @@ def render_subtab_backlog_casos_b2b():
     col_ag, col_qu = st.columns([1.5, 1])
     with col_ag:
         st.markdown("##### 🌡️ Antigüedad de Casos (Aging del Backlog)")
-        df_aging = sfe.get_aging_distribution(df_cases_raw)
+        df_aging = sfe.get_aging_distribution(df_cases_bk)
         fig_aging = go.Figure()
         a_tiempo = df_aging["Casos"] - df_aging["Infracciones"]
         en_infraccion = df_aging["Infracciones"]
@@ -783,18 +789,24 @@ def render_subtab_backlog_casos_b2b():
 
     with col_qu:
         st.markdown("##### 📥 Casos por Cola de Trabajo (Work Queue)")
-        df_queues_dist = sfe.get_work_queue_distribution(df_cases_raw)
-        if not df_queues_dist.empty:
-            fig_pie = px.pie(df_queues_dist, names="Work Queue Control", values="Casos", hole=0.45, color_discrete_sequence=px.colors.qualitative.Pastel)
+        df_queues_dist = sfe.get_queue_breakdown(df_cases_bk)
+        if not df_queues_dist.empty and "Work Queue Control" in df_queues_dist.columns:
+            fig_pie = px.pie(df_queues_dist, names="Work Queue Control", values="Total_Casos", hole=0.45, color_discrete_sequence=px.colors.qualitative.Pastel)
             fig_pie.update_layout(height=260, template="plotly_dark", margin=dict(l=10, r=10, t=10, b=10))
             st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("Sin colas activas en el backlog.")
 
     st.write("")
-    st.markdown("##### ⚠️ Casos en Infracción de SLA (> 24 Horas)")
-    df_inf = sfe.get_top_infractions(df_cases_raw, top_n=50)
+    st.markdown("##### ⚠️ Casos Críticos en Infracción de SLA (> 24 Horas)")
+    df_inf = sfe.get_critical_cases(df_cases_bk, limit=50)
     if not df_inf.empty:
-        cols_m = [c for c in ["Número del caso", "Work Queue Control", "Nombre_Real", "Supervisor", "Fecha de inicio", "Horas_Abierto", "Infracción", "Estado"] if c in df_inf.columns]
-        st.dataframe(df_inf[cols_m].rename(columns={"Número del caso": "Caso", "Work Queue Control": "Cola", "Nombre_Real": "Asesor"}), use_container_width=True, hide_index=True)
+        cols_m = [c for c in ["Número del caso", "Work Queue Control", "Asesor", "Fecha de inicio", "Antiguedad_Dias", "Es_Infraccion", "Prioridad"] if c in df_inf.columns]
+        df_inf_show = df_inf[cols_m].rename(columns={"Número del caso": "Caso", "Work Queue Control": "Cola", "Antiguedad_Dias": "Días Abierto"})
+        if "Es_Infraccion" in df_inf_show.columns:
+            df_inf_show["Es_Infraccion"] = df_inf_show["Es_Infraccion"].apply(lambda x: "🚨 Vencido (>24h)" if x else "🟢 A Tiempo")
+            df_inf_show.rename(columns={"Es_Infraccion": "SLA 24h"}, inplace=True)
+        st.dataframe(df_inf_show, use_container_width=True, hide_index=True)
     else:
         st.success("🎉 ¡Excelente! No hay casos vencidos en la coordinación.")
 

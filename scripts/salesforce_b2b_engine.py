@@ -304,13 +304,29 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
         st.subheader("Niveles de Servicio B2B Multicanal (Genesys + Salesforce)")
         st.warning("⚠️ **Propuesta de Cálculo Integral B2B:** Pendiente de validación oficial de metas y ponderaciones contractuales con la operación de Marelyn Cardona.")
 
+        # Carga dinámica de datos de casos de Salesforce
+        df_cases_all = sfe.load_and_clean_cases_data()
+        total_casos_all = len(df_cases_all)
+        if total_casos_all > 0:
+            kpis_all = sfe.calculate_kpis(df_cases_all)
+            sla_casos_pct = kpis_all["a_tiempo_pct"]
+            total_abiertos = int((df_cases_all["Estado"] == "En proceso").sum()) if "Estado" in df_cases_all.columns else 0
+        else:
+            sla_casos_pct = 0.0
+            total_abiertos = 0
+
         col_ns1, col_ns2, col_ns3 = st.columns(3)
         with col_ns1:
             st.metric("🎙️ Pilar 1: Voz B2B (Genesys)", "88.4%", delta="Meta: 80% en 20s • Abandono: 3.8%")
         with col_ns2:
             st.metric("💬 Pilar 2: Chats B2B (Salesforce)", "82.2%", delta="Meta Oficial: 80% en 100s (80/100)")
         with col_ns3:
-            st.metric("📋 Pilar 3: Casos B2B (Backoffice)", "35.1%", delta="Meta SLA: 24h • 134 casos", delta_color="inverse")
+            st.metric(
+                "📋 Pilar 3: Casos B2B (Backoffice)",
+                f"{sla_casos_pct:.1f}%",
+                delta=f"Meta: 80% • {total_casos_all:,} casos ({total_abiertos} activos en backlog)",
+                delta_color="normal" if sla_casos_pct >= 80.0 else "inverse"
+            )
 
         st.write("")
         st.markdown("##### 🏢 Matriz Multicanal por Servicio B2B (Línea por Línea)")
@@ -319,14 +335,72 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
         with f_ns_c1:
             sel_ns_serv = st.selectbox("Filtrar por Servicio B2B:", ["Todos los Servicios", "AMC Agencias Español", "AMC Agencias Inglés", "AMC Corporativo SSC", "AMC Emisiones & Grupos"], key="ns_b2b_serv")
         with f_ns_c2:
-            sel_ns_sup = st.selectbox("Supervisor a Cargo:", ["Todos los Supervisores", "AGUIRRE GUISAO DIEGO ALEJANDRO", "MORENO HURTADO DEINER ANDRES", "OCHOA GARCIA SANDRA JANNETH", "HERNANDEZ ISAZA CRISTIAN EDUARDO", "GUISAO BARRERA JESUS ALONSO"], key="ns_b2b_sup")
+            supervisores_disponibles_s2 = ["Todos los Supervisores"]
+            if not df_cases_all.empty and "Supervisor" in df_cases_all.columns:
+                supervisores_disponibles_s2 += sorted([s for s in df_cases_all["Supervisor"].dropna().unique() if s != "Sin Supervisor" and str(s).strip()])
+            sel_ns_sup = st.selectbox("Supervisor a Cargo:", supervisores_disponibles_s2, key="ns_b2b_sup")
 
-        servicios_b2b_data = [
-            {"Servicio B2B": "AMC Agencias Español", "NS Voz (Genesys)": "88.4%", "NS Chat (Salesforce)": "76.2%", "SLA Casos 24h": "28.0% (39 vencidos)", "Backlog": 52, "Estado Global": "🔴 Riesgo Backlog"},
-            {"Servicio B2B": "AMC Agencias Inglés", "NS Voz (Genesys)": "91.0%", "NS Chat (Salesforce)": "89.5%", "SLA Casos 24h": "14.3% (18 vencidos)", "Backlog": 21, "Estado Global": "🔴 Riesgo Casos"},
-            {"Servicio B2B": "AMC Corporativo SSC", "NS Voz (Genesys)": "84.5%", "NS Chat (Salesforce)": "81.0%", "SLA Casos 24h": "45.6% (31 vencidos)", "Backlog": 57, "Estado Global": "🔴 Crítico Casos"},
-            {"Servicio B2B": "AMC Emisiones & Grupos", "NS Voz (Genesys)": "—", "NS Chat (Salesforce)": "—", "SLA Casos 24h": "50.0% (2 vencidos)", "Backlog": 4, "Estado Global": "🟡 Seguimiento"}
+        # Mapeo oficial de colas a servicios B2B
+        cola_to_serv = {
+            "AMC AGENCIAS ESP": "AMC Agencias Español",
+            "AMC AGENCIAS INTER": "AMC Agencias Inglés",
+            "AMC CORPORATE SSC": "AMC Corporativo SSC",
+            "AMC EMISIONES GRUPOS CORP": "AMC Emisiones & Grupos",
+            "AMC EMISIONES GRUPOS SSC": "AMC Emisiones & Grupos",
+            "AMC EMISIONES BO EC": "AMC Emisiones & Grupos"
+        }
+
+        # Calcular métricas dinámicas por servicio
+        df_serv_calc = df_cases_all.copy()
+        if not df_serv_calc.empty:
+            df_serv_calc["Servicio_B2B"] = df_serv_calc["Work Queue Control"].map(cola_to_serv).fillna("Otros AMC")
+            if sel_ns_sup != "Todos los Supervisores" and "Supervisor" in df_serv_calc.columns:
+                df_serv_calc = df_serv_calc[df_serv_calc["Supervisor"] == sel_ns_sup]
+
+        servicios_conf = [
+            {"nombre": "AMC Agencias Español", "voz": "88.4%", "chat": "76.2%", "voz_num": 88.4, "chat_num": 76.2},
+            {"nombre": "AMC Agencias Inglés", "voz": "91.0%", "chat": "89.5%", "voz_num": 91.0, "chat_num": 89.5},
+            {"nombre": "AMC Corporativo SSC", "voz": "84.5%", "chat": "81.0%", "voz_num": 84.5, "chat_num": 81.0},
+            {"nombre": "AMC Emisiones & Grupos", "voz": "—", "chat": "—", "voz_num": 0.0, "chat_num": 0.0}
         ]
+
+        servicios_b2b_data = []
+        chart_data_rows = []
+
+        for sc in servicios_conf:
+            s_name = sc["nombre"]
+            sub = df_serv_calc[df_serv_calc["Servicio_B2B"] == s_name] if not df_serv_calc.empty else pd.DataFrame()
+            tot_s = len(sub)
+            if tot_s > 0:
+                inf_s = int(sub["Es_Infraccion"].sum())
+                a_t_s = tot_s - inf_s
+                sla_s_pct = round((a_t_s / tot_s) * 100, 1)
+                bk_s = int((sub["Estado"] == "En proceso").sum()) if "Estado" in sub.columns else 0
+                sla_casos_str = f"{sla_s_pct:.1f}% ({inf_s:,} vencidos)"
+                estado_glob = "🟢 Óptimo" if sla_s_pct >= 80.0 and bk_s < 100 else ("🟡 En Observación" if sla_s_pct >= 75.0 else "🔴 Crítico SLA")
+            else:
+                sla_s_pct = 0.0
+                bk_s = 0
+                sla_casos_str = "—"
+                estado_glob = "⚪ Sin Casos"
+
+            servicios_b2b_data.append({
+                "Servicio B2B": s_name,
+                "NS Voz (Genesys)": sc["voz"],
+                "NS Chat (Salesforce)": sc["chat"],
+                "SLA Casos 24h": sla_casos_str,
+                "Backlog Activo": bk_s,
+                "Total Casos 2026": f"{tot_s:,}",
+                "Estado Global": estado_glob
+            })
+
+            chart_data_rows.append({
+                "Servicio": s_name.replace("AMC ", ""),
+                "NS Voz (Genesys)": sc["voz_num"],
+                "NS Chat (Salesforce)": sc["chat_num"],
+                "SLA Casos 24h": sla_s_pct
+            })
+
         df_ns_b2b = pd.DataFrame(servicios_b2b_data)
         if sel_ns_serv != "Todos los Servicios":
             df_ns_b2b = df_ns_b2b[df_ns_b2b["Servicio B2B"] == sel_ns_serv]
@@ -335,12 +409,11 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
 
         st.write("")
         st.markdown("##### 📈 Comparativo Multicanal B2B (Voz Genesys vs Chats vs Casos Salesforce)")
-        df_chart_b2b = pd.DataFrame({
-            "Servicio": ["Agencias Español", "Agencias Inglés", "Corporativo SSC", "Emisiones & Grupos"],
-            "NS Voz (Genesys)": [88.4, 91.0, 84.5, 0.0],
-            "NS Chat (Salesforce)": [76.2, 89.5, 81.0, 0.0],
-            "SLA Casos 24h": [28.0, 14.3, 45.6, 50.0]
-        })
+        df_chart_b2b = pd.DataFrame(chart_data_rows)
+        if sel_ns_serv != "Todos los Servicios":
+            filtro_ch = sel_ns_serv.replace("AMC ", "")
+            df_chart_b2b = df_chart_b2b[df_chart_b2b["Servicio"] == filtro_ch]
+
         fig_ns = go.Figure()
         fig_ns.add_trace(go.Bar(
             x=df_chart_b2b["Servicio"],
@@ -391,12 +464,18 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             st.warning("No hay datos de casos cargados en `data/salesforce/`.")
         else:
             st.markdown("##### 🎛️ Filtros de Backlog")
-            sf_f1, sf_f2, sf_f3, sf_f4 = st.columns([1.1, 1.1, 1.4, 1.5])
+            sf_f0, sf_f1, sf_f2, sf_f3, sf_f4 = st.columns([1.3, 1.1, 1.1, 1.4, 1.5])
             min_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().min()
             max_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().max()
             min_d = min_date_raw.date() if pd.notna(min_date_raw) else date.today()
             max_d = max_date_raw.date() if pd.notna(max_date_raw) else date.today()
 
+            with sf_f0:
+                sf_estado = st.selectbox(
+                    "Estado de Casos:",
+                    ["🟢 Solo Abiertos / En Proceso", "📂 Histórico Total 2026", "✅ Solo Cerrados"],
+                    key="bk_b2b_estado"
+                )
             with sf_f1:
                 sf_desde = st.date_input("Desde:", value=min_d, min_value=min_d, max_value=max_d, key="bk_b2b_desde")
             with sf_f2:
@@ -415,6 +494,11 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                 sf_sup = st.selectbox("Supervisor (Jefe):", sup_opts, key="bk_b2b_sup")
 
             df_cases_bk = df_cases_raw.copy()
+            if sf_estado == "🟢 Solo Abiertos / En Proceso" and "Estado" in df_cases_bk.columns:
+                df_cases_bk = df_cases_bk[df_cases_bk["Estado"].isin(["En proceso", "Nuevo", "Abierto", "Pendiente", "Escalado"])]
+            elif sf_estado == "✅ Solo Cerrados" and "Estado" in df_cases_bk.columns:
+                df_cases_bk = df_cases_bk[df_cases_bk["Estado"] == "Cerrado"]
+
             if sf_desde and sf_hasta and "Fecha_Inicio_dt" in df_cases_bk.columns:
                 df_cases_bk = df_cases_bk[(df_cases_bk["Fecha_Inicio_dt"].dt.date >= sf_desde) & (df_cases_bk["Fecha_Inicio_dt"].dt.date <= sf_hasta)]
             if sf_serv != "Todos los Servicios" and "Work Queue Control" in df_cases_bk.columns:
@@ -426,13 +510,14 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
 
             k1, k2, k3, k4 = st.columns(4)
             with k1:
-                st.metric("Total Backlog Activo", kpis['total_backlog'], delta="Casos AMC")
+                label_k1 = "Backlog Activo Vivo" if sf_estado == "🟢 Solo Abiertos / En Proceso" else "Total Casos Filtrados"
+                st.metric(label_k1, f"{kpis['total_backlog']:,}", delta=f"{kpis['a_tiempo_pct']}% a tiempo (SLA)")
             with k2:
-                st.metric("Infracción SLA 24h", f"{kpis['infraccion_pct']}%", delta=f"{kpis['infraccion_count']} vencidos", delta_color="inverse")
+                st.metric("Infracción SLA 24h", f"{kpis['infraccion_pct']}%", delta=f"{kpis['infraccion_count']:,} vencidos", delta_color="inverse")
             with k3:
-                st.metric("Casos Críticos (> 7d)", kpis['criticos_gt_7d'], delta=f"Máx: {kpis['max_antiguedad_dias']}d", delta_color="inverse")
+                st.metric("Casos Críticos (> 7d)", f"{kpis['criticos_gt_7d']:,}", delta=f"Máx: {kpis['max_antiguedad_dias']}d", delta_color="inverse")
             with k4:
-                st.metric("Casos sin Asignar", kpis['sin_asignar_count'], delta=f"{kpis['sin_asignar_pct']}% en cola")
+                st.metric("Casos sin Asignar", f"{kpis['sin_asignar_count']:,}", delta=f"{kpis['sin_asignar_pct']}% en cola")
 
             st.write("")
             col_ag, col_qu = st.columns([1.5, 1])
