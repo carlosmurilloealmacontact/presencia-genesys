@@ -1617,15 +1617,7 @@ def render_tab_capacidad(agentes_map: dict):
             connector={"line": {"color": "rgb(63, 63, 63)", "width": 1.5}},
             decreasing={"marker": {"color": "#ef4444"}},
             increasing={"marker": {"color": "#10b981"}},
-            totals={"marker": {"color": [
-                "#f59e0b",
-                "#10b981",
-                "#ef4444",
-                "#10b981" if w_pct_disp >= 85.0 else "#ef4444",
-                "#10b981",
-                "#10b981",
-                color_final
-            ]}}
+            totals={"marker": {"color": color_final}}
         ))
 
         fig_wat.update_layout(
