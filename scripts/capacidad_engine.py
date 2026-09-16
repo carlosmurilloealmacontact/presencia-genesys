@@ -32,6 +32,7 @@ FILE_FORECAST_DAILY = os.path.join(BASE_DIR, "../09. Daily Forecast Sept - Latam
 CACHE_PKL_PATH = os.path.join(BASE_DIR, "../data/forecast_cache.pkl")
 
 META_AUXILIARES_OFICIAL = 14.0  # Meta estándar de auxiliares acordada en la conversación (14%)
+META_AUSENTISMO_OFICIAL = 10.0  # Meta estándar de ausentismo / tolerancia planificada acordada (10%)
 
 # Catálogo oficial maestro: nombres de servicio en mayúsculas idénticos a segments en Genesys DB
 CATALOGO_SERVICIOS_SORE = {
@@ -526,7 +527,7 @@ MAPA_GTR_A_SORE = {
     "DT FFP AMC": "DT FFP AMC (DREAM TEAM)",
     "CHAT DT FFP AMC ESP": "DT FFP AMC (DREAM TEAM)",
     "DREAM TEAM WP": "DT FFP AMC (DREAM TEAM)",
-    "GSS NDC Agencias": "AGENCIAS TARGET ES",
+    "GSS NDC Agencias": "GSS NDC AGENCIAS",
     "GSS Operacional Agencias": "AGENCIAS TARGET ES",
     "TRAVEL WP AMC": "TRAVEL WP AMC",
 }
@@ -558,6 +559,8 @@ def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFra
                     if "N3" in srv_u or "NIVEL 3" in srv_u or "NIVEL3" in srv_u:
                         return "AGY N3 ESP CHAT"
                     return "AGY N1 ESP CHAT"
+                if "NDC" in srv_u:
+                    return "GSS NDC AGENCIAS"
                 return "AGENCIAS TARGET ES"
             return srv_u
 
@@ -1525,22 +1528,58 @@ def render_tab_capacidad(agentes_map: dict):
         w_meta_aht = fila_s["Meta AHT (s)"]
 
     w_h_req = w_min_req / 60.0
-    w_h_disp = w_min_disp / 60.0
+    w_h_disp_raw = w_min_disp / 60.0
     w_h_pau = w_min_pau / 60.0
     w_h_con = w_min_con / 60.0
-    w_delta_con_h = w_h_con - w_h_req
 
-    w_pct_delta_con = (w_delta_con_h / w_h_req * 100.0) if w_h_req > 0 else 0.0
-    w_pct_pau = -(w_h_pau / w_h_req * 100.0) if w_h_req > 0 else 0.0
-    w_pct_disp = (w_h_disp / w_h_req * 100.0) if w_h_req > 0 else 0.0
+    # 1. Asistencia / FTEs con tolerancia del 10% de ausentismo presupuestada
+    if w_h_req > 0:
+        pct_ausentismo_real = max(0.0, (w_h_req - w_h_con) / w_h_req * 100.0) if w_h_con < w_h_req else 0.0
+    else:
+        pct_ausentismo_real = 0.0
 
-    # Desglose de pausas: dentro de meta oficial (14%) vs exceso de auxiliares
+    if w_h_con >= w_h_req:
+        # Sobre-asistencia / Superávit directo
+        w_h_delta_asistencia = w_h_con - w_h_req
+        w_fte_delta_asistencia = w_fte_con - w_fte_req
+        w_pct_delta_asistencia = (w_h_delta_asistencia / w_h_req * 100.0) if w_h_req > 0 else 0.0
+        desc_asistencia = f"<span style='color: #15803d; font-weight: 600;'>🟢 Sobre-asistencia</span> (+{w_fte_delta_asistencia:.1f} FTEs, +{w_h_delta_asistencia:,.1f} h). Dotación cubierta."
+        lbl_asistencia = f"<b>{w_fte_delta_asistencia:+.1f} FTEs</b><br>{w_h_delta_asistencia:+,.1f} h<br>{w_pct_delta_asistencia:+.1f}%"
+    else:
+        # Déficit: solo penaliza el ausentismo que supere el 10% de tolerancia planificada
+        exceso_ausentismo_pct = max(0.0, pct_ausentismo_real - META_AUSENTISMO_OFICIAL)
+        if exceso_ausentismo_pct > 0:
+            w_h_delta_asistencia = -(exceso_ausentismo_pct / 100.0) * w_h_req
+            w_fte_delta_asistencia = -(exceso_ausentismo_pct / 100.0) * w_fte_req
+            w_pct_delta_asistencia = -exceso_ausentismo_pct
+            desc_asistencia = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Fuga ausentismo:</span> {pct_ausentismo_real:.1f}% (>10% meta, +{exceso_ausentismo_pct:.1f}% no previsto, {w_fte_delta_asistencia:.1f} FTEs)."
+            lbl_asistencia = f"<b>{w_fte_delta_asistencia:.1f} FTEs</b><br>{w_h_delta_asistencia:+,.1f} h<br>{w_pct_delta_asistencia:+.1f}%"
+        else:
+            w_h_delta_asistencia = 0.0
+            w_fte_delta_asistencia = 0.0
+            w_pct_delta_asistencia = 0.0
+            desc_asistencia = f"<span style='color: #15803d; font-weight: 600;'>🟢 Ausentismo en meta:</span> {pct_ausentismo_real:.1f}% (dentro de tolerancia 10%, sin castigo)."
+            lbl_asistencia = f"<b>0.0 FTEs</b><br>0.0 h<br>0.0%"
+
+    # 2. Desglose de pausas: dentro de meta oficial (14%) vs exceso de auxiliares
+    # Solo el exceso por encima del 14% de la conexión destruye capacidad
+    pct_pau_real = (w_min_pau / w_min_con * 100.0) if w_min_con > 0 else 0.0
     w_min_pau_meta = w_min_con * (META_AUXILIARES_OFICIAL / 100.0)
     w_min_pau_fuga = max(0.0, w_min_pau - w_min_pau_meta)
     w_h_pau_meta = w_min_pau_meta / 60.0
     w_h_pau_fuga = w_min_pau_fuga / 60.0
-    w_pct_pau_meta = -(w_h_pau_meta / w_h_req * 100.0) if w_h_req > 0 else 0.0
     w_pct_pau_fuga = -(w_h_pau_fuga / w_h_req * 100.0) if w_h_req > 0 else 0.0
+
+    if w_h_pau_fuga > 0:
+        desc_pausas = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Fuga severa:</span> <b>{w_h_pau_fuga:,.1f} h destruidas</b> (>14% meta, real {pct_pau_real:.1f}%)."
+        lbl_pausas = f"<b>{-w_h_pau_fuga:+,.1f} h</b><br>{w_pct_pau_fuga:+.1f}%<br><span style='font-size:10px; color:#b91c1c;'>({pct_pau_real:.1f}% vs 14%)</span>"
+    else:
+        desc_pausas = f"<span style='color: #15803d; font-weight: 600;'>🟢 Disciplina:</span> Pausas dentro del reductor presupuestado ({pct_pau_real:.1f}% <= 14%)."
+        lbl_pausas = f"<b>0.0 h</b><br>0.0%<br><span style='font-size:10px; color:#15803d;'>({pct_pau_real:.1f}% <= 14%)</span>"
+
+    # 3. Disponible Real resultante tras asistencia y pausas
+    w_h_disp_real = max(0.0, w_h_req + w_h_delta_asistencia - w_h_pau_fuga)
+    w_pct_disp_real = (w_h_disp_real / w_h_req * 100.0) if w_h_req > 0 else 0.0
 
     # Métricas de GTR para el alcance seleccionado en el Árbol
     if sel_alcance.startswith("🌐"):
@@ -1578,16 +1617,16 @@ def render_tab_capacidad(agentes_map: dict):
     w_pct_delta_demanda = (w_h_delta_demanda / w_h_req * 100.0) if w_h_req > 0 else 0.0
 
     # Capacidad efectiva ajustada por Demanda y AHT
-    w_h_cap_efectiva = max(0.0, w_h_disp + w_h_delta_aht + w_h_delta_demanda)
+    w_h_cap_efectiva = max(0.0, w_h_disp_real + w_h_delta_aht + w_h_delta_demanda)
     w_pct_cap_efectiva = (w_h_cap_efectiva / w_h_req * 100.0) if w_h_req > 0 else 0.0
 
     col_wat, col_diag = st.columns([1.32, 1.28])
     with col_wat:
         if modo_eje == "Porcentaje de Capacidad (%)":
-            y_vals = [100.0, w_pct_delta_con, w_pct_pau, w_pct_disp, w_pct_delta_demanda, w_pct_delta_aht, w_pct_cap_efectiva]
+            y_vals = [100.0, w_pct_delta_asistencia, w_pct_pau_fuga, w_pct_disp_real, w_pct_delta_demanda, w_pct_delta_aht, w_pct_cap_efectiva]
             eje_y_lbl = "% de Capacidad Requerida"
         else:
-            y_vals = [w_h_req, w_delta_con_h, -w_h_pau, w_h_disp, w_h_delta_demanda, w_h_delta_aht, w_h_cap_efectiva]
+            y_vals = [w_h_req, w_h_delta_asistencia, -w_h_pau_fuga, w_h_disp_real, w_h_delta_demanda, w_h_delta_aht, w_h_cap_efectiva]
             eje_y_lbl = "Horas-Hombre Equivalentes"
 
         # Etiquetas claras e inequívocas para cada barra del Waterfall
@@ -1606,10 +1645,10 @@ def render_tab_capacidad(agentes_map: dict):
             lbl_aht = "<b>0.0 h</b><br>0.0%"
 
         text_vals = [
-            f"<b>{w_h_req:,.1f} h</b><br>100.0%",
-            f"<b>{w_delta_con_h:+,.1f} h</b><br>{w_pct_delta_con:+.1f}%",
-            f"<b>{-w_h_pau:+,.1f} h</b><br>{w_pct_pau:+.1f}%",
-            f"<b>{w_h_disp:,.1f} h</b><br>{w_pct_disp:.1f}%",
+            f"<b>{w_fte_req:.1f} FTEs</b><br>{w_h_req:,.1f} h<br>100.0%",
+            lbl_asistencia,
+            lbl_pausas,
+            f"<b>{w_h_disp_real:,.1f} h</b><br>{w_pct_disp_real:.1f}%",
             lbl_demanda,
             lbl_aht,
             f"<b>{w_h_cap_efectiva:,.1f} h</b><br>{w_pct_cap_efectiva:.1f}%"
@@ -1651,19 +1690,7 @@ def render_tab_capacidad(agentes_map: dict):
         st.caption("💡 **Regla de Signos Operativa:** En Demanda y AHT, un incremento en el indicador operativo (+ llamadas o + segundos) **resta capacidad efectiva (barra roja que desciende)** porque sobrecarga o frena la operación.")
 
     with col_diag:
-        es_superavit_con = w_delta_con_h >= 0
         es_cumplido = w_pct_cap_efectiva >= 85.0
-
-        # Textos explicativos en lenguaje operativo directo para cada fuerza
-        if es_superavit_con:
-            desc_asistencia = f"<span style='color: #15803d; font-weight: 600;'>🟢 Sobre-asistencia</span> (+{w_delta_con_h:,.1f} h). Dotación cubierta."
-        else:
-            desc_asistencia = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Déficit de personal</span> ({w_delta_con_h:,.1f} h faltantes)."
-
-        if w_h_pau_fuga > 0:
-            desc_pausas = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Fuga severa:</span> <b>{w_h_pau_fuga:,.1f} h destruidas</b> (>14% meta)."
-        else:
-            desc_pausas = "<span style='color: #15803d; font-weight: 600;'>🟢 Disciplina:</span> Pausas dentro de la meta del 14%."
 
         if pd.notna(w_traf_real) and w_traf_plan > 0:
             pct_vol_diff = ((w_traf_real - w_traf_plan) / w_traf_plan * 100.0)
@@ -1707,22 +1734,22 @@ def render_tab_capacidad(agentes_map: dict):
                         <tr style="border-bottom: 1px solid #f1f5f9;">
                             <td style="padding: 4px 2px; font-weight: 600; color: #334155; width: 30%;">1. Requerido Plan</td>
                             <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: #0f172a; width: 28%;">100.0% <span style="font-size: 10.5px; color: #64748b;">({w_h_req:,.1f} h)</span></td>
-                            <td style="padding: 4px 4px; color: #64748b; font-size: 11px; width: 42%;">Meta SORE ({w_fte_req:.1f} FTEs)</td>
+                            <td style="padding: 4px 4px; color: #64748b; font-size: 11px; width: 42%;">Meta SORE: <b>{w_fte_req:.1f} Personas</b> ({w_h_req:,.1f} h)</td>
                         </tr>
                         <tr style="border-bottom: 1px solid #f1f5f9;">
                             <td style="padding: 4px 2px; font-weight: 600; color: #334155;">2. Asistencia / FTEs</td>
-                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: {'#15803d' if es_superavit_con else '#b91c1c'};">{w_pct_delta_con:+.1f}% <span style="font-size: 10.5px;">({w_delta_con_h:+,.1f} h)</span></td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: {'#15803d' if w_h_delta_asistencia >= 0 else '#b91c1c'};">{w_pct_delta_asistencia:+.1f}% <span style="font-size: 10.5px;">({w_h_delta_asistencia:+,.1f} h)</span></td>
                             <td style="padding: 4px 4px; font-size: 11px;">{desc_asistencia}</td>
                         </tr>
                         <tr style="border-bottom: 1px solid #f1f5f9;">
                             <td style="padding: 4px 2px; font-weight: 600; color: #334155;">3. Pausas / Auxiliares</td>
-                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: #b91c1c;">{w_pct_pau:.1f}% <span style="font-size: 10.5px;">({-w_h_pau:,.1f} h)</span></td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: {'#b91c1c' if w_h_pau_fuga > 0 else '#15803d'};">{w_pct_pau_fuga:.1f}% <span style="font-size: 10.5px;">({-w_h_pau_fuga:,.1f} h)</span></td>
                             <td style="padding: 4px 4px; font-size: 11px;">{desc_pausas}</td>
                         </tr>
                         <tr style="border-bottom: 2px solid #cbd5e1; background: #f8fafc;">
                             <td style="padding: 4px 2px; font-weight: 700; color: #0f172a;">4. Disponible Real</td>
-                            <td style="padding: 4px 2px; text-align: right; font-weight: 800; color: #0f172a;">{w_pct_disp:.1f}% <span style="font-size: 10.5px;">({w_h_disp:,.1f} h)</span></td>
-                            <td style="padding: 4px 4px; color: #475569; font-size: 11px; font-weight: 600;">Lo que realmente quedó atendiendo</td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 800; color: #0f172a;">{w_pct_disp_real:.1f}% <span style="font-size: 10.5px;">({w_h_disp_real:,.1f} h)</span></td>
+                            <td style="padding: 4px 4px; color: #475569; font-size: 11px; font-weight: 600;">Disponibilidad real para atender demanda</td>
                         </tr>
                         <tr style="border-bottom: 1px solid #f1f5f9;">
                             <td style="padding: 4px 2px; font-weight: 600; color: #334155;">5. Efecto Demanda</td>
