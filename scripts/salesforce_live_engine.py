@@ -207,35 +207,69 @@ def get_latest_live_state(force_fresh: bool = False):
 
 def detect_live_anomalies(df_queues, df_agents):
     """
-    Detecta comportamientos y cuellos de botella en tiempo real:
-    1. Cola acumulada con agentes disponibles que tienen capacidad libre.
-    2. Agentes en Busy prolongado mientras hay cola esperando.
-    3. Chats al 100% de capacidad con tiempos excesivos (estancamiento).
+    Detecta comportamientos de improductividad y cuellos de botella en tiempo real:
+    1. Asesores en Busy prolongado (>10 min) bloqueando la entrada de nuevos chats.
+    2. Asesores en Available ociosos (>15 min con 0 chats asignados).
+    3. Chats estancados / congelados en curso (>35 min en atención).
+    4. Exceso de Break en Omni-Channel (>20 min).
+    5. Colas saturadas con chats en espera mientras hay capacidad ociosa.
     """
     alerts = []
 
     total_waiting = df_queues["chats_in_queue"].sum() if not df_queues.empty else 0
 
-    if not df_agents.empty and total_waiting > 0:
-        # Agentes en Busy con cola pendiente
-        busy_with_queue = df_agents[(df_agents["status"] == "Busy") & (df_agents["time_in_status_sec"] > 300)]
-        for _, ag in busy_with_queue.iterrows():
+    if not df_agents.empty:
+        # 1. Asesores en Busy prolongado (>10 min bloqueando entrada de chats)
+        busy_prolonged = df_agents[(df_agents["status"] == "Busy") & (df_agents["time_in_status_sec"] >= 600)]
+        for _, ag in busy_prolonged.iterrows():
+            mins = ag["time_in_status_sec"] // 60
+            tipo = "critical" if mins >= 15 else "warning"
+            alerts.append({
+                "type": tipo,
+                "title": f"Capacidad bloqueada: Busy prolongado ({ag['agent_name']})",
+                "message": f"{ag['agent_name']} lleva {mins} min en Busy ({ag['active_chats']}/3 chats). Impide el ingreso de nuevos chats mientras hay {total_waiting} en espera."
+            })
+
+        # 2. Ociosidad en Available (>15 min disponible sin recibir ni un solo chat)
+        idle_available = df_agents[(df_agents["status"] == "Available") & (df_agents["active_chats"] == 0) & (df_agents["time_in_status_sec"] >= 900)]
+        for _, ag in idle_available.iterrows():
             mins = ag["time_in_status_sec"] // 60
             alerts.append({
                 "type": "warning",
-                "title": f"Asesor en Busy con cola activa ({ag['agent_name']})",
-                "message": f"{ag['agent_name']} lleva {mins} min en estado Busy ({ag['active_chats']}/3 chats). Hay {total_waiting} chats esperando en cola."
+                "title": f"Ociosidad en Available ({ag['agent_name']})",
+                "message": f"{ag['agent_name']} lleva {mins} min en estado Disponible sin ningún chat asignado (0% ocupación)."
             })
 
-        # Agentes disponibles con capacidad libre (33% o 67%)
-        free_capacity = df_agents[(df_agents["status"] == "Available") & (df_agents["capacity_pct"] < 100)]
-        if not free_capacity.empty and total_waiting > 10:
-            free_names = ", ".join(free_capacity["agent_name"].tolist()[:4])
+        # 3. Chats estancados o congelados (>35 min en interacción)
+        stuck_chats = df_agents[(df_agents["status"].isin(["Available", "Busy"])) & (df_agents["active_chats"] >= 1) & (df_agents["time_in_status_sec"] >= 2100)]
+        for _, ag in stuck_chats.iterrows():
+            mins = ag["time_in_status_sec"] // 60
             alerts.append({
-                "type": "info",
-                "title": "Capacidad disponible en asesores",
-                "message": f"Hay asesores con cupos libres ({free_names}) y {total_waiting} chats esperando asignación."
+                "type": "warning",
+                "title": f"Chat prolongado / posible congelamiento ({ag['agent_name']})",
+                "message": f"{ag['agent_name']} acumula {mins} min en el mismo tramo de atención ({ag['active_chats']} chats activos). Revisar si el contacto fue abandonado."
             })
+
+        # 4. Exceso de Break en Omni-Channel (>20 min)
+        excess_break = df_agents[(df_agents["status"] == "Break") & (df_agents["time_in_status_sec"] >= 1200)]
+        for _, ag in excess_break.iterrows():
+            mins = ag["time_in_status_sec"] // 60
+            alerts.append({
+                "type": "warning",
+                "title": f"Exceso de Break Omni-Channel ({ag['agent_name']})",
+                "message": f"{ag['agent_name']} lleva {mins} min en pausa de Break (supera los 20 min autorizados)."
+            })
+
+        # 5. Agentes disponibles con capacidad libre (33% o 67%) con cola esperando
+        if total_waiting > 10:
+            free_capacity = df_agents[(df_agents["status"] == "Available") & (df_agents["capacity_pct"] < 100)]
+            if not free_capacity.empty:
+                free_names = ", ".join(free_capacity["agent_name"].tolist()[:4])
+                alerts.append({
+                    "type": "info",
+                    "title": "Capacidad disponible en asesores",
+                    "message": f"Hay asesores con cupos libres ({free_names}) y {total_waiting} chats esperando asignación."
+                })
 
     # Alerta de colas criticas
     if not df_queues.empty:

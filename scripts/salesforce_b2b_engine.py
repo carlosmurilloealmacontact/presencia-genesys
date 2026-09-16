@@ -155,11 +155,42 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                     df_disp["Supervisor"] = []
                     df_disp["Simultaneidad"] = []
                     df_disp["Tiempo"] = []
+                    df_disp["Diagnóstico"] = []
                 else:
                     enriched = df_disp["agent_name"].apply(enrich_live_row)
                     df_disp[["Nombre Real", "Nivel", "Campaña", "Supervisor"]] = enriched
                     df_disp["Simultaneidad"] = df_disp["active_chats"].astype(str) + " de 3 (" + df_disp["capacity_pct"].astype(str) + "%)"
                     df_disp["Tiempo"] = (df_disp["time_in_status_sec"] // 60).astype(str) + " min"
+
+                    def evaluar_productividad_omnichannel(row):
+                        st_val = str(row.get("status", "")).strip()
+                        t_sec = int(row.get("time_in_status_sec", 0))
+                        chats = int(row.get("active_chats", 0))
+                        mins = t_sec // 60
+
+                        if st_val == "Busy":
+                            if mins >= 15:
+                                return f"🔴 Bloqueo Crítico (+{mins}m en Busy)"
+                            elif mins >= 10:
+                                return f"🟡 Busy Prolongado (+{mins}m)"
+                            return f"🟡 Ocupado / Busy ({mins}m)"
+                        elif st_val == "Available":
+                            if chats == 0 and mins >= 15:
+                                return f"🔴 Ocioso (+{mins}m sin chats)"
+                            elif chats == 0 and mins >= 10:
+                                return f"🟡 Sin Asignación ({mins}m)"
+                            elif chats >= 1 and mins >= 35:
+                                return f"🟣 Chat Estancado (+{mins}m)"
+                            elif chats == 3:
+                                return "🔵 Plena Carga (3/3)"
+                            return "🟢 Productivo Activo"
+                        elif st_val == "Break":
+                            if mins > 20:
+                                return f"🔴 Exceso Break (+{mins}m)"
+                            return f"☕ En Break ({mins}m)"
+                        return "—"
+
+                    df_disp["Diagnóstico"] = df_disp.apply(evaluar_productividad_omnichannel, axis=1)
 
                 fl_c1, fl_c2, fl_c3 = st.columns([1.5, 1.2, 1.2])
                 with fl_c1:
@@ -180,9 +211,10 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                     df_disp = df_disp[df_disp["status"] == sel_est_live]
 
                 st.dataframe(
-                    df_disp[["Nombre Real", "Nivel", "Supervisor", "status", "Simultaneidad", "Tiempo"]].rename(columns={
-                        "status": "Estado Chat",
-                        "Tiempo": "En Estado"
+                    df_disp[["Nombre Real", "Nivel", "Supervisor", "status", "Simultaneidad", "Tiempo", "Diagnóstico"]].rename(columns={
+                        "status": "Estado Omni-Channel",
+                        "Tiempo": "⏱️ Tiempo en Estado",
+                        "Diagnóstico": "Alerta de Productividad"
                     }),
                     use_container_width=True,
                     hide_index=True
@@ -324,7 +356,8 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             st.write("")
             col_ag, col_qu = st.columns([1.5, 1])
             with col_ag:
-                st.markdown("##### 🌡️ Termómetro de Antigüedad (Aging)")
+                st.markdown("##### 🌡️ Antigüedad de Casos (Tiempo Abierto del Backlog)")
+                st.caption("Distribución del volumen de casos según los días acumulados sin resolución.")
                 df_aging = sfe.get_aging_distribution(df_cases_bk)
                 fig_aging = go.Figure()
                 a_tiempo = df_aging["Casos"] - df_aging["Infracciones"]
