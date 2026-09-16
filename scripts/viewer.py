@@ -1009,7 +1009,11 @@ def es_usuario_salesforce_autorizado(email: str) -> bool:
 
 if es_usuario_salesforce_autorizado(current_email) or not auth_configurado:
     SECCIONES_APP.append("🏢 Agencias B2B")
-    SECCIONES_APP.append("☁️ Salesforce B2B")
+    # Para la coordinación de Agencias (Marelyn Cardona y Andrés Rodríguez), todo su mundo
+    # está 100% unificado en '🏢 Agencias B2B', evitando duplicar pestañas con '☁️ Salesforce B2B'.
+    es_coord_agencias = any(k in current_email for k in ["marelyn", "marelin", "andres.rodriguez", "andresr"])
+    if (current_email in ADMINS_AUTORIZADOS or not auth_configurado) and not es_coord_agencias:
+        SECCIONES_APP.append("☁️ Salesforce B2B")
 
 # Pestaña de Zendesk:
 # Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
