@@ -205,6 +205,28 @@ def get_latest_live_state(force_fresh: bool = False):
     return df_queues, df_agents, latest_ts
 
 
+try:
+    import mapeo_socios_engine as mse
+except Exception:
+    mse = None
+
+
+def get_advisor_display_info(alias: str) -> dict:
+    """Retorna el nombre real, nivel y supervisor de un alias de Salesforce."""
+    if mse:
+        try:
+            info = mse.get_asesor_info(alias)
+            return {
+                "nombre": info.get("nombre_completo", alias),
+                "nivel": info.get("nivel", "N/A"),
+                "supervisor": info.get("supervisor", "Sin Supervisor"),
+                "alias": alias,
+            }
+        except Exception:
+            pass
+    return {"nombre": alias, "nivel": "N/A", "supervisor": "Sin Supervisor", "alias": alias}
+
+
 def detect_live_anomalies(df_queues, df_agents):
     """
     Detecta comportamientos de improductividad y cuellos de botella en tiempo real:
@@ -224,51 +246,100 @@ def detect_live_anomalies(df_queues, df_agents):
         for _, ag in busy_prolonged.iterrows():
             mins = ag["time_in_status_sec"] // 60
             tipo = "critical" if mins >= 15 else "warning"
+            ad_info = get_advisor_display_info(ag["agent_name"])
+            real_name = ad_info["nombre"]
+            exceso = max(0, mins - 10)
+            tag = f"🚨 Busy prolongado (+{exceso} min, lleva {mins} min)"
             alerts.append({
                 "type": tipo,
-                "title": f"Capacidad bloqueada: Busy prolongado ({ag['agent_name']})",
-                "message": f"{ag['agent_name']} lleva {mins} min en Busy ({ag['active_chats']}/3 chats). Impide el ingreso de nuevos chats mientras hay {total_waiting} en espera."
+                "categoria": "busy",
+                "asesor": real_name,
+                "alias": ag["agent_name"],
+                "nivel": ad_info["nivel"],
+                "supervisor": ad_info["supervisor"],
+                "dur_min": mins,
+                "dur_str": f"{mins} min",
+                "tag": tag,
+                "title": f"🚨 {real_name}: Busy prolongado (+{exceso} min)",
+                "message": f"<b>{real_name}</b>: 🚨 Busy prolongado (+{exceso} min, lleva {mins} min con {ag['active_chats']}/3 chats). Retiene capacidad con {total_waiting} chats en cola."
             })
 
         # 2. Ociosidad en Available (>15 min disponible sin recibir ni un solo chat)
         idle_available = df_agents[(df_agents["status"] == "Available") & (df_agents["active_chats"] == 0) & (df_agents["time_in_status_sec"] >= 900)]
         for _, ag in idle_available.iterrows():
             mins = ag["time_in_status_sec"] // 60
+            ad_info = get_advisor_display_info(ag["agent_name"])
+            real_name = ad_info["nombre"]
+            tag = f"⚠️ Disponible sin chats ({mins} min)"
             alerts.append({
                 "type": "warning",
-                "title": f"Ociosidad en Available ({ag['agent_name']})",
-                "message": f"{ag['agent_name']} lleva {mins} min en estado Disponible sin ningún chat asignado (0% ocupación)."
+                "categoria": "idle",
+                "asesor": real_name,
+                "alias": ag["agent_name"],
+                "nivel": ad_info["nivel"],
+                "supervisor": ad_info["supervisor"],
+                "dur_min": mins,
+                "dur_str": f"{mins} min",
+                "tag": tag,
+                "title": f"⚠️ {real_name}: Disponible sin chats ({mins} min)",
+                "message": f"<b>{real_name}</b>: ⚠️ Disponible sin chats asignados (lleva {mins} min al 0% de ocupación)."
             })
 
         # 3. Chats estancados o congelados (>35 min en interacción)
         stuck_chats = df_agents[(df_agents["status"].isin(["Available", "Busy"])) & (df_agents["active_chats"] >= 1) & (df_agents["time_in_status_sec"] >= 2100)]
         for _, ag in stuck_chats.iterrows():
             mins = ag["time_in_status_sec"] // 60
+            ad_info = get_advisor_display_info(ag["agent_name"])
+            real_name = ad_info["nombre"]
+            tag = f"🟣 Chat estancado ({mins} min)"
             alerts.append({
                 "type": "warning",
-                "title": f"Chat prolongado / posible congelamiento ({ag['agent_name']})",
-                "message": f"{ag['agent_name']} acumula {mins} min en el mismo tramo de atención ({ag['active_chats']} chats activos). Revisar si el contacto fue abandonado."
+                "categoria": "stuck_chat",
+                "asesor": real_name,
+                "alias": ag["agent_name"],
+                "nivel": ad_info["nivel"],
+                "supervisor": ad_info["supervisor"],
+                "dur_min": mins,
+                "dur_str": f"{mins} min",
+                "tag": tag,
+                "title": f"🟣 {real_name}: Chat estancado ({mins} min)",
+                "message": f"<b>{real_name}</b>: 🟣 Chat activo prolongado ({mins} min en atención con {ag['active_chats']} chat(s)). Posible contacto abandonado."
             })
 
         # 4. Exceso de Break en Omni-Channel (>20 min)
         excess_break = df_agents[(df_agents["status"] == "Break") & (df_agents["time_in_status_sec"] >= 1200)]
         for _, ag in excess_break.iterrows():
             mins = ag["time_in_status_sec"] // 60
+            ad_info = get_advisor_display_info(ag["agent_name"])
+            real_name = ad_info["nombre"]
+            exceso = max(0, mins - 20)
+            tag = f"🚨 Break excedido (+{exceso} min, lleva {mins} min)"
             alerts.append({
                 "type": "warning",
-                "title": f"Exceso de Break Omni-Channel ({ag['agent_name']})",
-                "message": f"{ag['agent_name']} lleva {mins} min en pausa de Break (supera los 20 min autorizados)."
+                "categoria": "break",
+                "asesor": real_name,
+                "alias": ag["agent_name"],
+                "nivel": ad_info["nivel"],
+                "supervisor": ad_info["supervisor"],
+                "dur_min": mins,
+                "dur_str": f"{mins} min",
+                "tag": tag,
+                "title": f"🚨 {real_name}: Break excedido (+{exceso} min)",
+                "message": f"<b>{real_name}</b>: 🚨 Break Omni-Channel excedido (+{exceso} min, lleva {mins} min)."
             })
 
         # 5. Agentes disponibles con capacidad libre (33% o 67%) con cola esperando
         if total_waiting > 10:
             free_capacity = df_agents[(df_agents["status"] == "Available") & (df_agents["capacity_pct"] < 100)]
             if not free_capacity.empty:
-                free_names = ", ".join(free_capacity["agent_name"].tolist()[:4])
+                free_names = [get_advisor_display_info(a)["nombre"] for a in free_capacity["agent_name"].tolist()[:3]]
+                free_str = ", ".join(free_names)
                 alerts.append({
                     "type": "info",
+                    "categoria": "free_cap",
                     "title": "Capacidad disponible en asesores",
-                    "message": f"Hay asesores con cupos libres ({free_names}) y {total_waiting} chats esperando asignación."
+                    "tag": f"Capacidad disponible ({len(free_capacity)} asesores)",
+                    "message": f"Asesores con cupos libres ({free_str}) y {total_waiting} chats esperando en cola."
                 })
 
     # Alerta de colas criticas
@@ -278,7 +349,9 @@ def detect_live_anomalies(df_queues, df_agents):
             wait_min = round(q["longest_wait_sec"] / 60, 1)
             alerts.append({
                 "type": "critical",
+                "categoria": "queue",
                 "title": f"Saturación en {q['queue_name']}",
+                "tag": f"Saturación en {q['queue_name']} ({wait_min} min)",
                 "message": f"{q['chats_in_queue']} chats esperando. Mayor tiempo de espera: {wait_min} minutos."
             })
 

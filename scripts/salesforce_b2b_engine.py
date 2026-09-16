@@ -94,11 +94,59 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
 
             alerts = sle.detect_live_anomalies(df_queues, df_agents)
             if alerts:
-                for al in alerts[:2]:
-                    if al["type"] == "critical":
-                        st.error(f"🚨 **{al['title']}**: {al['message']}")
-                    else:
-                        st.warning(f"⚠️ **{al['title']}**: {al['message']}")
+                al_criticas = [a for a in alerts if a.get("categoria") in ("busy", "break") or a.get("type") == "critical"]
+                al_operativas = [a for a in alerts if a.get("categoria") in ("idle", "stuck_chat", "free_cap") or a.get("type") in ("warning", "info")]
+
+                if al_criticas and al_operativas:
+                    col_al_c, col_al_o = st.columns(2)
+                elif al_criticas:
+                    col_al_c, col_al_o = st.container(), None
+                elif al_operativas:
+                    col_al_c, col_al_o = None, st.container()
+                else:
+                    col_al_c, col_al_o = None, None
+
+                if col_al_c is not None and al_criticas:
+                    with col_al_c:
+                        items_crit = []
+                        for al in al_criticas:
+                            if "asesor" in al:
+                                items_crit.append(f"<b>{al['asesor']}</b>: {al['tag']}")
+                            else:
+                                items_crit.append(f"<b>{al['title']}</b>: {al['message']}")
+
+                        st.markdown(
+                            f"""
+                            <div style="background:#fff1f2; border:1px solid #fecdd3; border-left:4px solid #e11d48; border-radius:8px; padding:10px 14px; margin-bottom:12px;">
+                                <b style="color:#9f1239; font-size:13.5px;">🚨 {len(al_criticas)} Alerta(s) de Capacidad y Pausas Excedidas:</b>
+                                <div style="margin-top:5px; color:#881337; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
+                                    {" &nbsp;·&nbsp; ".join(items_crit)}
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                if col_al_o is not None and al_operativas:
+                    with col_al_o:
+                        items_op = []
+                        for al in al_operativas:
+                            if "asesor" in al:
+                                items_op.append(f"<b>{al['asesor']}</b>: {al['tag']}")
+                            else:
+                                items_op.append(f"<b>{al['title']}</b>: {al['message']}")
+
+                        st.markdown(
+                            f"""
+                            <div style="background:#fffbeb; border:1px solid #fef3c7; border-left:4px solid #d97706; border-radius:8px; padding:10px 14px; margin-bottom:12px;">
+                                <b style="color:#92400e; font-size:13.5px;">⚠️ {len(al_operativas)} Desvío(s) de Ociosidad y Chats Prolongados:</b>
+                                <div style="margin-top:5px; color:#78350f; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
+                                    {" &nbsp;·&nbsp; ".join(items_op)}
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
             total_waiting = int(df_queues["chats_in_queue"].sum()) if not df_queues.empty else 0
             max_wait = round(int(df_queues["longest_wait_sec"].max()) / 60, 1) if not df_queues.empty else 0
@@ -169,25 +217,27 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                         mins = t_sec // 60
 
                         if st_val == "Busy":
+                            exceso = max(0, mins - 10)
                             if mins >= 15:
-                                return f"🔴 Bloqueo Crítico (+{mins}m en Busy)"
+                                return f"🚨 Busy bloqueado (+{exceso} min, lleva {mins} min)"
                             elif mins >= 10:
-                                return f"🟡 Busy Prolongado (+{mins}m)"
-                            return f"🟡 Ocupado / Busy ({mins}m)"
+                                return f"🟡 Busy prolongado (+{exceso} min, lleva {mins} min)"
+                            return f"🟡 Ocupado / Busy ({mins} min)"
                         elif st_val == "Available":
                             if chats == 0 and mins >= 15:
-                                return f"🔴 Ocioso (+{mins}m sin chats)"
+                                return f"🔴 Ocioso sin chats ({mins} min)"
                             elif chats == 0 and mins >= 10:
-                                return f"🟡 Sin Asignación ({mins}m)"
+                                return f"🟡 Sin asignación ({mins} min)"
                             elif chats >= 1 and mins >= 35:
-                                return f"🟣 Chat Estancado (+{mins}m)"
+                                return f"🟣 Chat estancado ({mins} min)"
                             elif chats == 3:
-                                return "🔵 Plena Carga (3/3)"
-                            return "🟢 Productivo Activo"
+                                return f"🔵 Plena carga 3/3 ({mins} min)"
+                            return f"🟢 Productivo ({mins} min)"
                         elif st_val == "Break":
+                            exceso = max(0, mins - 20)
                             if mins > 20:
-                                return f"🔴 Exceso Break (+{mins}m)"
-                            return f"☕ En Break ({mins}m)"
+                                return f"🚨 Break excedido (+{exceso} min, lleva {mins} min)"
+                            return f"☕ Break ({mins} min)"
                         return "—"
 
                     df_disp["Diagnóstico"] = df_disp.apply(evaluar_productividad_omnichannel, axis=1)
