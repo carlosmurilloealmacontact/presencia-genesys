@@ -151,6 +151,12 @@ def ejecutar_corte_horario_zendesk() -> dict:
             }
             with open(STATUS_FILE, "w", encoding="utf-8") as f:
                 json.dump(status_payload, f, ensure_ascii=False, indent=2)
+            zd_status = ZENDESK_PROCESSED_DIR / "sync_status.json"
+            try:
+                with open(zd_status, "w", encoding="utf-8") as f:
+                    json.dump(status_payload, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
 
             print(f"[{ts_str}] ✅ Corte horario finalizado con éxito en {duracion}s: {backlog_c} backlog, {solved_c} resueltos hoy.")
             return status_payload
