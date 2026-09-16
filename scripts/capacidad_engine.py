@@ -18,12 +18,14 @@ import openpyxl
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import plotly.express as px
 from config import DB_PATH
 from live_engine import obtener_token_genesys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_FORECAST_IN = os.path.join(BASE_DIR, "../09. Intraday Forecast IN Septiembre - Latam.xlsx")
 FILE_FORECAST_BO = os.path.join(BASE_DIR, "../09. Intraday Forecast BO Septiembre - Latam.xlsx")
+FILE_DEMANDA_ZD = os.path.join(BASE_DIR, "../data/zendesk/demanda_diaria_colas.csv")
 
 FILE_FORECAST_DAILY = os.path.join(BASE_DIR, "../09. Daily Forecast Sept - Latam.xlsx")
 CACHE_PKL_PATH = os.path.join(BASE_DIR, "../data/forecast_cache.pkl")
@@ -584,6 +586,305 @@ def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFra
         return pd.DataFrame()
 
 
+MAPEO_ZD_A_SORE_BO = {
+    "LUA AMC": "BO LUA AMC",
+    "Equipajes AMC SSC": "BO EQUIPAJES AMC",
+    "DT FFP AMC": "DT FFP AMC (DREAM TEAM)",
+    "Célula PI AMC ES": "CÉLULA PI AMC ES",
+    "Clula PI AMC ES": "CÉLULA PI AMC ES",
+    "Autorización Supervisor AMC": "Autorización Supervisor AMC",
+    "Autorizacin Supervisor AMC": "Autorización Supervisor AMC",
+    "Autorización Supervisor HVC AMC ES": "Autorización Supervisor HVC",
+    "Autorizacin Supervisor HVC AMC ES": "Autorización Supervisor HVC",
+    "Latam Travel AMC": "LATAM TRAVEL AMC",
+    "Latam Travel": "LATAM TRAVEL AMC",
+    "Travel SSC": "LATAM TRAVEL AMC",
+}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cargar_demanda_zendesk_bo(fecha_desde: str, fecha_hasta: str):
+    """
+    Carga la demanda diaria real de Zendesk (Casos Nuevos / Inflow y Casos Resueltos / Outflow)
+    y la homologa a nivel de servicio SORE para cruzar contra el Forecast.
+    """
+    if not os.path.exists(FILE_DEMANDA_ZD):
+        return pd.DataFrame(), pd.DataFrame()
+    try:
+        try:
+            df_dem = pd.read_csv(FILE_DEMANDA_ZD, encoding="utf-8")
+        except Exception:
+            df_dem = pd.read_csv(FILE_DEMANDA_ZD, encoding="latin1")
+
+        if df_dem.empty or "Fecha" not in df_dem.columns:
+            return pd.DataFrame(), pd.DataFrame()
+
+        df_dem["servicio"] = df_dem["grupo"].map(lambda g: MAPEO_ZD_A_SORE_BO.get(g, g))
+        df_sub = df_dem[(df_dem["Fecha"] >= fecha_desde) & (df_dem["Fecha"] <= fecha_hasta)].copy()
+        if df_sub.empty:
+            return pd.DataFrame(), pd.DataFrame()
+
+        df_sum = df_sub.groupby("servicio", as_index=False).agg({
+            "Casos_Nuevos": "sum",
+            "Casos_Resueltos": "sum",
+            "Balance_Neto": "sum"
+        })
+        df_sum["tasa_resolucion_pct"] = (df_sum["Casos_Resueltos"] / df_sum["Casos_Nuevos"] * 100.0).round(1)
+
+        df_dia = df_sub.groupby(["Fecha", "servicio"], as_index=False).agg({
+            "Casos_Nuevos": "sum",
+            "Casos_Resueltos": "sum",
+            "Balance_Neto": "sum"
+        })
+        return df_sum, df_dia
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
+
+
+def render_seccion_backoffice_zendesk(
+    fecha_desde: str,
+    fecha_hasta: str,
+    df_fore_rango: pd.DataFrame,
+    df_zd_sum: pd.DataFrame,
+    df_zd_dia: pd.DataFrame,
+    num_dias: int = 1
+):
+    """
+    Renderiza la subsección gerencial especializada de Back Office con el cruce
+    de Demanda Proyectada de SORE frente a Inflow y Outflow real de Zendesk.
+    """
+    st.markdown("### 📂 Monitor Especializado de Capacidad y Demanda: Back Office")
+    st.caption(
+        "Cruce directo entre la **Demanda Planificada (Forecast SORE)** y la **Demanda Real Ejecutada (Zendesk Casos)**. "
+        "Permite evaluar si el desvío de capacidad en Back Office proviene de sobre-demanda entrante o del ritmo de resolución."
+    )
+
+    df_bo_fore = df_fore_rango[df_fore_rango["tipo_mundo"].str.contains("Back|BO|Multi", case=False, na=False)].copy()
+    fore_bo_grp = df_bo_fore.groupby("servicio", as_index=False).agg({
+        "traffic_forecast": "sum",
+        "asesores_req": "sum",
+        "minutos_req": "sum",
+        "meta_aht_plana": "first"
+    })
+
+    dict_nuevos = dict(zip(df_zd_sum["servicio"], df_zd_sum["Casos_Nuevos"])) if not df_zd_sum.empty else {}
+    dict_resueltos = dict(zip(df_zd_sum["servicio"], df_zd_sum["Casos_Resueltos"])) if not df_zd_sum.empty else {}
+    dict_balance = dict(zip(df_zd_sum["servicio"], df_zd_sum["Balance_Neto"])) if not df_zd_sum.empty else {}
+    dict_tasa = dict(zip(df_zd_sum["servicio"], df_zd_sum["tasa_resolucion_pct"])) if not df_zd_sum.empty else {}
+
+    servicios_bo_orden = [
+        ("BO LUA AMC", "Zendesk: LUA AMC", "Zendesk"),
+        ("BO EQUIPAJES AMC", "Zendesk: Equipajes AMC SSC", "Zendesk"),
+        ("DT FFP AMC (DREAM TEAM)", "Zendesk: DT FFP AMC", "Zendesk"),
+        ("LATAM TRAVEL AMC", "Zendesk: Latam Travel", "Zendesk"),
+        ("CÉLULA PI AMC ES", "Zendesk: Célula PI AMC ES", "Zendesk"),
+        ("Autorización Supervisor AMC", "Zendesk: Autorización Sup AMC", "Zendesk"),
+        ("BO_CORPORATE", "Salesforce B2B", "Salesforce B2B"),
+        ("BO AGENCIAS TARGET", "Salesforce B2B", "Salesforce B2B"),
+    ]
+
+    filas_bo = []
+    for srv_sore, cola_zd, canal_op in servicios_bo_orden:
+        row_fore = fore_bo_grp[fore_bo_grp["servicio"] == srv_sore]
+        plan_traf = row_fore["traffic_forecast"].values[0] if not row_fore.empty else 0.0
+        plan_fte = (row_fore["minutos_req"].values[0] / (480.0 * num_dias)) if not row_fore.empty else 0.0
+
+        if canal_op == "Salesforce B2B":
+            filas_bo.append({
+                "Servicio SORE": srv_sore,
+                "Canal / Cola Operativa": cola_zd,
+                "Origen Plataforma": "☁️ Salesforce B2B",
+                "Demanda Plan (SORE)": plan_traf,
+                "Casos Nuevos (Inflow)": np.nan,
+                "% Desv Demanda": np.nan,
+                "Casos Resueltos (Outflow)": np.nan,
+                "Balance Neto": np.nan,
+                "Tasa Resolución": np.nan,
+                "FTE Req": plan_fte,
+                "Estado / Observación": "Gestión externa vía Salesforce B2B"
+            })
+        else:
+            c_nuevos = dict_nuevos.get(srv_sore, 0)
+            c_resueltos = dict_resueltos.get(srv_sore, 0)
+            c_balance = dict_balance.get(srv_sore, 0)
+            tasa = dict_tasa.get(srv_sore, (c_resueltos / c_nuevos * 100.0) if c_nuevos > 0 else 100.0)
+            pct_desv = ((c_nuevos - plan_traf) / plan_traf * 100.0) if plan_traf > 0 else np.nan
+
+            if tasa >= 100.0:
+                obs = "🟢 Desahogando Backlog (Resolución > Entrada)"
+            elif tasa >= 90.0:
+                obs = "🟡 Operación Balanceada"
+            else:
+                obs = f"🔴 Acumulando Backlog (+{c_balance} casos)"
+
+            filas_bo.append({
+                "Servicio SORE": srv_sore,
+                "Canal / Cola Operativa": cola_zd,
+                "Origen Plataforma": "🎫 Zendesk CASOUNICO",
+                "Demanda Plan (SORE)": plan_traf,
+                "Casos Nuevos (Inflow)": c_nuevos,
+                "% Desv Demanda": pct_desv,
+                "Casos Resueltos (Outflow)": c_resueltos,
+                "Balance Neto": c_balance,
+                "Tasa Resolución": tasa,
+                "FTE Req": plan_fte,
+                "Estado / Observación": obs
+            })
+
+    df_bo_table = pd.DataFrame(filas_bo)
+
+    df_zd_only = df_bo_table[df_bo_table["Origen Plataforma"].str.contains("Zendesk")].copy()
+    tot_plan_zd = df_zd_only["Demanda Plan (SORE)"].sum()
+    tot_nuevos_zd = df_zd_only["Casos Nuevos (Inflow)"].sum()
+    tot_resueltos_zd = df_zd_only["Casos Resueltos (Outflow)"].sum()
+    tot_balance_zd = df_zd_only["Balance Neto"].sum()
+    tasa_global_zd = (tot_resueltos_zd / tot_nuevos_zd * 100.0) if tot_nuevos_zd > 0 else 100.0
+    desv_demanda_global = ((tot_nuevos_zd - tot_plan_zd) / tot_plan_zd * 100.0) if tot_plan_zd > 0 else 0.0
+
+    bk1, bk2, bk3, bk4 = st.columns(4)
+    with bk1:
+        st.metric(
+            "Demanda Plan (SORE)",
+            f"{tot_plan_zd:,.0f}",
+            help="Total tickets proyectados en el dimensionamiento para las colas comparables de Back Office."
+        )
+    with bk2:
+        col_desv = "normal" if abs(desv_demanda_global) <= 10 else "inverse"
+        st.metric(
+            "Casos Nuevos (Inflow Zendesk)",
+            f"{tot_nuevos_zd:,.0f}",
+            delta=f"{desv_demanda_global:+.1f}% vs Plan SORE",
+            delta_color=col_desv,
+            help="Casos reales creados que ingresaron a las colas de Zendesk durante el periodo."
+        )
+    with bk3:
+        delta_res = f"{tot_resueltos_zd - tot_nuevos_zd:+,.0f} vs Entrada"
+        color_res = "normal" if tot_resueltos_zd >= tot_nuevos_zd else "inverse"
+        st.metric(
+            "Casos Resueltos (Outflow)",
+            f"{tot_resueltos_zd:,.0f}",
+            delta=delta_res,
+            delta_color=color_res,
+            help="Casos efectivamente resueltos y cerrados por los asesores."
+        )
+    with bk4:
+        delta_bal = f"Balance: {tot_balance_zd:+,.0f} tickets"
+        color_tasa = "normal" if tasa_global_zd >= 95 else "inverse"
+        st.metric(
+            "Tasa de Cobertura / Cierre",
+            f"{tasa_global_zd:.1f}%",
+            delta=delta_bal,
+            delta_color=color_tasa,
+            help="Ratio entre Casos Resueltos y Casos Nuevos. >100% indica reducción neta de backlog acumulado."
+        )
+
+    st.markdown("---")
+
+    col_g1, col_g2 = st.columns([1.1, 1.0])
+    with col_g1:
+        st.subheader("📊 Contraste por Cola: Demanda Plan vs Inflow vs Outflow")
+        df_chart_bar = df_zd_only[df_zd_only["Demanda Plan (SORE)"] > 0].copy()
+        fig_bar = go.Figure()
+        fig_bar.add_trace(go.Bar(
+            x=df_chart_bar["Servicio SORE"],
+            y=df_chart_bar["Demanda Plan (SORE)"],
+            name="1. Demanda Plan (SORE)",
+            marker_color="#f59e0b",
+            text=df_chart_bar["Demanda Plan (SORE)"].apply(lambda x: f"{x:,.0f}"),
+            textposition="auto"
+        ))
+        fig_bar.add_trace(go.Bar(
+            x=df_chart_bar["Servicio SORE"],
+            y=df_chart_bar["Casos Nuevos (Inflow)"],
+            name="2. Casos Nuevos (Zendesk Inflow)",
+            marker_color="#2563eb",
+            text=df_chart_bar["Casos Nuevos (Inflow)"].apply(lambda x: f"{x:,.0f}"),
+            textposition="auto"
+        ))
+        fig_bar.add_trace(go.Bar(
+            x=df_chart_bar["Servicio SORE"],
+            y=df_chart_bar["Casos Resueltos (Outflow)"],
+            name="3. Casos Resueltos (Zendesk Outflow)",
+            marker_color="#10b981",
+            text=df_chart_bar["Casos Resueltos (Outflow)"].apply(lambda x: f"{x:,.0f}"),
+            textposition="auto"
+        ))
+        fig_bar.update_layout(
+            barmode="group",
+            height=380,
+            margin=dict(l=10, r=10, t=30, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    with col_g2:
+        st.subheader("📈 Evolución Diaria: Inflow vs Outflow en Zendesk")
+        if not df_zd_dia.empty:
+            df_dia_tot = df_zd_dia.groupby("Fecha", as_index=False).agg({
+                "Casos_Nuevos": "sum",
+                "Casos_Resueltos": "sum",
+                "Balance_Neto": "sum"
+            }).sort_values(by="Fecha")
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(
+                x=df_dia_tot["Fecha"],
+                y=df_dia_tot["Casos_Nuevos"],
+                mode="lines+markers",
+                name="Entrantes (Inflow)",
+                line=dict(color="#2563eb", width=2.5)
+            ))
+            fig_line.add_trace(go.Scatter(
+                x=df_dia_tot["Fecha"],
+                y=df_dia_tot["Casos_Resueltos"],
+                mode="lines+markers",
+                name="Resueltos (Outflow)",
+                line=dict(color="#10b981", width=2.5)
+            ))
+            fig_line.add_trace(go.Bar(
+                x=df_dia_tot["Fecha"],
+                y=df_dia_tot["Balance_Neto"],
+                name="Balance Diario (In - Out)",
+                marker_color="#cbd5e1",
+                opacity=0.6
+            ))
+            fig_line.update_layout(
+                height=380,
+                margin=dict(l=10, r=10, t=30, b=10),
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
+        else:
+            st.info("Sin registros diarios disponibles.")
+
+    st.subheader("📋 Matriz Detallada de Back Office por Mesa Operativa")
+    st.dataframe(
+        df_bo_table,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Servicio SORE": st.column_config.TextColumn("Servicio SORE", width="medium"),
+            "Canal / Cola Operativa": st.column_config.TextColumn("Cola Operativa"),
+            "Origen Plataforma": st.column_config.TextColumn("Plataforma"),
+            "Demanda Plan (SORE)": st.column_config.NumberColumn(format="%,.0f"),
+            "Casos Nuevos (Inflow)": st.column_config.NumberColumn(format="%,.0f"),
+            "% Desv Demanda": st.column_config.NumberColumn(format="%+.1f%%"),
+            "Casos Resueltos (Outflow)": st.column_config.NumberColumn(format="%,.0f"),
+            "Balance Neto": st.column_config.NumberColumn(format="%+d"),
+            "Tasa Resolución": st.column_config.NumberColumn(format="%.1f%%"),
+            "FTE Req": st.column_config.NumberColumn(format="%.1f"),
+            "Estado / Observación": st.column_config.TextColumn("Diagnóstico de Flujo"),
+        }
+    )
+
+    st.info(
+        "💡 **Nota de Arquitectura Operativa:** Como se confirmó operativamente, **BO_CORPORATE** (4,664 tickets plan mes) "
+        "y **BO AGENCIAS TARGET** (5,610 tickets plan mes) son atendidos exclusivamente a través de **Salesforce B2B**, "
+        "mientras que **BO LUA AMC**, **BO EQUIPAJES AMC**, **DREAM TEAM CASOS**, **LATAM TRAVEL AMC** y **CÉLULA PI** "
+        "se canalizan a través de **Zendesk CASOUNICO**."
+    )
+
+
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_metricas_servicio_intradia(fecha_sel: str, srv_detalle: str) -> pd.DataFrame:
     """
@@ -936,6 +1237,12 @@ def render_tab_capacidad(agentes_map: dict):
     # 3. Cargar métricas de Genesys GTR (Tráfico real, AHT real, NS 80/20 real)
     df_gtr_rango = obtener_metricas_gtr_rango(fecha_desde, fecha_hasta)
 
+    # 3.1 Cargar demanda real de Zendesk (Inflow y Outflow) para Back Office
+    df_zd_sum, df_zd_dia = cargar_demanda_zendesk_bo(fecha_desde, fecha_hasta)
+    dict_zd_nuevos = dict(zip(df_zd_sum["servicio"], df_zd_sum["Casos_Nuevos"])) if not df_zd_sum.empty else {}
+    dict_zd_resueltos = dict(zip(df_zd_sum["servicio"], df_zd_sum["Casos_Resueltos"])) if not df_zd_sum.empty else {}
+    dict_zd_tasa = dict(zip(df_zd_sum["servicio"], df_zd_sum["tasa_resolucion_pct"])) if not df_zd_sum.empty else {}
+
     # Resumen agrupado del forecast por servicio
     fore_summary = df_fore_rango.groupby(["servicio", "tipo_mundo"]).agg({
         "traffic_forecast": "sum",
@@ -1004,6 +1311,11 @@ def render_tab_capacidad(agentes_map: dict):
         aht_real = row.get("aht_real_seg")
         ns_real = row.get("ns_real")
 
+        # Para Back Office, complementar con demanda real de Zendesk si GTR no tiene llamadas directas
+        es_canal_bo = ("Back" in tipo or "BO" in tipo or srv in dict_zd_nuevos)
+        if es_canal_bo and pd.isna(traf_real) and srv in dict_zd_nuevos:
+            traf_real = dict_zd_nuevos[srv]
+
         pct_desv_trafico = round(((traf_real - traf_plan) / traf_plan * 100.0), 1) if pd.notna(traf_real) and traf_plan > 0 else np.nan
         pct_desv_aht = round(((aht_real - meta_aht) / meta_aht * 100.0), 1) if pd.notna(aht_real) and meta_aht > 0 else np.nan
 
@@ -1015,12 +1327,19 @@ def render_tab_capacidad(agentes_map: dict):
         min_exceso_aux = max(0.0, min_pau - min_aux_permitidos)
         horas_exceso_aux = min_exceso_aux / 60.0
 
-        causa = diagnosticar_causa_raiz(
-            gap_personas=gap_fte,
-            aux_real=aux_real,
-            aux_meta=META_AUXILIARES_OFICIAL,
-            pct_capacidad=pct_capacidad
-        )
+        if srv in ["BO_CORPORATE", "BO AGENCIAS TARGET"]:
+            causa = "☁️ Operación B2B vía Salesforce (Mesa Externa)"
+        elif es_canal_bo and srv in dict_zd_nuevos:
+            res_val = dict_zd_resueltos.get(srv, 0)
+            tasa_val = dict_zd_tasa.get(srv, 0)
+            causa = f"🎫 Back Office Zendesk: {res_val:,.0f} resueltos ({tasa_val:.0f}% cierre)"
+        else:
+            causa = diagnosticar_causa_raiz(
+                gap_personas=gap_fte,
+                aux_real=aux_real,
+                aux_meta=META_AUXILIARES_OFICIAL,
+                pct_capacidad=pct_capacidad
+            )
 
         filas_tabla.append({
             "Servicio": srv,
@@ -1463,7 +1782,7 @@ def render_tab_capacidad(agentes_map: dict):
             "% Aux Real": st.column_config.NumberColumn("% Aux", format="%.1f%%", help="% de tiempo en pausas"),
             "Meta Aux": st.column_config.NumberColumn("Meta Aux", format="%.0f%%"),
             "Tráfico Plan": st.column_config.NumberColumn("Tráfico Plan", format="%.0f", help="Volumen proyectado en forecast"),
-            "Tráfico Real": st.column_config.NumberColumn("Tráfico Real", format="%.0f", help="Volumen real recibido en Genesys"),
+            "Tráfico Real": st.column_config.NumberColumn("Tráfico Real", format="%.0f", help="Volumen real recibido (Genesys o Zendesk para Back Office)"),
             "% Desv Tráfico": st.column_config.NumberColumn("% Desv Tráfico", format="%+.1f%%", help="Desviación de volumen vs Forecast"),
             "Meta AHT (s)": st.column_config.NumberColumn("Meta AHT", format="%d s", help="Meta plana fija oficial"),
             "AHT Real (s)": st.column_config.NumberColumn("AHT Real", format="%.0f s", help="Handle time real promedio"),
@@ -1472,6 +1791,13 @@ def render_tab_capacidad(agentes_map: dict):
             "Diagnóstico Operativo": st.column_config.TextColumn("Causa Raíz / Veredicto"),
         }
     )
+
+    # Invocación de la Sección Especializada de Back Office (Zendesk vs Sore)
+    if filtro_mundo == "📂 Back Office":
+        render_seccion_backoffice_zendesk(fecha_desde, fecha_hasta, df_fore_rango, df_zd_sum, df_zd_dia, num_dias)
+    else:
+        with st.expander("📂 Ver Monitor Especializado de Demanda y Capacidad Back Office (Sore vs Zendesk)", expanded=False):
+            render_seccion_backoffice_zendesk(fecha_desde, fecha_hasta, df_fore_rango, df_zd_sum, df_zd_dia, num_dias)
 
     # 7. Servicio Seleccionado para el Detalle Intradía
     filas_sel = evento.selection.get("rows", [])
@@ -1519,11 +1845,16 @@ def render_tab_capacidad(agentes_map: dict):
     d_meta_ns = fila_detalle.get("Meta NS", 80.0)
 
     # Texto de demanda
-    if pd.notna(d_traf_real) and d_traf_plan > 0:
+    if srv_detalle in ["BO_CORPORATE", "BO AGENCIAS TARGET"]:
+        texto_demanda = "ℹ️ Mesa corporativa operada externamente a través de Salesforce B2B."
+    elif pd.notna(d_traf_real) and d_traf_plan > 0:
+        extra_bo = ""
+        if srv_detalle in dict_zd_resueltos:
+            extra_bo = f", con **{dict_zd_resueltos[srv_detalle]:,.0f} casos resueltos** en Zendesk (tasa de cobertura del **{dict_zd_tasa.get(srv_detalle, 100):.1f}%**)"
         texto_demanda = (
-            f"🔴 Se atendió una sobre-demanda de **{d_traf_real:,.0f} interacciones** vs **{d_traf_plan:,.0f} planificadas** (**{d_desv_traf:+.1f}%** de sobrecarga no prevista)"
+            f"🔴 Se atendió una sobre-demanda de **{d_traf_real:,.0f} casos/interacciones** vs **{d_traf_plan:,.0f} planificadas** (**{d_desv_traf:+.1f}%** de sobrecarga no prevista){extra_bo}"
             if d_desv_traf > 5.0
-            else f"🟢 El volumen de interacciones estuvo alineado con el forecast (**{d_traf_real:,.0f}** recibidas vs **{d_traf_plan:,.0f}** proyectadas, **{d_desv_traf:+.1f}%**)"
+            else f"🟢 El volumen estuvo alineado con el forecast (**{d_traf_real:,.0f}** recibidas vs **{d_traf_plan:,.0f}** proyectadas, **{d_desv_traf:+.1f}%**){extra_bo}"
         )
     else:
         texto_demanda = "ℹ️ Servicio sin medición de volumen de llamadas/chats en colas directas."
