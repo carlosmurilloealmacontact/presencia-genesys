@@ -189,6 +189,17 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                 fig_q.update_layout(template="plotly_dark", height=300, margin=dict(l=10, r=10, t=20, b=10), showlegend=False)
                 st.plotly_chart(fig_q, use_container_width=True)
 
+                # Detalle de chats en espera con sus identificadores ms- y SLA
+                df_waiting_sf = sle.get_live_waiting_chats(latest_ts)
+                if not df_waiting_sf.empty:
+                    with st.expander(f"📥 Detalle de {len(df_waiting_sf)} Chats en Espera (IDs ms-)", expanded=False):
+                        st.dataframe(
+                            df_waiting_sf[["💬 ID Chat (ms-)", "🏷️ Cola Salesforce", "Tiempo de Espera", "Estado SLA"]],
+                            use_container_width=True,
+                            hide_index=True,
+                            height=180
+                        )
+
             with c_a:
                 st.markdown("##### 👥 Asesores en Línea (Con Supervisor y Nivel)")
                 df_disp = df_agents.copy()

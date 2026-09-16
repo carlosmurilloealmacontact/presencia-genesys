@@ -72,6 +72,17 @@ def init_live_db():
     """)
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS live_waiting_chats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        chat_id TEXT NOT NULL,
+        queue_name TEXT NOT NULL,
+        wait_time_sec INTEGER NOT NULL,
+        channel TEXT DEFAULT 'Web Chat'
+    )
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS live_chat_agents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -93,7 +104,7 @@ def init_live_db():
     conn.close()
 
 
-def save_live_snapshot(queues_data, agents_data):
+def save_live_snapshot(queues_data, agents_data, waiting_chats_data=None):
     """Guarda un snapshot del estado en vivo en Hora Colombia y mantiene la base de datos ligera."""
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
@@ -113,11 +124,19 @@ def save_live_snapshot(queues_data, agents_data):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")))
 
+    if waiting_chats_data:
+        for w in waiting_chats_data:
+            cur.execute("""
+            INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel)
+            VALUES (?, ?, ?, ?, ?)
+            """, (now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")))
+
     # Mantener sólo las últimas 24 horas en hora Colombia para evitar crecimiento innecesario
     try:
         cutoff_str = (now_col - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         cur.execute("DELETE FROM live_chat_queues WHERE timestamp < ?", (cutoff_str,))
         cur.execute("DELETE FROM live_chat_agents WHERE timestamp < ?", (cutoff_str,))
+        cur.execute("DELETE FROM live_waiting_chats WHERE timestamp < ?", (cutoff_str,))
     except Exception:
         pass
 
@@ -142,6 +161,7 @@ def advance_live_state_smoothly():
 
     prev_queues = {}
     prev_agents = {}
+    prev_waiting = {}
 
     if latest_ts:
         try:
@@ -171,6 +191,21 @@ def advance_live_state_smoothly():
                     "skill": str(r["skill"]),
                     "chat_session_ids": str(r.get("chat_session_ids") or "")
                 }
+
+            df_prev_w = pd.read_sql_query(
+                "SELECT chat_id, queue_name, wait_time_sec, channel FROM live_waiting_chats WHERE timestamp = ?",
+                conn,
+                params=(latest_ts,)
+            )
+            for _, r in df_prev_w.iterrows():
+                qn = str(r["queue_name"])
+                if qn not in prev_waiting:
+                    prev_waiting[qn] = []
+                prev_waiting[qn].append({
+                    "chat_id": str(r["chat_id"]),
+                    "wait_time_sec": int(r["wait_time_sec"]),
+                    "channel": str(r.get("channel") or "Web Chat")
+                })
         except Exception:
             pass
     conn.close()
@@ -183,6 +218,7 @@ def advance_live_state_smoothly():
     }
 
     queues_data = []
+    waiting_chats_data = []
     for q_name, cfg in QUEUE_TARGETS.items():
         prev = prev_queues.get(q_name)
         if prev:
@@ -202,6 +238,36 @@ def advance_live_state_smoothly():
         else:
             new_val = cfg["target"] + random.choice([-1, 0, 1])
             wait_sec = new_val * 14
+
+        # Gestionar los chats individuales en espera con sus identificadores ms-
+        pw_list = prev_waiting.get(q_name, [])
+        pw_list = sorted(pw_list, key=lambda x: x["wait_time_sec"])
+        updated_chats = []
+        for c in pw_list:
+            updated_chats.append({
+                "chat_id": c["chat_id"],
+                "queue_name": q_name,
+                "wait_time_sec": c["wait_time_sec"] + random.randint(20, 35),
+                "channel": c.get("channel", "Web Chat")
+            })
+
+        if new_val > len(updated_chats):
+            for _ in range(new_val - len(updated_chats)):
+                updated_chats.append({
+                    "chat_id": f"ms-{random.randint(100000, 999999)}",
+                    "queue_name": q_name,
+                    "wait_time_sec": random.randint(10, 25),
+                    "channel": "Web Chat"
+                })
+        elif new_val < len(updated_chats):
+            # Se atendieron chats (los de mayor espera salieron de cola)
+            updated_chats = sorted(updated_chats, key=lambda x: x["wait_time_sec"])[:new_val]
+
+        if updated_chats:
+            real_longest = max([c["wait_time_sec"] for c in updated_chats])
+            wait_sec = max(wait_sec, real_longest)
+
+        waiting_chats_data.extend(updated_chats)
 
         queues_data.append({
             "queue_name": q_name,
@@ -276,8 +342,64 @@ def advance_live_state_smoothly():
             "chat_session_ids": sesiones_str
         })
 
-    save_live_snapshot(queues_data, agents_data)
+    save_live_snapshot(queues_data, agents_data, waiting_chats_data)
     return queues_data, agents_data
+
+
+def get_live_waiting_chats(latest_ts: str = None) -> pd.DataFrame:
+    """
+    Retorna los chats individuales que están actualmente en cola esperando atención en Omni-Channel.
+    Incluye:
+    - ID de Chat (ms-XXXXXX)
+    - Cola Salesforce a la que pertenecen
+    - Tiempo de Espera (mm:ss)
+    - Estado de Cumplimiento de SLA (Meta <= 100 segundos)
+    """
+    init_live_db()
+    conn = sqlite3.connect(LIVE_DB_PATH)
+    if not latest_ts:
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(timestamp) FROM live_waiting_chats")
+        row = cur.fetchone()
+        latest_ts = row[0] if row else None
+
+    if not latest_ts:
+        conn.close()
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_sql_query(
+            "SELECT chat_id, queue_name, wait_time_sec, channel FROM live_waiting_chats WHERE timestamp = ? ORDER BY wait_time_sec DESC",
+            conn,
+            params=(latest_ts,)
+        )
+    except Exception:
+        df = pd.DataFrame()
+    conn.close()
+
+    if df.empty:
+        return df
+
+    def format_wait(sec):
+        m, s = divmod(int(sec), 60)
+        return f"{m:02d}:{s:02d} min"
+
+    def format_sla(sec):
+        if sec <= 60:
+            return "🟢 Normal (≤ 60s)"
+        elif sec <= 100:
+            return "🟡 En Riesgo (61-100s)"
+        else:
+            return "🔴 SLA Excedido (> 100s)"
+
+    df["Tiempo de Espera"] = df["wait_time_sec"].apply(format_wait)
+    df["Estado SLA"] = df["wait_time_sec"].apply(format_sla)
+    df = df.rename(columns={
+        "chat_id": "💬 ID Chat (ms-)",
+        "queue_name": "🏷️ Cola Salesforce",
+        "channel": "Canal"
+    })
+    return df[["💬 ID Chat (ms-)", "🏷️ Cola Salesforce", "Tiempo de Espera", "Estado SLA", "wait_time_sec", "Canal"]]
 
 
 def generate_simulated_live_tick():

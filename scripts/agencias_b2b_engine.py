@@ -218,6 +218,33 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
             )
             fig_q.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10), template="plotly_dark", coloraxis_showscale=False)
             st.plotly_chart(fig_q, use_container_width=True)
+
+            # Detalle granular de cada chat en cola con su identificador ms- y SLA
+            df_waiting = sle.get_live_waiting_chats(latest_ts)
+            if not df_waiting.empty:
+                with st.expander(f"🔍 Detalle de {len(df_waiting)} Chats en Espera (IDs ms- y SLA)", expanded=False):
+                    col_wf1, col_wf2 = st.columns([1.2, 1.2])
+                    with col_wf1:
+                        filtro_q = st.selectbox(
+                            "Filtrar por Cola:",
+                            ["Todas las Colas"] + sorted(df_waiting["🏷️ Cola Salesforce"].unique().tolist()),
+                            key="ag_sel_q_wait"
+                        )
+                    with col_wf2:
+                        busq_ms = st.text_input("Buscar ID ms-:", placeholder="ej. ms-809...", key="ag_inp_ms_wait")
+
+                    df_w_sub = df_waiting.copy()
+                    if filtro_q != "Todas las Colas":
+                        df_w_sub = df_w_sub[df_w_sub["🏷️ Cola Salesforce"] == filtro_q]
+                    if busq_ms:
+                        df_w_sub = df_w_sub[df_w_sub["💬 ID Chat (ms-)"].str.contains(busq_ms, case=False, na=False)]
+
+                    st.dataframe(
+                        df_w_sub[["💬 ID Chat (ms-)", "🏷️ Cola Salesforce", "Tiempo de Espera", "Estado SLA"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        height=180
+                    )
         else:
             st.info("Sin chats represados en colas.")
 
