@@ -4,9 +4,14 @@ Filtra exclusivamente la operacion de AMC y calcula SLAs, Antiguedad (Aging) y P
 """
 
 import os
+import sys
 import glob
+import re
+import numpy as np
 import pandas as pd
 from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 try:
     import zoneinfo
@@ -25,10 +30,10 @@ SALESFORCE_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "sal
 
 
 def get_latest_salesforce_file():
-    """Obtiene la ruta del archivo de reporte de casos mas reciente (excluyendo caches generados)."""
+    """Obtiene la ruta del archivo de reporte de casos mas reciente (excluyendo caches y demandas generadas)."""
     raw_files = [
         f for f in glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.xlsx")) + glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.csv"))
-        if not os.path.basename(f).startswith("cases_amc_cleaned")
+        if not any(ign in os.path.basename(f).lower() for ign in ["cases_amc_cleaned", "demanda_diaria", "maestro_asesores"])
     ]
     if not raw_files:
         return None
@@ -51,26 +56,31 @@ def load_and_clean_cases_data(file_path=None):
     if file_path is None or not os.path.exists(file_path):
         if os.path.exists(cache_pkl):
             try:
-                return pd.read_pickle(cache_pkl)
+                df_pkl = pd.read_pickle(cache_pkl)
+                if "Work Queue Control" in df_pkl.columns and "Número del caso" in df_pkl.columns:
+                    return df_pkl
             except Exception as e:
                 print(f"[!] Error leyendo pickle: {e}")
         if os.path.exists(cache_csv):
             try:
                 df_csv = pd.read_csv(cache_csv)
-                if "Fecha_Inicio_dt" in df_csv.columns:
-                    df_csv["Fecha_Inicio_dt"] = pd.to_datetime(df_csv["Fecha_Inicio_dt"], errors="coerce")
-                if "Fecha_Finalizacion_dt" in df_csv.columns:
-                    df_csv["Fecha_Finalizacion_dt"] = pd.to_datetime(df_csv["Fecha_Finalizacion_dt"], errors="coerce")
-                return df_csv
+                if "Work Queue Control" in df_csv.columns and "Número del caso" in df_csv.columns:
+                    if "Fecha_Inicio_dt" in df_csv.columns:
+                        df_csv["Fecha_Inicio_dt"] = pd.to_datetime(df_csv["Fecha_Inicio_dt"], errors="coerce")
+                    if "Fecha_Finalizacion_dt" in df_csv.columns:
+                        df_csv["Fecha_Finalizacion_dt"] = pd.to_datetime(df_csv["Fecha_Finalizacion_dt"], errors="coerce")
+                    return df_csv
             except Exception as e:
                 print(f"[!] Error leyendo csv cache: {e}")
         return pd.DataFrame()
 
-    # Si hay archivo raw y el caché pkl es más reciente:
+    # Si hay archivo raw y el caché pkl es válido y reciente:
     if os.path.exists(cache_pkl):
         try:
             if os.path.getmtime(cache_pkl) >= os.path.getmtime(file_path):
-                return pd.read_pickle(cache_pkl)
+                df_pkl = pd.read_pickle(cache_pkl)
+                if "Work Queue Control" in df_pkl.columns and "Número del caso" in df_pkl.columns:
+                    return df_pkl
         except Exception:
             pass
 
@@ -91,8 +101,33 @@ def load_and_clean_cases_data(file_path=None):
         # Archivo CSV
         df = pd.read_csv(file_path, skiprows=13, encoding="utf-8", encoding_errors="replace")
 
-    # Limpieza de nombres de columnas (remover flechas de ordenamiento y espacios)
-    df.columns = [str(c).replace("↑", "").replace("↓", "").strip() for c in df.columns]
+    # Limpieza exhaustiva de nombres de columnas (remover flechas de ordenamiento, espacios y caracteres raros)
+    def clean_col(c):
+        c = str(c).replace("↑", "").replace("↓", "").replace("▲", "").replace("▼", "")
+        return re.sub(r'\s+', ' ', c).strip()
+
+    df.columns = [clean_col(c) for c in df.columns]
+
+    # Mapeo de columnas con nombres variantes
+    col_map = {}
+    for c in df.columns:
+        cl = c.lower()
+        if "work queue" in cl or "cola" in cl:
+            col_map[c] = "Work Queue Control"
+        elif "número del caso" in cl or "numero del caso" in cl:
+            col_map[c] = "Número del caso"
+        elif "fecha/hora de cierre" in cl or "fecha de cierre" in cl:
+            col_map[c] = "Fecha/Hora de cierre"
+        elif "fecha de inicio" in cl:
+            col_map[c] = "Fecha de inicio"
+        elif "fecha de finalización" in cl or "fecha de finalizacion" in cl:
+            col_map[c] = "Fecha de finalización"
+        elif "infracción" in cl or "infraccion" in cl:
+            col_map[c] = "Infracción"
+        elif "alias del propietario" in cl:
+            col_map[c] = "Alias del propietario del caso"
+    if col_map:
+        df.rename(columns=col_map, inplace=True)
 
     # Forward fill en columnas de agrupacion que Salesforce deja en blanco
     if "Work Queue Control" in df.columns:
@@ -228,12 +263,13 @@ def calculate_kpis(df):
 
 def get_aging_distribution(df):
     """Devuelve la distribucion de casos por tramos de antiguedad."""
-    if df.empty:
-        return pd.DataFrame(columns=["Rango", "Casos", "Infracciones"])
+    if df.empty or "Rango_Antiguedad" not in df.columns:
+        return pd.DataFrame(columns=["Rango", "Casos", "Infracciones", "Pct_Infraccion"])
 
+    col_id = "Número del caso" if "Número del caso" in df.columns else ("Es_Infraccion" if "Es_Infraccion" in df.columns else df.columns[0])
     orden = ["< 24 Horas", "1 a 3 Días", "4 a 7 Días", "8 a 15 Días", "16 a 30 Días", "> 30 Días (Crítico)"]
     grouped = df.groupby("Rango_Antiguedad").agg(
-        Casos=("Número del caso", "count"),
+        Casos=(col_id, "count"),
         Infracciones=("Es_Infraccion", "sum")
     ).reindex(orden).fillna(0).reset_index()
 
@@ -247,10 +283,11 @@ def get_aging_distribution(df):
 def get_queue_breakdown(df):
     """Devuelve el desglose por cola AMC."""
     if df.empty or "Work Queue Control" not in df.columns:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["Work Queue Control", "Total_Casos", "Infracciones", "Sin_Asignar", "Prom_Dias", "Pct_Infraccion"])
 
+    col_id = "Número del caso" if "Número del caso" in df.columns else ("Es_Infraccion" if "Es_Infraccion" in df.columns else df.columns[0])
     grouped = df.groupby("Work Queue Control").agg(
-        Total_Casos=("Número del caso", "count"),
+        Total_Casos=(col_id, "count"),
         Infracciones=("Es_Infraccion", "sum"),
         Sin_Asignar=("Esta_Asignado", lambda x: int((~x).sum())),
         Prom_Dias=("Antiguedad_Dias", "mean")

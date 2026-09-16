@@ -402,18 +402,24 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             with sf_f2:
                 sf_hasta = st.date_input("Hasta:", value=max_d, min_value=min_d, max_value=max_d, key="bk_b2b_hasta")
             with sf_f3:
-                serv_opts = ["Todos los Servicios"] + sorted([s for s in df_cases_raw["Work Queue Control"].dropna().unique() if str(s).strip()])
+                if "Work Queue Control" in df_cases_raw.columns:
+                    serv_opts = ["Todos los Servicios"] + sorted([s for s in df_cases_raw["Work Queue Control"].dropna().unique() if str(s).strip()])
+                else:
+                    serv_opts = ["Todos los Servicios"]
                 sf_serv = st.selectbox("Servicio / Cola:", serv_opts, key="bk_b2b_serv")
             with sf_f4:
-                sup_opts = ["Todos los Supervisores"] + sorted([s for s in df_cases_raw["Supervisor"].dropna().unique() if s != "Sin Supervisor"]) + ["Sin Supervisor"]
+                if "Supervisor" in df_cases_raw.columns:
+                    sup_opts = ["Todos los Supervisores"] + sorted([s for s in df_cases_raw["Supervisor"].dropna().unique() if s != "Sin Supervisor"]) + ["Sin Supervisor"]
+                else:
+                    sup_opts = ["Todos los Supervisores"]
                 sf_sup = st.selectbox("Supervisor (Jefe):", sup_opts, key="bk_b2b_sup")
 
             df_cases_bk = df_cases_raw.copy()
-            if sf_desde and sf_hasta:
+            if sf_desde and sf_hasta and "Fecha_Inicio_dt" in df_cases_bk.columns:
                 df_cases_bk = df_cases_bk[(df_cases_bk["Fecha_Inicio_dt"].dt.date >= sf_desde) & (df_cases_bk["Fecha_Inicio_dt"].dt.date <= sf_hasta)]
-            if sf_serv != "Todos los Servicios":
+            if sf_serv != "Todos los Servicios" and "Work Queue Control" in df_cases_bk.columns:
                 df_cases_bk = df_cases_bk[df_cases_bk["Work Queue Control"] == sf_serv]
-            if sf_sup != "Todos los Supervisores":
+            if sf_sup != "Todos los Supervisores" and "Supervisor" in df_cases_bk.columns:
                 df_cases_bk = df_cases_bk[df_cases_bk["Supervisor"] == sf_sup]
 
             kpis = sfe.calculate_kpis(df_cases_bk)
@@ -465,17 +471,22 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             with col_qu:
                 st.markdown("##### 🏢 Colas de Backoffice")
                 df_q_break = sfe.get_queue_breakdown(df_cases_bk)
-                st.dataframe(
-                    df_q_break.rename(columns={
+                if not df_q_break.empty:
+                    df_renamed = df_q_break.rename(columns={
                         "Work Queue Control": "Cola",
                         "Total_Casos": "Total",
                         "Infracciones": "Vencidos",
                         "Pct_Infraccion": "% Venc.",
                         "Prom_Dias": "Prom. Días"
-                    })[["Cola", "Total", "% Venc.", "Prom. Días"]],
-                    use_container_width=True,
-                    hide_index=True
-                )
+                    })
+                    cols_show = [c for c in ["Cola", "Total", "% Venc.", "Prom. Días"] if c in df_renamed.columns]
+                    st.dataframe(
+                        df_renamed[cols_show],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("No hay desglose de colas para los filtros seleccionados.")
 
     # ---------------------------------------------------------------------
     # SUBMÓDULO 4: PRODUCTIVIDAD EN TURNO PROGRAMADO
