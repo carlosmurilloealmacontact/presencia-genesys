@@ -36,6 +36,18 @@ DATA_DIR = BASE_DIR / "data" / "zendesk"
 RANGOS_ORDEN = ["<48H", ">48H<=15DIAS", ">15Y<=30DIAS", ">30DIAS"]
 
 
+def formatear_colombia_dt(val) -> str:
+    """Convierte cualquier timestamp UTC a formato legible en hora de Colombia (UTC-5 / America/Bogota)."""
+    try:
+        if pd.isna(val) or val is None or str(val).strip() in ("", "nan", "NaT"):
+            return ""
+        ts = pd.to_datetime(val, utc=True)
+        ts_col = ts.tz_convert("America/Bogota")
+        return ts_col.strftime("%d/%m/%Y %I:%M %p")
+    except Exception:
+        return str(val)
+
+
 # ── HELPERS DE SOCIO MAESTRO Y ANTIGÜEDAD ─────────────────────────────────────
 
 def normalizar(s: str) -> str:
@@ -317,6 +329,10 @@ def cargar_bundle_zendesk() -> dict:
     df_p_raw = pd.read_csv(file_prod_hoy) if file_prod_hoy.exists() else None
     df_enr_hoy = enriquecer_con_socio(df_p_raw, solo_almacontact=False) if df_p_raw is not None and not df_p_raw.empty else pd.DataFrame()
 
+    # Pre-cargar demanda diaria y balance de colas
+    file_demanda = DATA_DIR / "demanda_diaria_colas.csv"
+    df_demanda = pd.read_csv(file_demanda) if file_demanda.exists() else None
+
     return {
         "df_raw_enr_alma": df_raw_enr_alma,
         "df_raw_enr_todos": df_raw_enr_todos,
@@ -328,6 +344,7 @@ def cargar_bundle_zendesk() -> dict:
         "d_desglose": d_desglose,
         "df_p_raw": df_p_raw,
         "df_enr_hoy": df_enr_hoy,
+        "df_demanda": df_demanda,
         "f_min_def": f_min_def,
         "f_max_def": f_max_def,
     }
@@ -414,24 +431,30 @@ def render_tab_zendesk(email_usuario: str = ""):
     bundle = cargar_bundle_zendesk()
     file_prod_hoy = DATA_DIR / "productividad_hoy_en_vivo.csv"
     file_b_vivo = DATA_DIR / "backlog_en_vivo.csv"
+    file_diario = DATA_DIR / "productividad_diaria_fechas.csv"
+    file_demanda = DATA_DIR / "demanda_diaria_colas.csv"
 
-    # Barra superior de estado de sincronización
+    # Barra superior de estado de sincronización (Hora Colombia / UTC-5)
     latest_mtime = 0
-    if file_b_vivo.exists():
-        latest_mtime = max(latest_mtime, file_b_vivo.stat().st_mtime)
-    if file_prod_hoy.exists():
-        latest_mtime = max(latest_mtime, file_prod_hoy.stat().st_mtime)
+    for f_chk in [file_b_vivo, file_prod_hoy, file_diario, file_demanda]:
+        if f_chk.exists():
+            latest_mtime = max(latest_mtime, f_chk.stat().st_mtime)
 
     col_h1, col_h2 = st.columns([3, 1.2])
     with col_h1:
         if latest_mtime > 0:
-            hora_s = datetime.fromtimestamp(latest_mtime).strftime('%d/%m/%Y %H:%M:%S')
-            st.info(f"🕒 **Última sincronización con Zendesk:** `{hora_s}` | **Colas activas:** 15 grupos AMC | **Estado:** Operativo en Vivo")
+            import zoneinfo
+            try:
+                tz_col = zoneinfo.ZoneInfo("America/Bogota")
+                dt_sync = datetime.fromtimestamp(latest_mtime, tz=zoneinfo.ZoneInfo("UTC")).astimezone(tz_col)
+                hora_s = dt_sync.strftime('%d/%m/%Y %I:%M:%S %p')
+            except Exception:
+                hora_s = datetime.fromtimestamp(latest_mtime).strftime('%d/%m/%Y %I:%M:%S %p')
+            st.info(f"🕒 **Última sincronización Zendesk:** `{hora_s}` *(Hora Colombia / UTC-5)* | **Colas activas:** 15 grupos AMC | **Estado:** Operativo en Vivo")
         else:
             st.info("🕒 Estado de Zendesk: Datos históricos cargados.")
 
     with col_h2:
-        # Si existe el script local de sincronización, permitir refresco local
         local_sync_script = Path(r"C:\Proyecto 3.0\Zendesk\zendesk_sync_service.py")
         if local_sync_script.exists():
             if st.button("🔄 Sincronizar en Vivo", type="primary", use_container_width=True, help="Ejecuta en segundo plano una consulta a Zendesk Support para actualizar el backlog y los casos resueltos hoy."):
@@ -463,10 +486,16 @@ def render_tab_zendesk(email_usuario: str = ""):
                         proc.wait(timeout=120)
 
                         if res_data and res_data.get("status") == "ok":
-                            # Copiar archivos actualizados a data/zendesk
                             import shutil
                             for src_f in (local_sync_script.parent / "data" / "processed").glob("*.*"):
                                 shutil.copy2(src_f, DATA_DIR / src_f.name)
+
+                            # Regenerar demanda diaria
+                            try:
+                                from generar_demanda_diaria import generar_demanda_diaria
+                                generar_demanda_diaria()
+                            except Exception:
+                                pass
 
                             cargar_bundle_zendesk.clear()
                             bc = res_data.get("backlog_count", 0)
@@ -481,7 +510,14 @@ def render_tab_zendesk(email_usuario: str = ""):
                     except Exception as ex:
                         status_box.update(label=f"❌ Error: {ex}", state="error")
         else:
-            st.caption("☁️ Modo Cloud: Visualizando última sincronización de Zendesk Support.")
+            # Modo Cloud (Streamlit Community Cloud): Botón siempre visible para refresco y limpieza de caché
+            if st.button("🔄 Refrescar Datos Zendesk", type="primary", use_container_width=True, help="Limpia la memoria caché de Streamlit y recarga las métricas con los últimos datos sincronizados."):
+                cargar_bundle_zendesk.clear()
+                st.cache_data.clear()
+                st.toast("✅ Datos de Zendesk recargados exitosamente.")
+                time.sleep(0.3)
+                st.rerun()
+            st.caption("☁️ Modo Cloud: Limpia caché y sincroniza vista.")
 
     # ── FILTROS SUPERIORES DE OPERACIÓN (EN MEMORIA / SIN LATENCIA) ──────────
     st.markdown("#### 🎯 Filtros de Operación y Segmentación")
@@ -580,8 +616,9 @@ def render_tab_zendesk(email_usuario: str = ""):
             df_diario_filtrado = df_diario_filtrado[~is_auth_mask].copy()
 
     # Sub-navegación por pestañas de Zendesk
-    tab_zd_diario, tab_zd_antiguedad, tab_zd_intradia, tab_zd_backlog, tab_zd_asesores, tab_zd_tipologia, tab_zd_tiempos, tab_zd_volumen, tab_zd_autorizaciones = st.tabs([
+    tab_zd_diario, tab_zd_demanda, tab_zd_antiguedad, tab_zd_intradia, tab_zd_backlog, tab_zd_asesores, tab_zd_tipologia, tab_zd_tiempos, tab_zd_volumen, tab_zd_autorizaciones = st.tabs([
         "📅 Productividad Diaria",
+        "📥 Demanda Diaria (Nuevos)",
         "⏳ Antigüedad del Backlog",
         "⏱️ Cortes Intradía",
         "🚨 Backlog en Cola",
@@ -660,7 +697,111 @@ def render_tab_zendesk(email_usuario: str = ""):
             st.info("No hay registros diarios disponibles para los filtros seleccionados.")
 
     # ---------------------------------------------------------------------
-    # SUBMÓDULO 2: ANTIGÜEDAD DEL BACKLOG (IMÁGENES 1, 2, 3)
+    # SUBMÓDULO: DEMANDA DIARIA (CASOS NUEVOS INGRESADOS POR COLA)
+    # ---------------------------------------------------------------------
+    with tab_zd_demanda:
+        st.subheader("📥 Demanda Diaria por Cola (Casos Nuevos Ingresados en Hora Col UTC-5)")
+        st.caption("Monitorea la cantidad exacta de casos nuevos que ingresan día a día a cada cola de atención y compáralos contra la capacidad de resolución (Inflow vs Outflow).")
+
+        df_dem = bundle.get("df_demanda")
+        if df_dem is not None and not df_dem.empty:
+            df_dem_f = df_dem.copy()
+            if fecha_ini and fecha_fin:
+                f_ini_s = fecha_ini.strftime("%Y-%m-%d")
+                f_fin_s = fecha_fin.strftime("%Y-%m-%d")
+                df_dem_f = df_dem_f[(df_dem_f["Fecha"] >= f_ini_s) & (df_dem_f["Fecha"] <= f_fin_s)]
+
+            col_dem1, col_dem2 = st.columns([2, 1])
+            with col_dem1:
+                colas_disp = ["Todas las Colas"] + sorted(list(df_dem_f["grupo"].unique()))
+                sel_cola_dem = st.selectbox("Filtrar Cola:", colas_disp, key="zd_dem_cola")
+            with col_dem2:
+                vista_dem = st.radio("Métrica Principal:", ["Casos Nuevos (Demanda)", "Balance (Entradas vs Resueltos)"], horizontal=True, key="zd_dem_vista")
+
+            if sel_cola_dem != "Todas las Colas":
+                df_dem_f = df_dem_f[df_dem_f["grupo"] == sel_cola_dem]
+
+            # KPIs
+            tot_nuevos = df_dem_f["Casos_Nuevos"].sum()
+            tot_resueltos = df_dem_f["Casos_Resueltos"].sum()
+            balance_neto = df_dem_f["Balance_Neto"].sum()
+            dias_dem = df_dem_f["Fecha"].nunique()
+            prom_ingresos_dia = (tot_nuevos / dias_dem) if dias_dem > 0 else 0
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("📥 Total Casos Nuevos", f"{tot_nuevos:,.0f}", f"En periodo seleccionado")
+            k2.metric("📈 Promedio Nuevos / Día", f"{prom_ingresos_dia:,.1f}", f"{dias_dem} días activos")
+            k3.metric("📤 Casos Resueltos", f"{tot_resueltos:,.0f}", f"Productividad en periodo")
+            k4.metric(
+                "⚖️ Balance Neto de Backlog",
+                f"{balance_neto:+,.0f}",
+                "Creció backlog" if balance_neto > 0 else "Desahogo de cola",
+                delta_color="inverse" if balance_neto > 0 else "normal"
+            )
+
+            st.markdown("---")
+
+            c_g1, c_g2 = st.columns([3, 2])
+            with c_g1:
+                st.subheader("📈 Evolución de Casos Nuevos Ingresados por Día")
+                df_dem_dia = df_dem_f.groupby(["Fecha", "grupo"])["Casos_Nuevos"].sum().reset_index()
+                fig_dem_dia = px.bar(
+                    df_dem_dia,
+                    x="Fecha",
+                    y="Casos_Nuevos",
+                    color="grupo",
+                    barmode="stack",
+                    text="Casos_Nuevos",
+                    title="Nuevos Casos por Día y Cola (Demanda de Entrada)"
+                )
+                fig_dem_dia.update_layout(height=430, margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_dem_dia, use_container_width=True)
+
+            with c_g2:
+                st.subheader("🍰 Distribución de Demanda por Cola")
+                df_pie_dem = df_dem_f.groupby("grupo")["Casos_Nuevos"].sum().reset_index().sort_values(by="Casos_Nuevos", ascending=False)
+                fig_pie = px.pie(
+                    df_pie_dem,
+                    names="grupo",
+                    values="Casos_Nuevos",
+                    hole=0.45,
+                    title="% de Carga de Entrada por Cola"
+                )
+                fig_pie.update_layout(height=430, margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2))
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            st.subheader("⚖️ Balance Operativo Día a Día: Entrada vs Salida (Inflow vs Outflow)")
+            df_comp_dia = df_dem_f.groupby("Fecha")[["Casos_Nuevos", "Casos_Resueltos", "Balance_Neto"]].sum().reset_index()
+            fig_comp = go.Figure()
+            fig_comp.add_trace(go.Bar(x=df_comp_dia["Fecha"], y=df_comp_dia["Casos_Nuevos"], name="📥 Casos Nuevos (Entrada)", marker_color="#1E88E5"))
+            fig_comp.add_trace(go.Bar(x=df_comp_dia["Fecha"], y=df_comp_dia["Casos_Resueltos"], name="📤 Casos Resueltos (Salida)", marker_color="#43A047"))
+            fig_comp.add_trace(go.Scatter(x=df_comp_dia["Fecha"], y=df_comp_dia["Balance_Neto"], name="⚖️ Balance Neto (Entradas - Resueltos)", mode="lines+markers", line=dict(color="#E53935", width=3)))
+            fig_comp.update_layout(
+                title="Balance Diario de Cola: Demanda de Entrada vs Capacidad Resuelta",
+                barmode="group",
+                height=450,
+                margin=dict(l=10, r=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_comp, use_container_width=True)
+
+            st.subheader("📋 Registro Diario Detallado de Demanda y Capacidad por Cola")
+            st.dataframe(
+                df_dem_f[["Fecha", "grupo", "Casos_Nuevos", "Casos_Resueltos", "Balance_Neto"]]
+                .rename(columns={
+                    "grupo": "Cola / Servicio",
+                    "Casos_Nuevos": "📥 Casos Nuevos (Inflow)",
+                    "Casos_Resueltos": "📤 Casos Resueltos (Outflow)",
+                    "Balance_Neto": "⚖️ Balance Neto"
+                })
+                .sort_values(by=["Fecha", "Casos_Nuevos"], ascending=[False, False]),
+                use_container_width=True
+            )
+        else:
+            st.info("No hay datos de demanda disponibles en el periodo seleccionado.")
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 3: ANTIGÜEDAD DEL BACKLOG (IMÁGENES 1, 2, 3)
     # ---------------------------------------------------------------------
     with tab_zd_antiguedad:
         st.subheader("⏳ Matriz de Antigüedad del Backlog Operativo")
@@ -919,8 +1060,10 @@ def render_tab_zendesk(email_usuario: str = ""):
                 fig_tip_b.update_layout(yaxis=dict(title=""), height=430, margin=dict(l=10, r=10))
                 st.plotly_chart(fig_tip_b, use_container_width=True)
 
-            st.subheader("📋 Detalle de Tickets en Cola de Espera")
-            cols_mostrar = ["id", "subject", "grupo", "Estado_Legible", "priority", "tipo_gestion", "Nombre_Asesor", "created_at"]
+            st.subheader("📋 Detalle de Tickets en Cola de Espera (Hora Colombia UTC-5)")
+            if "created_at" in df_bv_view.columns:
+                df_bv_view["Fecha Creación (Hora Col)"] = df_bv_view["created_at"].apply(formatear_colombia_dt)
+            cols_mostrar = ["id", "subject", "grupo", "Estado_Legible", "priority", "tipo_gestion", "Nombre_Asesor", "Fecha Creación (Hora Col)"]
             st.dataframe(
                 df_bv_view[[c for c in cols_mostrar if c in df_bv_view.columns]]
                 .rename(columns={
@@ -930,8 +1073,7 @@ def render_tab_zendesk(email_usuario: str = ""):
                     "Estado_Legible": "Estado",
                     "priority": "Prioridad",
                     "tipo_gestion": "Tipología",
-                    "Nombre_Asesor": "Asesor Asignado",
-                    "created_at": "Fecha Creación"
+                    "Nombre_Asesor": "Asesor Asignado"
                 }),
                 use_container_width=True
             )
@@ -1241,14 +1383,15 @@ def render_tab_zendesk(email_usuario: str = ""):
                 hvc_b_cnt = len(df_b_auth[df_b_auth["grupo"].str.contains("HVC", case=False, na=False)])
                 st.metric("Pendientes Autorización HVC ES", f"{hvc_b_cnt}")
 
-            cols_show = [c for c in ["id", "grupo", "status", "priority", "created_at", "Nombre_Asesor", "subject"] if c in df_b_auth.columns]
+            if "created_at" in df_b_auth.columns:
+                df_b_auth["Fecha Ingreso (Hora Col)"] = df_b_auth["created_at"].apply(formatear_colombia_dt)
+            cols_show = [c for c in ["id", "grupo", "status", "priority", "Fecha Ingreso (Hora Col)", "Nombre_Asesor", "subject"] if c in df_b_auth.columns]
             st.dataframe(
                 df_b_auth[cols_show].rename(columns={
                     "id": "ID Ticket",
                     "grupo": "Cola",
                     "status": "Estado",
                     "priority": "Prioridad",
-                    "created_at": "Fecha Ingreso UTC",
                     "Nombre_Asesor": "Asignado",
                     "subject": "Asunto / Solicitud"
                 }),
