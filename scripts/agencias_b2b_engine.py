@@ -103,21 +103,35 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
 
     st.caption(f"🟢 **Sincronización Multicanal:** Actualizado a las **{hora_display}** (Hora Colombia - COT / UTC-5) • Auto-recarga cada **30 segundos**.")
 
-    # 2. Métricas Consolidadas de Piso
-    # Genesys
-    tot_genesys = len(df_live_genesys)
-    en_cola_gen = len(df_live_genesys[df_live_genesys["routing_status"] == "IDLE"]) if not df_live_genesys.empty else 0
-    en_llamada_gen = len(df_live_genesys[df_live_genesys["llamada_activa"] == True]) if not df_live_genesys.empty and "llamada_activa" in df_live_genesys.columns else 0
-    en_pausa_gen = len(df_live_genesys[df_live_genesys["presence_label"].isin(["Break", "Lunch", "Baño", "Diálogo Diario / 4DX", "PCA- Diálogo", "Refuerzo Semanal", "Feedback"])]) if not df_live_genesys.empty else 0
-    disponible_gen = len(df_live_genesys[df_live_genesys["presence_label"] == "Available"]) if not df_live_genesys.empty else 0
+    # 2. Métricas Consolidadas de Piso con protección de columnas
+    tot_genesys = len(df_live_genesys) if not df_live_genesys.empty else 0
+    en_cola_gen = 0
+    en_llamada_gen = 0
+    en_pausa_gen = 0
+    disponible_gen = 0
+
+    if not df_live_genesys.empty:
+        col_rout = "routing" if "routing" in df_live_genesys.columns else ("routing_status" if "routing_status" in df_live_genesys.columns else None)
+        if col_rout:
+            en_cola_gen = len(df_live_genesys[df_live_genesys[col_rout] == "IDLE"])
+            en_llamada_gen = len(df_live_genesys[df_live_genesys[col_rout] == "INTERACTING"])
+
+        col_llam = "dur_llamada_seg" if "dur_llamada_seg" in df_live_genesys.columns else ("llamada_seg" if "llamada_seg" in df_live_genesys.columns else None)
+        if col_llam and en_llamada_gen == 0:
+            en_llamada_gen = len(df_live_genesys[df_live_genesys[col_llam] > 0])
+
+        col_est = "estado" if "estado" in df_live_genesys.columns else ("presence_label" if "presence_label" in df_live_genesys.columns else None)
+        if col_est:
+            en_pausa_gen = len(df_live_genesys[df_live_genesys[col_est].isin(["Break", "Lunch", "Baño", "Diálogo Diario / 4DX", "PCA- Diálogo", "Refuerzo Semanal", "Feedback"])])
+            disponible_gen = len(df_live_genesys[df_live_genesys[col_est] == "Available"])
 
     # Salesforce
-    total_waiting_chats = int(df_queues["chats_in_queue"].sum()) if not df_queues.empty else 0
-    max_wait_min = round(int(df_queues["longest_wait_sec"].max()) / 60, 1) if not df_queues.empty else 0
-    active_chats_sf = int(df_agents_sf["active_chats"].sum()) if not df_agents_sf.empty else 0
-    avail_sf = len(df_agents_sf[df_agents_sf["status"] == "Available"]) if not df_agents_sf.empty else 0
-    busy_sf = len(df_agents_sf[df_agents_sf["status"] == "Busy"]) if not df_agents_sf.empty else 0
-    break_sf = len(df_agents_sf[df_agents_sf["status"] == "Break"]) if not df_agents_sf.empty else 0
+    total_waiting_chats = int(df_queues["chats_in_queue"].sum()) if (df_queues is not None and not df_queues.empty and "chats_in_queue" in df_queues.columns) else 0
+    max_wait_min = round(int(df_queues["longest_wait_sec"].max()) / 60, 1) if (df_queues is not None and not df_queues.empty and "longest_wait_sec" in df_queues.columns) else 0
+    active_chats_sf = int(df_agents_sf["active_chats"].sum()) if (df_agents_sf is not None and not df_agents_sf.empty and "active_chats" in df_agents_sf.columns) else 0
+    avail_sf = len(df_agents_sf[df_agents_sf["status"] == "Available"]) if (df_agents_sf is not None and not df_agents_sf.empty and "status" in df_agents_sf.columns) else 0
+    busy_sf = len(df_agents_sf[df_agents_sf["status"] == "Busy"]) if (df_agents_sf is not None and not df_agents_sf.empty and "status" in df_agents_sf.columns) else 0
+    break_sf = len(df_agents_sf[df_agents_sf["status"] == "Break"]) if (df_agents_sf is not None and not df_agents_sf.empty and "status" in df_agents_sf.columns) else 0
 
     k1, k2, k3, k4, k5, k6 = st.columns(6)
     with k1:
@@ -138,20 +152,22 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     st.write("")
 
     # 3. Bandeja Unificada de Alertas de Piso (Genesys + Salesforce)
-    alerts_sf = sle.detect_live_anomalies(df_queues, df_agents_sf)
+    alerts_sf = sle.detect_live_anomalies(df_queues, df_agents_sf) if (df_queues is not None and df_agents_sf is not None) else []
     al_criticas = [a for a in alerts_sf if a.get("categoria") in ("busy", "break") or a.get("type") == "critical"]
     al_operativas = [a for a in alerts_sf if a.get("categoria") in ("idle", "stuck_chat", "free_cap") or a.get("type") in ("warning", "info")]
 
     # Alertas Genesys
-    if not df_live_genesys.empty and "llamada_seg" in df_live_genesys.columns:
-        llamadas_largas = df_live_genesys[df_live_genesys["llamada_seg"] >= 900]  # >= 15 min
-        for _, r in llamadas_largas.iterrows():
-            mins_ll = int(r["llamada_seg"] // 60)
-            al_criticas.append({
-                "categoria": "call",
-                "asesor": r["agente"],
-                "tag": f"📞 Llamada prolongada en Genesys ({mins_ll} min)"
-            })
+    if not df_live_genesys.empty:
+        col_llam_seg = "dur_llamada_seg" if "dur_llamada_seg" in df_live_genesys.columns else ("llamada_seg" if "llamada_seg" in df_live_genesys.columns else None)
+        if col_llam_seg:
+            llamadas_largas = df_live_genesys[df_live_genesys[col_llam_seg] >= 900]
+            for _, r in llamadas_largas.iterrows():
+                mins_ll = int(r[col_llam_seg] // 60)
+                al_criticas.append({
+                    "categoria": "call",
+                    "asesor": r.get("agente", "Asesor"),
+                    "tag": f"📞 Llamada prolongada en Genesys ({mins_ll} min)"
+                })
 
     if al_criticas or al_operativas:
         col_ac, col_ao = st.columns(2)
@@ -180,7 +196,7 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     col_v1, col_v2 = st.columns([1.2, 1.4])
     with col_v1:
         st.markdown("##### 📥 Colas de Chat AMC en Espera (Omni-Channel)")
-        if not df_queues.empty:
+        if df_queues is not None and not df_queues.empty and "chats_in_queue" in df_queues.columns:
             fig_q = px.bar(
                 df_queues,
                 x="chats_in_queue",
@@ -228,26 +244,42 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
 
     maestro = mse.sync_maestro_asesores()
     sf_by_name = {}
-    if not df_agents_sf.empty:
+    sf_by_bp = {}
+    if df_agents_sf is not None and not df_agents_sf.empty:
         for _, r_sf in df_agents_sf.iterrows():
             ag_alias = str(r_sf["agent_name"]).strip().upper()
             info_m = maestro.get(ag_alias, {})
             nombre_real = info_m.get("nombre_completo", ag_alias)
+            bp_val = str(info_m.get("bp", "")).strip()
             sf_by_name[nombre_real.strip().upper()] = r_sf
+            if bp_val:
+                sf_by_bp[bp_val] = r_sf
 
     filas_piso = []
     if not df_live_genesys.empty:
         for _, rg in df_live_genesys.iterrows():
-            nom_g = str(rg["agente"]).strip().upper()
+            nom_g = str(rg.get("agente", "")).strip().upper()
             bp_g = str(rg.get("bp", "")).strip()
-            sup_g = str(rg.get("supervisor", "Sin Supervisor"))
-            est_g = str(rg.get("presence_label", "Offline"))
-            t_g = str(rg.get("duracion_formateada", "00:00"))
-            if rg.get("llamada_activa", False):
-                est_g = f"📞 En Llamada ({rg.get('tiempo_llamada_formateado', t_g)})"
+            if not bp_g and " - " in rg.get("agente", ""):
+                bp_g = rg["agente"].split(" - ")[0].strip()
 
-            match_sf = sf_by_name.get(nom_g)
-            if not match_sf:
+            sup_g = str(rg.get("supervisor", rg.get("jefe_inmediato", "Sin Supervisor")))
+            est_g = str(rg.get("estado", rg.get("presence_label", "Offline")))
+            t_g = str(rg.get("cronometro", rg.get("duracion_formateada", "00:00")))
+
+            es_llamada = False
+            if rg.get("routing") == "INTERACTING" or rg.get("dur_llamada_seg", 0) > 0 or rg.get("llamada_activa", False):
+                es_llamada = True
+                t_llamada = rg.get("cronometro_llamada", rg.get("tiempo_llamada_formateado", t_g))
+                est_g = f"📞 En Llamada ({t_llamada})"
+
+            # Buscar correspondencia en Salesforce por BP o nombre
+            match_sf = None
+            if bp_g and bp_g in sf_by_bp:
+                match_sf = sf_by_bp[bp_g]
+            elif nom_g in sf_by_name:
+                match_sf = sf_by_name[nom_g]
+            else:
                 for k_sf, v_sf in sf_by_name.items():
                     if k_sf in nom_g or nom_g in k_sf:
                         match_sf = v_sf
@@ -273,10 +305,10 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
             else:
                 est_sf = "— (Desconectado)"
                 simult_sf = "0 chats"
-                diag = "🟢 Normal" if not rg.get("llamada_activa", False) or rg.get("llamada_seg", 0) < 900 else "🚨 Llamada >15m"
+                diag = "🟢 Normal" if not es_llamada or rg.get("dur_llamada_seg", 0) < 900 else "🚨 Llamada >15m"
 
             filas_piso.append({
-                "Asesor": rg["agente"],
+                "Asesor": rg.get("agente", ""),
                 "BP": bp_g,
                 "Supervisor": sup_g,
                 "Estado Genesys": est_g,
