@@ -417,12 +417,29 @@ def cargar_bundle_zendesk() -> dict:
     df_raw_enr_alma = enriquecer_con_socio(df_raw, solo_almacontact=True) if df_raw is not None else None
     df_raw_enr_todos = enriquecer_con_socio(df_raw, solo_almacontact=False) if df_raw is not None else None
 
-    df_diario_enr_alma = enriquecer_con_socio(df_diario_raw, solo_almacontact=True) if df_diario_raw is not None else None
-    df_diario_enr_todos = enriquecer_con_socio(df_diario_raw, solo_almacontact=False) if df_diario_raw is not None else None
+    # Segregar autorizaciones de supervisor en histórico diario
+    df_diario_operativo = None
+    df_diario_auth = None
+    if df_diario_raw is not None and not df_diario_raw.empty:
+        is_auth_d = df_diario_raw["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+        df_diario_operativo = df_diario_raw[~is_auth_d].copy()
+        df_diario_auth = df_diario_raw[is_auth_d].copy()
 
-    # Pre-procesar backlog y antigüedad si existe
+    df_diario_enr_alma = enriquecer_con_socio(df_diario_operativo, solo_almacontact=True) if df_diario_operativo is not None else None
+    df_diario_enr_todos = enriquecer_con_socio(df_diario_operativo, solo_almacontact=False) if df_diario_operativo is not None else None
+    df_auth_hist = enriquecer_con_socio(df_diario_auth, solo_almacontact=False) if df_diario_auth is not None else None
+
+    # Pre-procesar backlog y antigüedad separando autorizaciones
     df_b_raw = pd.read_csv(file_b_vivo) if file_b_vivo.exists() else None
-    df_b_full, m_resumen, d_desglose = procesar_antiguedad_backlog(df_b_raw) if df_b_raw is not None else (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+    df_b_operativo = None
+    df_b_auth = None
+    if df_b_raw is not None and not df_b_raw.empty:
+        is_auth_b = df_b_raw["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+        df_b_operativo = df_b_raw[~is_auth_b].copy()
+        df_b_auth = df_b_raw[is_auth_b].copy()
+
+    # La matriz y el backlog operativo SOLO reciben df_b_operativo (sin autorizaciones para no inflar la fábrica)
+    df_b_full, m_resumen, d_desglose = procesar_antiguedad_backlog(df_b_operativo) if df_b_operativo is not None else (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
 
     # Pre-calcular rango de fechas globales disponibles
     fechas_disp = []
@@ -433,26 +450,46 @@ def cargar_bundle_zendesk() -> dict:
     f_min_def = datetime.strptime(fechas_sorted[0], "%Y-%m-%d").date() if fechas_sorted else datetime.now().date()
     f_max_def = datetime.strptime(fechas_sorted[-1], "%Y-%m-%d").date() if fechas_sorted else datetime.now().date()
 
-    # Pre-enriquecer productividad hoy si existe
+    # Pre-enriquecer productividad hoy separando autorizaciones
     df_p_raw = pd.read_csv(file_prod_hoy) if file_prod_hoy.exists() else None
-    df_enr_hoy = enriquecer_con_socio(df_p_raw, solo_almacontact=False) if df_p_raw is not None and not df_p_raw.empty else pd.DataFrame()
+    df_p_operativo = None
+    df_p_auth = None
+    if df_p_raw is not None and not df_p_raw.empty:
+        is_auth_p = df_p_raw["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+        df_p_operativo = df_p_raw[~is_auth_p].copy()
+        df_p_auth = df_p_raw[is_auth_p].copy()
 
-    # Pre-cargar demanda diaria y balance de colas
+    df_enr_hoy = enriquecer_con_socio(df_p_operativo, solo_almacontact=False) if df_p_operativo is not None and not df_p_operativo.empty else pd.DataFrame()
+
+    # Pre-cargar demanda diaria y balance de colas separando autorizaciones
     file_demanda = DATA_DIR / "demanda_diaria_colas.csv"
     df_demanda = pd.read_csv(file_demanda) if file_demanda.exists() else None
+    df_demanda_operativo = None
+    df_demanda_auth = None
+    if df_demanda is not None and not df_demanda.empty:
+        is_auth_dem = df_demanda["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+        df_demanda_operativo = df_demanda[~is_auth_dem].copy()
+        df_demanda_auth = df_demanda[is_auth_dem].copy()
 
     return {
         "df_raw_enr_alma": df_raw_enr_alma,
         "df_raw_enr_todos": df_raw_enr_todos,
         "df_diario_enr_alma": df_diario_enr_alma,
         "df_diario_enr_todos": df_diario_enr_todos,
-        "df_b_raw": df_b_raw,
+        "df_b_raw": df_b_operativo,
+        "df_b_operativo": df_b_operativo,
+        "df_b_auth": df_b_auth,
         "df_b_full": df_b_full,
         "m_resumen": m_resumen,
         "d_desglose": d_desglose,
-        "df_p_raw": df_p_raw,
+        "df_p_raw": df_p_operativo,
+        "df_p_operativo": df_p_operativo,
+        "df_p_auth": df_p_auth,
         "df_enr_hoy": df_enr_hoy,
-        "df_demanda": df_demanda,
+        "df_demanda": df_demanda_operativo,
+        "df_demanda_operativo": df_demanda_operativo,
+        "df_demanda_auth": df_demanda_auth,
+        "df_auth_hist": df_auth_hist,
         "f_min_def": f_min_def,
         "f_max_def": f_max_def,
     }
@@ -568,15 +605,15 @@ def render_tab_zendesk(email_usuario: str = ""):
             hora_s = datetime.fromtimestamp(latest_mtime).strftime('%d/%m/%Y %I:%M:%S %p')
 
     ts_corte = status_info.get("timestamp_label", hora_s)
-    bl_c = status_info.get("backlog_count")
-    sol_c = status_info.get("solved_today_count")
     next_c = status_info.get("next_sync_est", "Próxima hora")
+    bl_op_c = len(bundle.get("df_b_operativo", [])) if bundle.get("df_b_operativo") is not None else 0
+    sol_op_c = len(bundle.get("df_p_operativo", [])) if bundle.get("df_p_operativo") is not None else 0
+    bl_auth_c = len(bundle.get("df_b_auth", [])) if bundle.get("df_b_auth") is not None else 0
+    sol_auth_c = len(bundle.get("df_p_auth", [])) if bundle.get("df_p_auth") is not None else 0
 
     col_h1, col_h2 = st.columns([3.5, 0.9])
     with col_h1:
-        bl_txt = f" | **Backlog activo:** `{bl_c:,}`" if bl_c else ""
-        sol_txt = f" | **Resueltos hoy:** `{sol_c:,}`" if sol_c else ""
-        st.info(f"🕒 **Corte Horario Zendesk:** `{ts_corte}` *(Hora Col / UTC-5)*{bl_txt}{sol_txt} | **Próximo corte:** ~`{next_c}`")
+        st.info(f"🕒 **Corte Horario Zendesk:** `{ts_corte}` *(Hora Col / UTC-5)* | 🚨 **Backlog Fábrica:** `{bl_op_c:,}` | ✅ **Resueltos Fábrica Hoy:** `{sol_op_c:,}` | 🛡️ **Autorizaciones:** `{bl_auth_c} cola / {sol_auth_c} hoy` | **Próximo corte:** ~`{next_c}`")
 
     with col_h2:
         if st.button("🔄 Refrescar Vista", use_container_width=True, help="Limpia la memoria caché y recarga las métricas con el último corte disponible."):
@@ -665,21 +702,6 @@ def render_tab_zendesk(email_usuario: str = ""):
         df_diario_filtrado = d_f
     else:
         df_diario_filtrado = None
-
-    # Checkbox para excluir autorizaciones de supervisor de la productividad operativa
-    excluir_auth = st.checkbox(
-        "🛡️ Excluir colas de Autorización de Supervisor de la productividad de asesores",
-        value=True,
-        help="Las colas 'Autorización Supervisor AMC' y 'Autorización Supervisor HVC AMC ES' corresponden a aprobaciones de códigos de involuntario gestionadas por supervisores. Al mantener esta opción activa, no se mezclarán con la productividad operativa de los asesores.",
-        key="zd_excluir_auth"
-    )
-
-    df_solo_autorizaciones = None
-    if df_diario_filtrado is not None and not df_diario_filtrado.empty and "grupo" in df_diario_filtrado.columns:
-        is_auth_mask = df_diario_filtrado["grupo"].str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
-        df_solo_autorizaciones = df_diario_filtrado[is_auth_mask].copy()
-        if excluir_auth:
-            df_diario_filtrado = df_diario_filtrado[~is_auth_mask].copy()
 
     # =========================================================================
     # MACRO-MÓDULOS EJECUTIVOS CONSOLIDADOS (4 PESTAÑAS ESTRATÉGICAS)
@@ -1124,22 +1146,15 @@ def render_tab_zendesk(email_usuario: str = ""):
         st.subheader("🛡️ Monitor de Autorizaciones de Supervisor y Acuerdos de Nivel de Servicio (SLAs)")
         st.caption("Segregación y control de autorizaciones de códigos de involuntario gestionadas por supervisores junto con la matriz de tiempos de atención (FRT y Resolución).")
 
-        # Base de autorizaciones
-        df_auth_hist = None
-        if df_diario_enr is not None and not df_diario_enr.empty and "grupo" in df_diario_enr.columns:
-            m_auth = df_diario_enr["grupo"].str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
-            df_auth_base = df_diario_enr[m_auth].copy()
+        # Base de autorizaciones segregada exclusivamente para este módulo
+        df_auth_hist = bundle.get("df_auth_hist")
+        if df_auth_hist is not None and not df_auth_hist.empty:
             if fecha_ini and fecha_fin:
                 f_ini_s = fecha_ini.strftime("%Y-%m-%d")
                 f_fin_s = fecha_fin.strftime("%Y-%m-%d")
-                df_auth_base = df_auth_base[(df_auth_base["Fecha"] >= f_ini_s) & (df_auth_base["Fecha"] <= f_fin_s)]
-            df_auth_hist = df_auth_base
+                df_auth_hist = df_auth_hist[(df_auth_hist["Fecha"] >= f_ini_s) & (df_auth_hist["Fecha"] <= f_fin_s)]
 
-        df_b_vivo_raw = bundle.get("df_b_raw")
-        df_b_auth = None
-        if df_b_vivo_raw is not None and not df_b_vivo_raw.empty and "grupo" in df_b_vivo_raw.columns:
-            m_b_auth = df_b_vivo_raw["grupo"].str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
-            df_b_auth = df_b_vivo_raw[m_b_auth].copy()
+        df_b_auth = bundle.get("df_b_auth")
 
         tot_auth_resueltas = df_auth_hist["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
         tot_amc = df_auth_hist[df_auth_hist["grupo"].str.contains("AMC", case=False, na=False) & ~df_auth_hist["grupo"].str.contains("HVC", case=False, na=False)]["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
