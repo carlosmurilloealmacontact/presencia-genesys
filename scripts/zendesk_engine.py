@@ -57,14 +57,68 @@ def normalizar(s: str) -> str:
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def cargar_roster_maestro() -> pd.DataFrame:
-    socio_file = DATA_DIR / "servicios_socio_maestro.csv"
-    if not socio_file.exists():
-        return pd.DataFrame()
+def cargar_catalogo_usuarios_zd() -> dict:
+    f_cat = DATA_DIR / "catalogo_usuarios.json"
+    if not f_cat.exists():
+        return {}
     try:
-        d2 = pd.read_csv(socio_file, low_memory=False)
-        m = d2[["name", "jefe", "coordinador", "servicio"]].dropna(subset=["name"]).drop_duplicates(subset=["name"]).copy()
-        m["norm_name"] = m["name"].apply(normalizar)
+        with open(f_cat, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        return {
+            u.get("email", "").strip().lower(): u.get("name", "").strip().title()
+            for u in raw.values() if u.get("email") and u.get("name")
+        }
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def cargar_roster_maestro() -> pd.DataFrame:
+    """Carga y unifica las fuentes sociodemográficas disponibles (Socio Maestro, Socio Demo, Salesforce B2B)."""
+    m_list = []
+
+    # Fuente 1: servicios_socio_maestro.csv
+    socio_file = DATA_DIR / "servicios_socio_maestro.csv"
+    if socio_file.exists():
+        try:
+            d1 = pd.read_csv(socio_file, low_memory=False)
+            m1 = d1[["name", "jefe", "coordinador", "servicio"]].dropna(subset=["name"]).rename(columns={"name": "nombre"})
+            m_list.append(m1)
+        except Exception:
+            pass
+
+    # Fuente 2: socio_demo.csv
+    socio_demo_file = DATA_DIR / "socio_demo.csv"
+    if socio_demo_file.exists():
+        try:
+            d2 = pd.read_csv(socio_demo_file, low_memory=False)
+            m2 = d2[["nombre_completo", "jefe_inmediato", "coordinador", "Servicio"]].dropna(subset=["nombre_completo"]).rename(
+                columns={"nombre_completo": "nombre", "jefe_inmediato": "jefe", "Servicio": "servicio"}
+            )
+            m_list.append(m2)
+        except Exception:
+            pass
+
+    # Fuente 3: maestro_asesores_b2b.json
+    b2b_file = DATA_DIR.parent / "salesforce" / "maestro_asesores_b2b.json"
+    if b2b_file.exists():
+        try:
+            with open(b2b_file, "r", encoding="utf-8") as f:
+                b2b = json.load(f)
+            rows_b2b = [
+                {"nombre": v.get("nombre_completo"), "jefe": v.get("supervisor"), "coordinador": v.get("coordinador"), "servicio": v.get("servicio")}
+                for v in b2b.values() if v.get("nombre_completo")
+            ]
+            m_list.append(pd.DataFrame(rows_b2b))
+        except Exception:
+            pass
+
+    if not m_list:
+        return pd.DataFrame()
+
+    try:
+        m = pd.concat(m_list, ignore_index=True).drop_duplicates(subset=["nombre"]).copy()
+        m["norm_name"] = m["nombre"].apply(normalizar)
         m["servicio"] = m["servicio"].fillna("Por Definir")
         m["jefe"] = m["jefe"].fillna("Por Asignar")
         m["coordinador"] = m["coordinador"].fillna("Por Asignar")
@@ -101,6 +155,7 @@ def enriquecer_con_socio(df: pd.DataFrame, solo_almacontact: bool = True) -> pd.
         )
         df_out = df_out[is_alma].copy()
 
+    zd_catalog = cargar_catalogo_usuarios_zd()
     maestro = cargar_roster_maestro()
     cond_map = cargar_condicion_antiguedad()
 
@@ -109,34 +164,52 @@ def enriquecer_con_socio(df: pd.DataFrame, solo_almacontact: bool = True) -> pd.
     if not maestro.empty:
         socio_tuples = list(zip(
             maestro["norm_name"].str.lower().str.replace(" ", "", regex=False),
-            maestro["name"],
+            maestro["norm_name"].apply(lambda x: set(x.split())),
+            maestro["nombre"],
             maestro["jefe"],
             maestro["coordinador"],
             maestro["servicio"]
         ))
 
     def obtener_jerarquia(email):
-        if email in cache_matches:
-            return cache_matches[email]
+        if not email or pd.isna(email) or str(email).strip().lower() in ("", "nan", "none"):
+            return ("Sin Asignar", "Sin Supervisor", "Sin Coordinador", "Sin Servicio")
 
-        prefix = str(email).split("@")[0].split(".")[0].lower().strip()
-        if len(prefix) < 4:
-            res = (str(email).split("@")[0], "Sin Supervisor", "Sin Coordinador", "Almacontact General")
-            cache_matches[email] = res
-            return res
+        em_str = str(email).strip().lower()
+        if em_str in cache_matches:
+            return cache_matches[em_str]
 
-        pref_len = len(prefix)
-        pref_start = prefix[:5]
-        pref_end = prefix[-3:]
-        for clean_n, nom, jef, coo, srv in socio_tuples:
-            if prefix in clean_n or (pref_len > 6 and (pref_start in clean_n and pref_end in clean_n)):
-                res = (nom, jef, coo, srv)
-                cache_matches[email] = res
-                return res
+        zd_name = zd_catalog.get(em_str, "")
+        matched_info = None
 
-        nombre_legible = prefix.title()
-        res = (nombre_legible, "Sin Supervisor Asignado", "Sin Coordinador Asignado", "Almacontact Operación")
-        cache_matches[email] = res
+        # Estrategia 1: Matching por tokens de Nombre Real de Zendesk
+        if zd_name:
+            toks_zd = set(normalizar(zd_name).split())
+            if len(toks_zd) >= 2:
+                for clean_n, toks_s, nom, jef, coo, srv in socio_tuples:
+                    if len(toks_zd.intersection(toks_s)) >= 2:
+                        matched_info = (nom.title(), jef, coo, srv)
+                        break
+
+        # Estrategia 2: Matching por prefijo de correo en Socio Maestro
+        if not matched_info:
+            prefix = em_str.split("@")[0].split(".")[0].strip()
+            pref_len = len(prefix)
+            pref_start = prefix[:5]
+            pref_end = prefix[-3:]
+            for clean_n, toks_s, nom, jef, coo, srv in socio_tuples:
+                if (pref_len >= 4 and prefix in clean_n) or (pref_len > 6 and (pref_start in clean_n and pref_end in clean_n)):
+                    matched_info = (nom.title(), jef, coo, srv)
+                    break
+
+        if matched_info:
+            res = matched_info
+        else:
+            # Respaldo: Usar el Nombre Completo oficial de Zendesk
+            nombre_resuelto = zd_name if zd_name else em_str.split("@")[0].split(".")[0].title()
+            res = (nombre_resuelto, "Sin Supervisor Asignado", "Sin Coordinador Asignado", "Almacontact Operación")
+
+        cache_matches[em_str] = res
         return res
 
     if "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_out.columns:
