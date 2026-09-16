@@ -592,10 +592,6 @@ MAPEO_ZD_A_SORE_BO = {
     "DT FFP AMC": "DT FFP AMC (DREAM TEAM)",
     "Célula PI AMC ES": "CÉLULA PI AMC ES",
     "Clula PI AMC ES": "CÉLULA PI AMC ES",
-    "Autorización Supervisor AMC": "Autorización Supervisor AMC",
-    "Autorizacin Supervisor AMC": "Autorización Supervisor AMC",
-    "Autorización Supervisor HVC AMC ES": "Autorización Supervisor HVC",
-    "Autorizacin Supervisor HVC AMC ES": "Autorización Supervisor HVC",
     "Latam Travel AMC": "LATAM TRAVEL AMC",
     "Latam Travel": "LATAM TRAVEL AMC",
     "Travel SSC": "LATAM TRAVEL AMC",
@@ -606,7 +602,7 @@ MAPEO_ZD_A_SORE_BO = {
 def cargar_demanda_zendesk_bo(fecha_desde: str, fecha_hasta: str):
     """
     Carga la demanda diaria real de Zendesk (Casos Nuevos / Inflow y Casos Resueltos / Outflow)
-    y la homologa a nivel de servicio SORE para cruzar contra el Forecast.
+    para colas operativas de asesores, excluyendo estrictamente autorizaciones de supervisores.
     """
     if not os.path.exists(FILE_DEMANDA_ZD):
         return pd.DataFrame(), pd.DataFrame()
@@ -618,6 +614,9 @@ def cargar_demanda_zendesk_bo(fecha_desde: str, fecha_hasta: str):
 
         if df_dem.empty or "Fecha" not in df_dem.columns:
             return pd.DataFrame(), pd.DataFrame()
+
+        # Excluir explícitamente autorizaciones de supervisor (proceso interno de involuntario no dimensionado)
+        df_dem = df_dem[~df_dem["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)].copy()
 
         df_dem["servicio"] = df_dem["grupo"].map(lambda g: MAPEO_ZD_A_SORE_BO.get(g, g))
         df_sub = df_dem[(df_dem["Fecha"] >= fecha_desde) & (df_dem["Fecha"] <= fecha_hasta)].copy()
@@ -678,7 +677,6 @@ def render_seccion_backoffice_zendesk(
         ("DT FFP AMC (DREAM TEAM)", "Zendesk: DT FFP AMC", "Zendesk"),
         ("LATAM TRAVEL AMC", "Zendesk: Latam Travel", "Zendesk"),
         ("CÉLULA PI AMC ES", "Zendesk: Célula PI AMC ES", "Zendesk"),
-        ("Autorización Supervisor AMC", "Zendesk: Autorización Sup AMC", "Zendesk"),
         ("BO_CORPORATE", "Salesforce B2B", "Salesforce B2B"),
         ("BO AGENCIAS TARGET", "Salesforce B2B", "Salesforce B2B"),
     ]
@@ -881,7 +879,9 @@ def render_seccion_backoffice_zendesk(
         "💡 **Nota de Arquitectura Operativa:** Como se confirmó operativamente, **BO_CORPORATE** (4,664 tickets plan mes) "
         "y **BO AGENCIAS TARGET** (5,610 tickets plan mes) son atendidos exclusivamente a través de **Salesforce B2B**, "
         "mientras que **BO LUA AMC**, **BO EQUIPAJES AMC**, **DREAM TEAM CASOS**, **LATAM TRAVEL AMC** y **CÉLULA PI** "
-        "se canalizan a través de **Zendesk CASOUNICO**."
+        "se canalizan a través de **Zendesk CASOUNICO**.\n\n"
+        "🛡️ **Exclusión de Supervisores:** Las colas de 'Autorización Supervisor AMC / HVC' (aprobaciones de códigos de involuntario) "
+        "no son dimensionadas en el modelo WFM de SORE ni corresponden a productividad operativa de asesores, por lo cual están 100% segregadas y excluidas de este monitor."
     )
 
 
