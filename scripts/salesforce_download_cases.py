@@ -129,11 +129,17 @@ def descargar_reporte_casos_2026(headless: bool = True):
                 
             context.close()
             
-            # 5. Si se descargo el archivo, procesar y actualizar la base limpia
+            # 5. Si se descargo el archivo, procesar y actualizar la base limpia y matriz de demanda
             if os.path.exists(download_path):
                 print("[*] Limpiando y consolidando datos de casos 2026...")
                 df_clean = sfe.load_and_clean_cases_data(file_path=download_path)
                 print(f"[✓] Base de casos AMC actualizada con {len(df_clean)} registros de 2026.")
+                
+                try:
+                    import procesar_demanda_salesforce as pds
+                    pds.procesar_casos_y_demanda_salesforce(download_path)
+                except Exception as e_p:
+                    print(f"[!] Advertencia generando matriz de demanda: {e_p}")
                 return True
             return False
             
@@ -145,4 +151,11 @@ def descargar_reporte_casos_2026(headless: bool = True):
 
 
 if __name__ == "__main__":
-    descargar_reporte_casos_2026(headless=True)
+    args = sys.argv[1:]
+    if "--process-only" in args:
+        print("[*] Modo --process-only activo. Procesando archivos existentes en data/salesforce/...")
+        import procesar_demanda_salesforce as pds
+        pds.procesar_casos_y_demanda_salesforce()
+    else:
+        modo_headless = "--headed" not in args
+        descargar_reporte_casos_2026(headless=modo_headless)

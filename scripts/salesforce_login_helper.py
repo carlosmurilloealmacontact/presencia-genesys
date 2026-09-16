@@ -65,8 +65,13 @@ def run_login_helper():
             try:
                 if page.locator("#username").is_visible(timeout=5000):
                     page.fill("#username", username)
+                    print("[+] Usuario ingresado. Avanzando a contraseña...")
+                    page.click("#Login")
+                    time.sleep(3)
+
+                if page.locator("#password").is_visible(timeout=5000):
                     page.fill("#password", password)
-                    print("[+] Credenciales ingresadas. Enviando formulario...")
+                    print("[+] Contraseña ingresada. Enviando formulario...")
                     page.click("#Login")
             except Exception as e:
                 print(f"[!] Nota sobre el formulario de login: {e}")
@@ -88,6 +93,12 @@ def run_login_helper():
                 logged_in = True
                 print("\n[✓] ¡SESIÓN INICIADA CON ÉXITO EN SALESFORCE LIGHTNING!")
                 print(f"URL actual: {page.url}")
+                try:
+                    state_path = os.path.join(BASE_DIR, "..", "data", "salesforce_state.json")
+                    context.storage_state(path=state_path)
+                    print(f"[+] Estado de sesión guardado en: {state_path}")
+                except Exception:
+                    pass
                 break
             time.sleep(3)
 

@@ -26,6 +26,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_FORECAST_IN = os.path.join(BASE_DIR, "../09. Intraday Forecast IN Septiembre - Latam.xlsx")
 FILE_FORECAST_BO = os.path.join(BASE_DIR, "../09. Intraday Forecast BO Septiembre - Latam.xlsx")
 FILE_DEMANDA_ZD = os.path.join(BASE_DIR, "../data/zendesk/demanda_diaria_colas.csv")
+FILE_DEMANDA_SF = os.path.join(BASE_DIR, "../data/salesforce/demanda_diaria_salesforce_bo.csv")
 
 FILE_FORECAST_DAILY = os.path.join(BASE_DIR, "../09. Daily Forecast Sept - Latam.xlsx")
 CACHE_PKL_PATH = os.path.join(BASE_DIR, "../data/forecast_cache.pkl")
@@ -597,28 +598,57 @@ MAPEO_ZD_A_SORE_BO = {
     "Travel SSC": "LATAM TRAVEL AMC",
 }
 
+MAPEO_SF_A_SORE_BO = {
+    "AMC CORPORATE SSC": "BO_CORPORATE",
+    "AMC EMISIONES GRUPOS CORP": "BO_CORPORATE",
+    "AMC EMISIONES GRUPOS SSC": "BO_CORPORATE",
+    "AMC AGENCIAS ESP": "BO AGENCIAS TARGET",
+    "AMC AGENCIAS INTER": "BO AGENCIAS TARGET ENG",
+    "AMC DUDAS OPERACIONALES": "BO AGENCIAS TARGET",
+}
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cargar_demanda_zendesk_bo(fecha_desde: str, fecha_hasta: str):
     """
-    Carga la demanda diaria real de Zendesk (Casos Nuevos / Inflow y Casos Resueltos / Outflow)
+    Carga la demanda diaria real de Back Office (Zendesk AMC + Salesforce B2B: Inflow y Outflow)
     para colas operativas de asesores, excluyendo estrictamente autorizaciones de supervisores.
     """
-    if not os.path.exists(FILE_DEMANDA_ZD):
-        return pd.DataFrame(), pd.DataFrame()
-    try:
+    lista_dfs = []
+    if os.path.exists(FILE_DEMANDA_ZD):
         try:
-            df_dem = pd.read_csv(FILE_DEMANDA_ZD, encoding="utf-8")
+            try:
+                df_zd = pd.read_csv(FILE_DEMANDA_ZD, encoding="utf-8")
+            except Exception:
+                df_zd = pd.read_csv(FILE_DEMANDA_ZD, encoding="latin1")
+
+            if not df_zd.empty and "Fecha" in df_zd.columns:
+                # Excluir autorizaciones de supervisor
+                df_zd = df_zd[~df_zd["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)].copy()
+                df_zd["servicio"] = df_zd["grupo"].map(lambda g: MAPEO_ZD_A_SORE_BO.get(g, g))
+                lista_dfs.append(df_zd)
         except Exception:
-            df_dem = pd.read_csv(FILE_DEMANDA_ZD, encoding="latin1")
+            pass
 
-        if df_dem.empty or "Fecha" not in df_dem.columns:
-            return pd.DataFrame(), pd.DataFrame()
+    # Cargar Salesforce B2B (BO_CORPORATE y BO AGENCIAS TARGET) si existe
+    if os.path.exists(FILE_DEMANDA_SF):
+        try:
+            try:
+                df_sf = pd.read_csv(FILE_DEMANDA_SF, encoding="utf-8")
+            except Exception:
+                df_sf = pd.read_csv(FILE_DEMANDA_SF, encoding="latin1")
 
-        # Excluir explícitamente autorizaciones de supervisor (proceso interno de involuntario no dimensionado)
-        df_dem = df_dem[~df_dem["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)].copy()
+            if not df_sf.empty and "Fecha" in df_sf.columns and "grupo" in df_sf.columns:
+                df_sf["servicio"] = df_sf["grupo"].map(lambda g: MAPEO_SF_A_SORE_BO.get(g, g))
+                lista_dfs.append(df_sf)
+        except Exception:
+            pass
 
-        df_dem["servicio"] = df_dem["grupo"].map(lambda g: MAPEO_ZD_A_SORE_BO.get(g, g))
+    if not lista_dfs:
+        return pd.DataFrame(), pd.DataFrame()
+
+    try:
+        df_dem = pd.concat(lista_dfs, ignore_index=True)
         df_sub = df_dem[(df_dem["Fecha"] >= fecha_desde) & (df_dem["Fecha"] <= fecha_hasta)].copy()
         if df_sub.empty:
             return pd.DataFrame(), pd.DataFrame()
@@ -687,47 +717,36 @@ def render_seccion_backoffice_zendesk(
         plan_traf = row_fore["traffic_forecast"].values[0] if not row_fore.empty else 0.0
         plan_fte = (row_fore["minutos_req"].values[0] / (480.0 * num_dias)) if not row_fore.empty else 0.0
 
-        if canal_op == "Salesforce B2B":
-            filas_bo.append({
-                "Servicio SORE": srv_sore,
-                "Canal / Cola Operativa": cola_zd,
-                "Origen Plataforma": "☁️ Salesforce B2B",
-                "Demanda Plan (SORE)": plan_traf,
-                "Casos Nuevos (Inflow)": np.nan,
-                "% Desv Demanda": np.nan,
-                "Casos Resueltos (Outflow)": np.nan,
-                "Balance Neto": np.nan,
-                "Tasa Resolución": np.nan,
-                "FTE Req": plan_fte,
-                "Estado / Observación": "Gestión externa vía Salesforce B2B"
-            })
+        c_nuevos = dict_nuevos.get(srv_sore, np.nan)
+        c_resueltos = dict_resueltos.get(srv_sore, np.nan)
+        c_balance = dict_balance.get(srv_sore, np.nan)
+        tasa = dict_tasa.get(srv_sore, (c_resueltos / c_nuevos * 100.0) if pd.notna(c_nuevos) and c_nuevos > 0 else np.nan)
+        pct_desv = ((c_nuevos - plan_traf) / plan_traf * 100.0) if pd.notna(c_nuevos) and plan_traf > 0 else np.nan
+
+        if canal_op == "Salesforce B2B" and pd.isna(c_nuevos):
+            obs = "☁️ Pendiente extracción Salesforce B2B 2026"
+        elif pd.notna(tasa) and tasa >= 100.0:
+            obs = "🟢 Desahogando Backlog (Resolución > Entrada)"
+        elif pd.notna(tasa) and tasa >= 90.0:
+            obs = "🟡 Operación Balanceada"
+        elif pd.notna(c_balance) and c_balance > 0:
+            obs = f"🔴 Acumulando Backlog (+{int(c_balance)} casos)"
         else:
-            c_nuevos = dict_nuevos.get(srv_sore, 0)
-            c_resueltos = dict_resueltos.get(srv_sore, 0)
-            c_balance = dict_balance.get(srv_sore, 0)
-            tasa = dict_tasa.get(srv_sore, (c_resueltos / c_nuevos * 100.0) if c_nuevos > 0 else 100.0)
-            pct_desv = ((c_nuevos - plan_traf) / plan_traf * 100.0) if plan_traf > 0 else np.nan
+            obs = "⚪ Sin actividad registrada"
 
-            if tasa >= 100.0:
-                obs = "🟢 Desahogando Backlog (Resolución > Entrada)"
-            elif tasa >= 90.0:
-                obs = "🟡 Operación Balanceada"
-            else:
-                obs = f"🔴 Acumulando Backlog (+{c_balance} casos)"
-
-            filas_bo.append({
-                "Servicio SORE": srv_sore,
-                "Canal / Cola Operativa": cola_zd,
-                "Origen Plataforma": "🎫 Zendesk CASOUNICO",
-                "Demanda Plan (SORE)": plan_traf,
-                "Casos Nuevos (Inflow)": c_nuevos,
-                "% Desv Demanda": pct_desv,
-                "Casos Resueltos (Outflow)": c_resueltos,
-                "Balance Neto": c_balance,
-                "Tasa Resolución": tasa,
-                "FTE Req": plan_fte,
-                "Estado / Observación": obs
-            })
+        filas_bo.append({
+            "Servicio SORE": srv_sore,
+            "Canal / Cola Operativa": cola_zd,
+            "Origen Plataforma": "☁️ Salesforce B2B" if canal_op == "Salesforce B2B" else "🎫 Zendesk CASOUNICO",
+            "Demanda Plan (SORE)": plan_traf,
+            "Casos Nuevos (Inflow)": c_nuevos,
+            "% Desv Demanda": pct_desv,
+            "Casos Resueltos (Outflow)": c_resueltos,
+            "Balance Neto": c_balance,
+            "Tasa Resolución": tasa,
+            "FTE Req": plan_fte,
+            "Estado / Observación": obs
+        })
 
     df_bo_table = pd.DataFrame(filas_bo)
 

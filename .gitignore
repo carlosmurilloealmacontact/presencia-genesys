@@ -26,6 +26,7 @@ scripts/implementation_plan.md
 !data/salesforce/cases_amc_cleaned.pkl
 !data/salesforce/cases_amc_cleaned.csv
 !data/salesforce/maestro_asesores_b2b.json
+!data/salesforce/demanda_diaria_salesforce_bo.csv
 !data/salesforce_live.db
 
 # Scripts temporales de pruebas y depuración
