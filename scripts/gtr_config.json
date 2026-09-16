@@ -840,19 +840,19 @@
     },
     "CHAT DREAM TEAMS ES": {
       "ns_meta": 0.8,
-      "umbral_seg": 120.0,
+      "umbral_seg": 100.0,
       "canal": "CHAT",
       "aht_meta": 1102.6519218593967
     },
     "CHAT DT FFP AMC ESP": {
       "ns_meta": 0.8,
-      "umbral_seg": 120.0,
+      "umbral_seg": 100.0,
       "canal": "CHAT",
       "aht_meta": 1102.6519218593967
     },
     "CHAT LUA AMC": {
       "ns_meta": 0.8,
-      "umbral_seg": 120.0,
+      "umbral_seg": 100.0,
       "canal": "CHAT",
       "aht_meta": 1700.0
     },
@@ -918,7 +918,25 @@
     },
     "CHAT AGENCIAS ESP": {
       "ns_meta": 0.8,
-      "umbral_seg": 120.0,
+      "umbral_seg": 100.0,
+      "canal": "CHAT",
+      "aht_meta": 1222.57561688318
+    },
+    "AG CORPORATE CHAT": {
+      "ns_meta": 0.8,
+      "umbral_seg": 100.0,
+      "canal": "CHAT",
+      "aht_meta": 1200.0
+    },
+    "AGY N1 ESP CHAT": {
+      "ns_meta": 0.8,
+      "umbral_seg": 100.0,
+      "canal": "CHAT",
+      "aht_meta": 1222.57561688318
+    },
+    "AGY N3 ESP CHAT": {
+      "ns_meta": 0.8,
+      "umbral_seg": 100.0,
       "canal": "CHAT",
       "aht_meta": 1222.57561688318
     },

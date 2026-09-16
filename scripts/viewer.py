@@ -28,6 +28,12 @@ except Exception as _sf_err:
         st.error(f"Error cargando módulo Salesforce B2B: {_sf_err}")
 
 try:
+    from coordinacion_marilyn_engine import render_tab_coordinacion_marilyn
+except Exception as _cm_err:
+    def render_tab_coordinacion_marilyn():
+        st.error(f"Error cargando módulo Coordinación Marilyn: {_cm_err}")
+
+try:
     from zendesk_engine import render_tab_zendesk
 except Exception as _zd_err:
     def render_tab_zendesk(email_usuario=""):
@@ -1001,6 +1007,7 @@ def es_usuario_salesforce_autorizado(email: str) -> bool:
 
 if es_usuario_salesforce_autorizado(current_email) or not auth_configurado:
     SECCIONES_APP.append("☁️ Salesforce B2B")
+    SECCIONES_APP.append("👩‍💼 Coordinación Marilyn")
 
 # Pestaña de Zendesk:
 # Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
@@ -1021,10 +1028,14 @@ if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
 
 col_nav, col_auth = st.columns([4, 1.2])
 with col_nav:
+    default_tab = SECCIONES_APP[0]
+    if any(k in current_email for k in ["marelyn.cardona", "marelin.cardona", "marelync"]) and "👩‍💼 Coordinación Marilyn" in SECCIONES_APP:
+        default_tab = "👩‍💼 Coordinación Marilyn"
+
     seccion_activa = st.segmented_control(
         "Navegación del Tablero",
         options=SECCIONES_APP,
-        default=SECCIONES_APP[0],
+        default=default_tab,
         label_visibility="collapsed"
     )
     if not seccion_activa:
@@ -1789,6 +1800,9 @@ elif seccion_activa == "Niveles de Servicio":
 
 elif seccion_activa == "☁️ Salesforce B2B":
     render_tab_salesforce_b2b(current_email)
+
+elif seccion_activa == "👩‍💼 Coordinación Marilyn":
+    render_tab_coordinacion_marilyn()
 
 elif seccion_activa == "🎫 Zendesk":
     render_tab_zendesk(current_email)

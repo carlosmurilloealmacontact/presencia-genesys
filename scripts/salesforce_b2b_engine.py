@@ -308,7 +308,7 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
         with col_ns1:
             st.metric("🎙️ Pilar 1: Voz B2B (Genesys)", "88.4%", delta="Meta: 80% en 20s • Abandono: 3.8%")
         with col_ns2:
-            st.metric("💬 Pilar 2: Chats B2B (Salesforce)", "82.2%", delta="Meta propuesta: 85% en 60s")
+            st.metric("💬 Pilar 2: Chats B2B (Salesforce)", "82.2%", delta="Meta Oficial: 80% en 100s (80/100)")
         with col_ns3:
             st.metric("📋 Pilar 3: Casos B2B (Backoffice)", "35.1%", delta="Meta SLA: 24h • 134 casos", delta_color="inverse")
 
@@ -353,7 +353,7 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
         fig_ns.add_trace(go.Bar(
             x=df_chart_b2b["Servicio"],
             y=df_chart_b2b["NS Chat (Salesforce)"],
-            name="💬 NS Chat (Meta: 85%)",
+            name="💬 NS Chat (Meta: 80% en 100s)",
             marker_color="#10B981",
             text=[f"{v:.1f}%" if v > 0 else "—" for v in df_chart_b2b["NS Chat (Salesforce)"]],
             textposition="outside"
