@@ -1237,15 +1237,28 @@ def render_tab_zendesk(email_usuario: str = ""):
     # SUBMÓDULO 6: TIPOLOGÍA DE GESTIÓN
     # ---------------------------------------------------------------------
     with tab_zd_tipologia:
-        if df_filtrado is not None and not df_filtrado.empty:
+        df_tip_source = df_diario_filtrado if (df_diario_filtrado is not None and not df_diario_filtrado.empty) else df_filtrado
+        if df_tip_source is not None and not df_tip_source.empty:
             st.subheader("🏷️ Tipologías de Gestión Atendidas")
+            st.caption("Distribución de motivos de contacto y tipologías operativas gestionadas en el periodo seleccionado.")
 
-            df_tip = df_filtrado.groupby("Tipo_de_Gestion").agg(
-                Tickets=("Recuento_Tickets", "sum"),
-                Mediana_FRT_min=("Mediana_FRT_min", "median"),
-                Mediana_RWT_hrs=("Mediana_RWT_hrs", "median"),
-                Asesores=("Nombre_Asesor", "nunique")
-            ).reset_index().sort_values(by="Tickets", ascending=False).reset_index(drop=True)
+            tiene_tiempos = "Mediana_FRT_min" in df_tip_source.columns and "Mediana_RWT_hrs" in df_tip_source.columns
+
+            if tiene_tiempos:
+                df_tip = df_tip_source.groupby("Tipo_de_Gestion").agg(
+                    Tickets=("Recuento_Tickets", "sum"),
+                    Mediana_FRT_min=("Mediana_FRT_min", "median"),
+                    Mediana_RWT_hrs=("Mediana_RWT_hrs", "median"),
+                    Asesores=("Nombre_Asesor", "nunique")
+                ).reset_index().sort_values(by="Tickets", ascending=False).reset_index(drop=True)
+            else:
+                df_tip = df_tip_source.groupby("Tipo_de_Gestion").agg(
+                    Tickets=("Recuento_Tickets", "sum"),
+                    Asesores=("Nombre_Asesor", "nunique")
+                ).reset_index().sort_values(by="Tickets", ascending=False).reset_index(drop=True)
+
+            total_t_tip = df_tip["Tickets"].sum()
+            df_tip["Pct_Participacion"] = (df_tip["Tickets"] / total_t_tip * 100) if total_t_tip > 0 else 0
 
             col_t1, col_t2 = st.columns(2)
             with col_t1:
@@ -1263,32 +1276,52 @@ def render_tab_zendesk(email_usuario: str = ""):
                 st.plotly_chart(fig_t, use_container_width=True)
 
             with col_t2:
-                st.subheader("Mayor Tiempo de Espera (RWT en Horas)")
-                fig_r = px.bar(
-                    df_tip[df_tip["Tickets"] >= 10].sort_values(by="Mediana_RWT_hrs", ascending=False).head(12),
-                    x="Mediana_RWT_hrs",
-                    y="Tipo_de_Gestion",
-                    orientation="h",
-                    color="Mediana_RWT_hrs",
-                    color_continuous_scale="Reds",
-                    text=df_tip[df_tip["Tickets"] >= 10].sort_values(by="Mediana_RWT_hrs", ascending=False).head(12)["Mediana_RWT_hrs"].apply(lambda x: f"{x:.1f} h")
-                )
-                fig_r.update_layout(height=450, yaxis=dict(title="", autorange="reversed"), coloraxis_showscale=False)
-                st.plotly_chart(fig_r, use_container_width=True)
+                if tiene_tiempos:
+                    st.subheader("Mayor Tiempo de Espera (RWT en Horas)")
+                    fig_r = px.bar(
+                        df_tip[df_tip["Tickets"] >= 10].sort_values(by="Mediana_RWT_hrs", ascending=False).head(12),
+                        x="Mediana_RWT_hrs",
+                        y="Tipo_de_Gestion",
+                        orientation="h",
+                        color="Mediana_RWT_hrs",
+                        color_continuous_scale="Reds",
+                        text=df_tip[df_tip["Tickets"] >= 10].sort_values(by="Mediana_RWT_hrs", ascending=False).head(12)["Mediana_RWT_hrs"].apply(lambda x: f"{x:.1f} h")
+                    )
+                    fig_r.update_layout(height=450, yaxis=dict(title="", autorange="reversed"), coloraxis_showscale=False)
+                    st.plotly_chart(fig_r, use_container_width=True)
+                else:
+                    st.subheader("Distribución de Participación (%)")
+                    fig_pie = px.pie(
+                        df_tip.head(8),
+                        values="Tickets",
+                        names="Tipo_de_Gestion",
+                        hole=0.4,
+                        title="Top 8 Tipologías vs Resto"
+                    )
+                    fig_pie.update_layout(height=450, margin=dict(l=10, r=10, t=30, b=10))
+                    st.plotly_chart(fig_pie, use_container_width=True)
+
+            format_map = {
+                "Tickets": "{:,.0f}",
+                "% Participación": "{:.1f}%",
+                "Asesores": "{:,.0f}"
+            }
+            renames = {
+                "Tipo_de_Gestion": "Tipología",
+                "Pct_Participacion": "% Participación"
+            }
+            if tiene_tiempos:
+                renames["Mediana_FRT_min"] = "FRT (min)"
+                renames["Mediana_RWT_hrs"] = "RWT (hrs)"
+                format_map["FRT (min)"] = "{:.1f}"
+                format_map["RWT (hrs)"] = "{:.1f}"
 
             st.dataframe(
-                df_tip.rename(columns={
-                    "Tipo_de_Gestion": "Tipología",
-                    "Mediana_FRT_min": "FRT (min)",
-                    "Mediana_RWT_hrs": "RWT (hrs)"
-                })
-                .style.format({
-                    "Tickets": "{:,.0f}",
-                    "FRT (min)": "{:.1f}",
-                    "RWT (hrs)": "{:.1f}"
-                }),
+                df_tip.rename(columns=renames).style.format(format_map),
                 use_container_width=True
             )
+        else:
+            st.info("No hay datos de tipología para el periodo y filtros seleccionados.")
 
     # ---------------------------------------------------------------------
     # SUBMÓDULO 7: TIEMPOS DE SERVICIO (SLAS)
