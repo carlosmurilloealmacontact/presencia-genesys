@@ -1562,7 +1562,7 @@ def render_tab_capacidad(agentes_map: dict):
     w_h_cap_efectiva = max(0.0, w_h_disp + w_h_delta_aht + w_h_delta_demanda)
     w_pct_cap_efectiva = (w_h_cap_efectiva / w_h_req * 100.0) if w_h_req > 0 else 0.0
 
-    col_wat, col_diag = st.columns([1.55, 1.05])
+    col_wat, col_diag = st.columns([1.32, 1.28])
     with col_wat:
         if modo_eje == "Porcentaje de Capacidad (%)":
             y_vals = [100.0, w_pct_delta_con, w_pct_pau, w_pct_disp, w_pct_delta_demanda, w_pct_delta_aht, w_pct_cap_efectiva]
@@ -1599,8 +1599,9 @@ def render_tab_capacidad(agentes_map: dict):
         color_final = "#10b981" if w_pct_cap_efectiva >= 95.0 else ("#f59e0b" if w_pct_cap_efectiva >= 85.0 else "#ef4444")
 
         fig_wat = go.Figure(go.Waterfall(
+            name="Capacidad",
             orientation="v",
-            measure=["absolute", "relative", "relative", "subtotal", "relative", "relative", "total"],
+            measure=["absolute", "relative", "relative", "total", "relative", "relative", "total"],
             x=[
                 "1. Requerido Plan",
                 "2. Asistencia / FTEs",
@@ -1610,13 +1611,21 @@ def render_tab_capacidad(agentes_map: dict):
                 "6. Efecto AHT",
                 "7. Capacidad Neta Efectiva"
             ],
-            y=y_vals,
-            text=text_vals,
             textposition="outside",
-            connector={"line": {"color": "#cbd5e1", "width": 1.5}},
+            text=text_vals,
+            y=y_vals,
+            connector={"line": {"color": "rgb(63, 63, 63)", "width": 1.5}},
             decreasing={"marker": {"color": "#ef4444"}},
             increasing={"marker": {"color": "#10b981"}},
-            totals={"marker": {"color": color_final}}
+            totals={"marker": {"color": [
+                "#f59e0b",
+                "#10b981",
+                "#ef4444",
+                "#10b981" if w_pct_disp >= 85.0 else "#ef4444",
+                "#10b981",
+                "#10b981",
+                color_final
+            ]}}
         ))
 
         fig_wat.update_layout(
@@ -1633,82 +1642,164 @@ def render_tab_capacidad(agentes_map: dict):
     with col_diag:
         es_superavit_con = w_delta_con_h >= 0
         es_cumplido = w_pct_cap_efectiva >= 85.0
-        bg_card = "#f0fdf4" if w_pct_cap_efectiva >= 95.0 else ("#fffbeb" if w_pct_cap_efectiva >= 85.0 else "#fef2f2")
-        border_card = "#10b981" if w_pct_cap_efectiva >= 95.0 else ("#f59e0b" if w_pct_cap_efectiva >= 85.0 else "#ef4444")
 
-        # Texto del impacto de AHT
-        if pd.notna(w_aht_real) and w_meta_aht and w_meta_aht > 0:
-            diff_aht_s = w_aht_real - w_meta_aht
-            pct_diff_aht = (diff_aht_s / w_meta_aht * 100.0)
-            if diff_aht_s > 0:
-                texto_linea_aht = f"<span style='color: #b91c1c; font-weight: 600;'>{w_pct_delta_aht:+.1f}%</span> ({w_h_delta_aht:+.1f} h) • AHT: {w_aht_real:.0f}s vs {w_meta_aht:.0f}s (+{pct_diff_aht:.1f}%)"
-            else:
-                texto_linea_aht = f"<span style='color: #15803d; font-weight: 600;'>{w_pct_delta_aht:+.1f}%</span> ({w_h_delta_aht:+.1f} h) • AHT: {w_aht_real:.0f}s vs {w_meta_aht:.0f}s ({pct_diff_aht:.1f}%)"
+        # Textos explicativos en lenguaje operativo directo para cada fuerza
+        if es_superavit_con:
+            desc_asistencia = f"<span style='color: #15803d; font-weight: 600;'>🟢 Sobre-asistencia</span> (+{w_delta_con_h:,.1f} h). Dotación cubierta."
         else:
-            texto_linea_aht = "Sin impacto (No aplica / Back Office)"
+            desc_asistencia = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Déficit de personal</span> ({w_delta_con_h:,.1f} h faltantes)."
 
-        # Texto del impacto de Tráfico
+        if w_h_pau_fuga > 0:
+            desc_pausas = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Fuga severa:</span> <b>{w_h_pau_fuga:,.1f} h destruidas</b> (>14% meta)."
+        else:
+            desc_pausas = "<span style='color: #15803d; font-weight: 600;'>🟢 Disciplina:</span> Pausas dentro de la meta del 14%."
+
         if pd.notna(w_traf_real) and w_traf_plan > 0:
-            diff_traf = w_traf_real - w_traf_plan
-            pct_diff_traf = (diff_traf / w_traf_plan * 100.0)
-            if diff_traf > 0:
-                texto_linea_traf = f"<span style='color: #b91c1c; font-weight: 600;'>{w_pct_delta_demanda:+.1f}%</span> ({w_h_delta_demanda:+.1f} h) • Sobre-demanda (+{pct_diff_traf:.1f}%)"
+            pct_vol_diff = ((w_traf_real - w_traf_plan) / w_traf_plan * 100.0)
+            if pct_vol_diff > 5.0:
+                desc_demanda = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Sobrecarga:</span> Entró +{pct_vol_diff:.1f}% de volumen (+{w_h_delta_demanda:,.1f} h de presión)."
+            elif pct_vol_diff < -5.0:
+                desc_demanda = f"<span style='color: #15803d; font-weight: 600;'>🟢 Respiro:</span> Llegó {abs(pct_vol_diff):.1f}% menos tráfico (liberó {abs(w_h_delta_demanda):,.1f} h)."
             else:
-                texto_linea_traf = f"<span style='color: #15803d; font-weight: 600;'>{w_pct_delta_demanda:+.1f}%</span> ({w_h_delta_demanda:+.1f} h) • Menor volumen ({pct_diff_traf:.1f}%)"
+                desc_demanda = f"<span style='color: #15803d; font-weight: 600;'>🟢 Alineado:</span> Tráfico acorde al plan ({pct_vol_diff:+.1f}%)."
         else:
-            texto_linea_traf = "Sin impacto medible de colas"
+            desc_demanda = "<span style='color: #64748b;'>ℹ️ Sin medición de volumen en cola directa.</span>"
 
-        # Texto del impacto de Nivel de Servicio
-        if pd.notna(w_ns_real):
-            color_ns_txt = "#15803d" if w_ns_real >= w_meta_ns else ("#b45309" if w_ns_real >= (w_meta_ns - 10.0) else "#b91c1c")
-            texto_linea_ns = f"<span style='font-size: 15px; font-weight: 700; color: {color_ns_txt};'>{w_ns_real:.1f}%</span> (Meta: {w_meta_ns:.0f}%)"
+        if pd.notna(w_aht_real) and w_meta_aht and w_meta_aht > 0:
+            pct_aht_diff = ((w_aht_real - w_meta_aht) / w_meta_aht * 100.0)
+            if pct_aht_diff > 5.0:
+                desc_aht = f"<span style='color: #b91c1c; font-weight: 600;'>🔴 Llamadas lentas:</span> AHT {w_aht_real:.0f}s vs meta {w_meta_aht:.0f}s (+{pct_aht_diff:.1f}%)."
+            elif pct_aht_diff < -5.0:
+                desc_aht = f"<span style='color: #15803d; font-weight: 600;'>🟢 Eficiencia:</span> AHT {w_aht_real:.0f}s vs meta {w_meta_aht:.0f}s ({pct_aht_diff:.1f}%)."
+            else:
+                desc_aht = f"<span style='color: #15803d; font-weight: 600;'>🟢 En meta:</span> AHT {w_aht_real:.0f}s vs {w_meta_aht:.0f}s."
         else:
-            texto_linea_ns = "N/A"
+            desc_aht = "<span style='color: #64748b;'>ℹ️ Sin impacto / No aplica AHT en llamadas.</span>"
+
+        if pd.notna(w_ns_real):
+            if w_ns_real >= w_meta_ns:
+                desc_ns = f"<span style='color: #15803d; font-weight: 700;'>🟢 {w_ns_real:.1f}% (Cumple meta {w_meta_ns:.0f}%)</span>"
+            else:
+                desc_ns = f"<span style='color: #b91c1c; font-weight: 700;'>🔴 {w_ns_real:.1f}% (Bajo meta {w_meta_ns:.0f}%)</span>"
+        else:
+            desc_ns = "<span style='color: #64748b;'>ℹ️ N/A (Back Office / Casos)</span>"
 
         st.markdown(
             f"""
-            <div style="background: {bg_card}; border: 1px solid {border_card}; border-radius: 10px; padding: 14px 16px; margin-top: 10px;">
-                <div style="font-weight: 700; font-size: 14.5px; color: #0f172a; margin-bottom: 8px;">
-                    ⚖️ Descomposición de Fuerzas: ¿Qué sumó y qué restó?
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; margin-top: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <div style="font-weight: 700; font-size: 13.5px; color: #0f172a; margin-bottom: 6px; border-bottom: 2px solid #f1f5f9; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                    <span>⚖️ Cuadro Explicativo: Descomposición de Fuerzas</span>
+                    <span style="font-size: 11px; font-weight: 500; color: #64748b;">¿Qué sumó y qué restó?</span>
                 </div>
-                <div style="font-size: 12.5px; color: #334155; line-height: 1.6;">
-                    • <b>1. Requerido Plan (100%):</b> <code>100.0%</code> ({w_h_req:,.1f} h | {w_fte_req:.1f} FTEs{'/día' if num_dias > 1 else ''})<br>
-                    • <b>2. Conexión / Asistencia:</b> <span style="color: {'#15803d' if es_superavit_con else '#b91c1c'}; font-weight: 600;">{w_pct_delta_con:+.1f}%</span> ({w_delta_con_h:+,.1f} h)<br>
-                    • <b>3. Pausas / Auxiliares:</b> <span style="color: #b91c1c; font-weight: 600;">{w_pct_pau:.1f}%</span> ({-w_h_pau:.1f} h | Fuga: {w_pct_pau_fuga:.1f}%)<br>
-                    • <b>4. Disponible en Genesys:</b> <b>{w_pct_disp:.1f}%</b> ({w_h_disp:,.1f} h)<br>
-                    <hr style="margin: 6px 0; border: none; border-top: 1px dashed #cbd5e1;">
-                    • <b>5. Presión de Demanda:</b> {texto_linea_traf}<br>
-                    • <b>6. Desvío de AHT (Eficiencia):</b> {texto_linea_aht}<br>
-                    <hr style="margin: 6px 0; border: none; border-top: 1px dashed #cbd5e1;">
-                    • <b>7. Capacidad Neta Efectiva:</b> <span style="font-size: 14px; font-weight: 700; color: {'#15803d' if es_cumplido else '#b91c1c'};">{w_pct_cap_efectiva:.1f}%</span> ({w_h_cap_efectiva:,.1f} h)<br>
-                    • <b>🎯 Nivel de Servicio Resultante:</b> {texto_linea_ns}
+                <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; line-height: 1.4;">
+                    <tbody>
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 4px 2px; font-weight: 600; color: #334155; width: 30%;">1. Requerido Plan</td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: #0f172a; width: 28%;">100.0% <span style="font-size: 10.5px; color: #64748b;">({w_h_req:,.1f} h)</span></td>
+                            <td style="padding: 4px 4px; color: #64748b; font-size: 11px; width: 42%;">Meta SORE ({w_fte_req:.1f} FTEs)</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 4px 2px; font-weight: 600; color: #334155;">2. Asistencia / FTEs</td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: {'#15803d' if es_superavit_con else '#b91c1c'};">{w_pct_delta_con:+.1f}% <span style="font-size: 10.5px;">({w_delta_con_h:+,.1f} h)</span></td>
+                            <td style="padding: 4px 4px; font-size: 11px;">{desc_asistencia}</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 4px 2px; font-weight: 600; color: #334155;">3. Pausas / Auxiliares</td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: #b91c1c;">{w_pct_pau:.1f}% <span style="font-size: 10.5px;">({-w_h_pau:,.1f} h)</span></td>
+                            <td style="padding: 4px 4px; font-size: 11px;">{desc_pausas}</td>
+                        </tr>
+                        <tr style="border-bottom: 2px solid #cbd5e1; background: #f8fafc;">
+                            <td style="padding: 4px 2px; font-weight: 700; color: #0f172a;">4. Disponible Real</td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 800; color: #0f172a;">{w_pct_disp:.1f}% <span style="font-size: 10.5px;">({w_h_disp:,.1f} h)</span></td>
+                            <td style="padding: 4px 4px; color: #475569; font-size: 11px; font-weight: 600;">Lo que realmente quedó atendiendo</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 4px 2px; font-weight: 600; color: #334155;">5. Efecto Demanda</td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: {'#15803d' if w_h_delta_demanda >= 0 else '#b91c1c'};">{w_pct_delta_demanda:+.1f}% <span style="font-size: 10.5px;">({w_h_delta_demanda:+,.1f} h)</span></td>
+                            <td style="padding: 4px 4px; font-size: 11px;">{desc_demanda}</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 4px 2px; font-weight: 600; color: #334155;">6. Efecto AHT</td>
+                            <td style="padding: 4px 2px; text-align: right; font-weight: 700; color: {'#15803d' if w_h_delta_aht >= 0 else '#b91c1c'};">{w_pct_delta_aht:+.1f}% <span style="font-size: 10.5px;">({w_h_delta_aht:+,.1f} h)</span></td>
+                            <td style="padding: 4px 4px; font-size: 11px;">{desc_aht}</td>
+                        </tr>
+                        <tr style="border-top: 2px solid #0f172a; background: #f1f5f9;">
+                            <td style="padding: 5px 2px; font-weight: 800; color: #0f172a; font-size: 12px;">7. Capacidad Neta</td>
+                            <td style="padding: 5px 2px; text-align: right; font-weight: 800; font-size: 12.5px; color: {'#15803d' if es_cumplido else '#b91c1c'};">{w_pct_cap_efectiva:.1f}% <span style="font-size: 10.5px;">({w_h_cap_efectiva:,.1f} h)</span></td>
+                            <td style="padding: 5px 4px; font-weight: 700; color: #0f172a; font-size: 11px;">Capacidad efectiva útil resultante</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div style="margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 11px; font-weight: 700; color: #334155;">🎯 Nivel de Servicio Resultante:</span>
+                    <span style="font-size: 11.5px;">{desc_ns}</span>
                 </div>
             </div>
             """,
             unsafe_allow_html=True
         )
 
-        # Diagnóstico narrativo de causa raíz
+        # Diagnóstico narrativo ejecutivo de Causa Raíz
         if w_pct_cap_efectiva >= 95.0 and (pd.isna(w_ns_real) or w_ns_real >= w_meta_ns):
-            st.success(f"✅ **Operación Cumplida y Blindada:** La capacidad efectiva cubrió el **{w_pct_cap_efectiva:.1f}%** del requerimiento y el Nivel de Servicio cerró en meta ({w_ns_real:.1f}%).")
+            st.markdown(
+                f"""
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-left: 5px solid #10b981; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
+                    <b style="color: #166534; font-size: 12px;">✅ Operación Cumplida y Blindada:</b><br>
+                    <span style="font-size: 11px; color: #14532d; line-height: 1.45;">La capacidad efectiva cubrió el <b>{w_pct_cap_efectiva:.1f}%</b> del requerimiento y el Nivel de Servicio cerró en meta (<b>{w_ns_real:.1f}%</b>).</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         elif pd.notna(w_ns_real) and w_ns_real < w_meta_ns and w_pct_delta_aht < -5.0:
-            st.error(
-                f"🚨 **Déficit por AHT Desbordado:** El aumento en los tiempos de llamada restó **{abs(w_h_delta_aht):.1f} horas de capacidad** ({w_pct_delta_aht:.1f}%), siendo el factor determinante que hundió el NS al **{w_ns_real:.1f}%**."
+            st.markdown(
+                f"""
+                <div style="background: #fef2f2; border: 1px solid #fecaca; border-left: 5px solid #ef4444; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
+                    <b style="color: #991b1b; font-size: 12px;">🚨 Causa Raíz: Déficit por AHT Desbordado:</b><br>
+                    <span style="font-size: 11px; color: #7f1d1d; line-height: 1.45;">El aumento en los tiempos de llamada restó <b>{abs(w_h_delta_aht):.1f} horas de capacidad</b> ({w_pct_delta_aht:.1f}%), siendo el factor determinante que hundió el NS al <b>{w_ns_real:.1f}%</b>.</span>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         elif pd.notna(w_ns_real) and w_ns_real < w_meta_ns and w_pct_delta_demanda < -5.0:
-            st.error(
-                f"🚨 **Colapso por Sobre-Demanda:** La llegada de volumen no previsto restó **{abs(w_h_delta_demanda):.1f} horas de holgura** ({w_pct_delta_demanda:.1f}%), sobrepasando la capacidad planificada."
+            st.markdown(
+                f"""
+                <div style="background: #fef2f2; border: 1px solid #fecaca; border-left: 5px solid #ef4444; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
+                    <b style="color: #991b1b; font-size: 12px;">🚨 Causa Raíz: Colapso por Sobre-Demanda:</b><br>
+                    <span style="font-size: 11px; color: #7f1d1d; line-height: 1.45;">La llegada de volumen imprevisto restó <b>{abs(w_h_delta_demanda):.1f} horas de holgura</b> ({w_pct_delta_demanda:.1f}%), sobrepasando la capacidad planificada.</span>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         elif not es_superavit_con:
-            st.error(
-                f"🚨 **Déficit por Falta de Conexión:** Faltaron **{abs(w_delta_con_h):.1f} horas** de personal ({w_pct_delta_con:.1f}% vs plan) para sostener la operación."
+            st.markdown(
+                f"""
+                <div style="background: #fef2f2; border: 1px solid #fecaca; border-left: 5px solid #ef4444; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
+                    <b style="color: #991b1b; font-size: 12px;">🚨 Causa Raíz: Falta de Conexión / Ausentismo:</b><br>
+                    <span style="font-size: 11px; color: #7f1d1d; line-height: 1.45;">Faltaron <b>{abs(w_delta_con_h):.1f} horas</b> de personal ({w_pct_delta_con:.1f}% vs plan) para sostener la operación.</span>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
-        elif es_superavit_con and w_pct_pau_fuga < -5.0:
-            st.warning(
-                f"🟠 **Fuga en Auxiliares:** Se contó con suficiente personal ({w_pct_delta_con:+.1f}%), pero las pausas no autorizadas destruyeron **{w_h_pau_fuga:.1f} horas**."
+        elif es_superavit_con and w_h_pau_fuga > 0:
+            st.markdown(
+                f"""
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 5px solid #f59e0b; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
+                    <b style="color: #92400e; font-size: 12px;">🟠 Causa Raíz: Fuga Crítica en Pausas / Auxiliares:</b><br>
+                    <span style="font-size: 11px; color: #78350f; line-height: 1.45;">Se contó con suficiente personal (<b>{w_pct_delta_con:+.1f}%</b>), pero las pausas que sobrepasaron la meta del 14% destruyeron <b>{w_h_pau_fuga:,.1f} horas netas de trabajo</b>, dejando colas desatendidas en momentos clave.</span>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         else:
-            st.warning(f"⚠️ **Capacidad Ajustada:** Cumplimiento efectivo del **{w_pct_cap_efectiva:.1f}%** frente a la exigencia planificada.")
+            st.markdown(
+                f"""
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #64748b; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
+                    <b style="color: #1e293b; font-size: 12px;">⚠️ Capacidad Ajustada:</b><br>
+                    <span style="font-size: 11px; color: #334155; line-height: 1.45;">Cumplimiento efectivo del <b>{w_pct_cap_efectiva:.1f}%</b> frente a la exigencia planificada.</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
     st.markdown("---")
 
