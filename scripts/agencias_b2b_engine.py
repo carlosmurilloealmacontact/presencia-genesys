@@ -756,23 +756,51 @@ def render_subtab_backlog_casos_b2b():
     if "Coordinador" in df_cases_raw.columns:
         df_cases_raw = df_cases_raw[df_cases_raw["Coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
 
-    # Filtrar solo casos abiertos (Backlog Activo en Gestión)
-    if "Estado" in df_cases_raw.columns:
-        df_cases_bk = df_cases_raw[df_cases_raw["Estado"].isin(["En proceso", "Nuevo", "Abierto", "Pendiente", "Escalado"])].copy()
-    else:
-        df_cases_bk = df_cases_raw.copy()
+    st.markdown("##### 🎛️ Filtros de Backlog Agencias B2B")
+    sf_f0, sf_f1, sf_f2, sf_f3, sf_f4 = st.columns([1.3, 1.0, 1.0, 1.3, 1.4])
+    min_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().min()
+    max_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().max()
+    min_d = min_date_raw.date() if pd.notna(min_date_raw) else date.today()
+    max_d = max_date_raw.date() if pd.notna(max_date_raw) else date.today()
+
+    with sf_f0:
+        sf_estado = st.selectbox("Estado de Casos:", ["🟢 Solo Abiertos / En Proceso", "📂 Histórico Total 2026", "✅ Solo Cerrados"], key="agb2b_bk_estado")
+    with sf_f1:
+        sf_desde = st.date_input("Desde:", value=min_d, min_value=min_d, max_value=max_d, key="agb2b_bk_desde")
+    with sf_f2:
+        sf_hasta = st.date_input("Hasta:", value=max_d, min_value=min_d, max_value=max_d, key="agb2b_bk_hasta")
+    with sf_f3:
+        serv_opts = ["Todos los Servicios"] + sorted([s for s in df_cases_raw["Work Queue Control"].dropna().unique() if str(s).strip()])
+        sf_serv = st.selectbox("Servicio / Cola:", serv_opts, key="agb2b_bk_serv")
+    with sf_f4:
+        sup_opts = ["Todos los Supervisores"] + sorted([s for s in df_cases_raw["Supervisor"].dropna().unique() if s != "Sin Supervisor"]) + ["Sin Supervisor"]
+        sf_sup = st.selectbox("Supervisor (Jefe):", sup_opts, key="agb2b_bk_sup")
+
+    df_cases_bk = df_cases_raw.copy()
+    if sf_estado == "🟢 Solo Abiertos / En Proceso" and "Estado" in df_cases_bk.columns:
+        df_cases_bk = df_cases_bk[df_cases_bk["Estado"].isin(["En proceso", "Nuevo", "Abierto", "Pendiente", "Escalado"])]
+    elif sf_estado == "✅ Solo Cerrados" and "Estado" in df_cases_bk.columns:
+        df_cases_bk = df_cases_bk[df_cases_bk["Estado"] == "Cerrado"]
+
+    if sf_desde and sf_hasta and "Fecha_Inicio_dt" in df_cases_bk.columns:
+        df_cases_bk = df_cases_bk[(df_cases_bk["Fecha_Inicio_dt"].dt.date >= sf_desde) & (df_cases_bk["Fecha_Inicio_dt"].dt.date <= sf_hasta)]
+    if sf_serv != "Todos los Servicios" and "Work Queue Control" in df_cases_bk.columns:
+        df_cases_bk = df_cases_bk[df_cases_bk["Work Queue Control"] == sf_serv]
+    if sf_sup != "Todos los Supervisores" and "Supervisor" in df_cases_bk.columns:
+        df_cases_bk = df_cases_bk[df_cases_bk["Supervisor"] == sf_sup]
 
     kpis = sfe.calculate_kpis(df_cases_bk)
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
-        st.metric("Total Backlog Activo", kpis['total_backlog'], delta="Casos Agencias")
+        titulo_k1 = "Backlog Activo Vivo" if sf_estado == "🟢 Solo Abiertos / En Proceso" else "Total Casos Filtrados"
+        st.metric(titulo_k1, f"{kpis['total_backlog']:,}", delta=f"{kpis['a_tiempo_pct']}% a tiempo (SLA)")
     with k2:
-        st.metric("Infracción SLA 24h", f"{kpis['infraccion_pct']}%", delta=f"{kpis['infraccion_count']} vencidos", delta_color="inverse")
+        st.metric("Infracción SLA 24h", f"{kpis['infraccion_pct']}%", delta=f"{kpis['infraccion_count']:,} vencidos", delta_color="inverse")
     with k3:
-        st.metric("Casos Críticos (> 7d)", kpis['criticos_gt_7d'], delta=f"Máx: {kpis['max_antiguedad_dias']}d", delta_color="inverse")
+        st.metric("Casos Críticos (> 7d)", f"{kpis['criticos_gt_7d']:,}", delta=f"Máx: {kpis['max_antiguedad_dias']}d", delta_color="inverse")
     with k4:
-        st.metric("Casos sin Asignar", kpis['sin_asignar_count'], delta=f"{kpis['sin_asignar_pct']}% en cola")
+        st.metric("Casos sin Asignar", f"{kpis['sin_asignar_count']:,}", delta=f"{kpis['sin_asignar_pct']}% en cola")
 
     st.write("")
     col_ag, col_qu = st.columns([1.5, 1])
