@@ -56,7 +56,7 @@ if auth_configurado:
                 <h2 style="color: #0f172a; margin: 0 0 8px 0; font-size: 22px;">Panel de Gestión Operativa</h2>
                 <p style="color: #64748b; font-size: 13px; margin: 0 0 20px 0;">Almaexperience • Genesys Cloud & GTR</p>
                 <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 25px; border: 1px dashed #cbd5e1; font-size: 13px; color: #334155;">
-                    Acceso permitido exclusivamente a cuentas corporativas autorizadas <b>(@outsourcing-account.com, @latam.com, @almaexperience.co)</b>.
+                    Acceso permitido exclusivamente a cuentas corporativas autorizadas <b>(@outsourcing-account.com, @almaexperience.co, @almacontactcol.info)</b>.
                 </div>
             </div>
             """,
@@ -71,7 +71,30 @@ if auth_configurado:
     current_email = (getattr(st.user, "email", "") or "").strip().lower()
     current_name = getattr(st.user, "name", "") or current_email
 
-    # 2. Validar que el dominio sea corporativo autorizado
+    # 2. Validar revocación expresa de @latam.com
+    if current_email.endswith("@latam.com"):
+        st.markdown(
+            f"""
+            <div style="max-width: 520px; margin: 60px auto 20px auto; padding: 30px; background-color: #fef2f2; border-radius: 12px; border: 1px solid #f87171; text-align: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+                <h3 style="color: #991b1b; margin-top: 0;">⛔ Acceso Temporalmente Suspendido</h3>
+                <p style="color: #7f1d1d; font-size: 14px; margin-bottom: 12px;">
+                    Has iniciado sesión con el correo:<br><b>{current_email}</b>
+                </p>
+                <div style="background: #fff5f5; border-radius: 8px; padding: 14px; margin-bottom: 20px; border: 1px dashed #fca5a5; font-size: 13px; color: #991b1b; text-align: left; line-height: 1.5;">
+                    📌 El acceso para cuentas del dominio <b>@latam.com</b> se encuentra suspendido hasta nueva orden.<br><br>
+                    Por favor cierra sesión e inicia con tu cuenta corporativa autorizada de <b>Alma Contact / Almaexperience</b> (ej. <i>@almaexperience.co</i> o <i>@outsourcing-account.com</i>).
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        c_b1, c_b2, c_b3 = st.columns([1, 1.5, 1])
+        with c_b2:
+            if st.button("Cerrar Sesión e Iniciar con cuenta Alma Contact", use_container_width=True):
+                st.logout()
+        st.stop()
+
+    # 3. Validar que el dominio sea corporativo autorizado
     if not any(current_email.endswith(dom) for dom in DOMINIOS_CORPORATIVOS):
         st.markdown(
             f"""
@@ -936,11 +959,47 @@ SECCIONES_APP = [
 ]
 
 # Pestaña de Salesforce B2B:
-# Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
+# Acceso para Carlos Murillo, Marelin Cardona y Andrés Rodríguez
 USUARIOS_SALESFORCE_AUTORIZADOS = {
     "carlosmurilloe.almacontact@outsourcing-account.com",
+    # Marelin Cardona
+    "marelyn.cardona@almaexperience.co",
+    "marelyn.cardona.almacontact@outsourcing-account.com",
+    "marelyn.cardona@almacontactcol.info",
+    "marelync@almaexperience.co",
+    "marelync@almacontactcol.info",
+    "marelin.cardona@almaexperience.co",
+    "marelin.cardona.almacontact@outsourcing-account.com",
+    "marelin.cardona@almacontactcol.info",
+    # Andrés Rodríguez
+    "andres.rodriguez@almaexperience.co",
+    "andres.rodriguez.almacontact@outsourcing-account.com",
+    "andres.rodriguez@almacontactcol.info",
+    "andresr@almaexperience.co",
+    "andresr@almacontactcol.info",
+    "andres.rodriguez.uribe@almaexperience.co",
+    "andres.rodriguez.uribe.almacontact@outsourcing-account.com",
 }
-if current_email in USUARIOS_SALESFORCE_AUTORIZADOS or not auth_configurado:
+
+
+def es_usuario_salesforce_autorizado(email: str) -> bool:
+    if not email:
+        return False
+    em = email.strip().lower()
+    if em in USUARIOS_SALESFORCE_AUTORIZADOS:
+        return True
+    patrones_autorizados = [
+        "carlosmurillo",
+        "marelyn.cardona",
+        "marelin.cardona",
+        "marelync",
+        "andres.rodriguez",
+        "andresr",
+    ]
+    return any(p in em for p in patrones_autorizados)
+
+
+if es_usuario_salesforce_autorizado(current_email) or not auth_configurado:
     SECCIONES_APP.append("☁️ Salesforce B2B")
 
 # Pestaña de Zendesk:

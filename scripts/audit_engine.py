@@ -9,10 +9,10 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
+DEFAULT_NEON_URL = "postgresql://neondb_owner:npg_u94jTQIadNYr@ep-proud-violet-a5lapj40-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
 DOMINIO_CORPORATIVO = "@outsourcing-account.com"
 DOMINIOS_CORPORATIVOS = (
     "@outsourcing-account.com",
-    "@latam.com",
     "@almaexperience.co",
     "@almacontactcol.info",
 )
