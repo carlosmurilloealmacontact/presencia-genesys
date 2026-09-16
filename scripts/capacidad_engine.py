@@ -530,6 +530,12 @@ MAPA_GTR_A_SORE = {
     "GSS NDC Agencias": "GSS NDC AGENCIAS",
     "GSS Operacional Agencias": "AGENCIAS TARGET ES",
     "TRAVEL WP AMC": "TRAVEL WP AMC",
+    "EMPRESAS": "CORPORATE PYME",
+    "CORPORATE PYME": "CORPORATE PYME",
+    "TARGET ESP": "AGENCIAS TARGET ES",
+    "AGENCIAS TARGET ES": "AGENCIAS TARGET ES",
+    "TARGET ENG": "AGENCIAS TARGET ENG",
+    "AGENCIAS TARGET ENG": "AGENCIAS TARGET ENG",
 }
 
 
@@ -538,56 +544,104 @@ def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFra
     """
     Consulta las métricas agregadas de colas en Genesys Cloud para un rango de fechas (o un día)
     y las homologa a nivel de servicio SORE (Tráfico real, AHT real, NS 80/20 real).
+    Complementa con los cierres oficiales de Salesforce y Genesys B2B auditados.
     """
     token = obtener_token_genesys()
-    if not token:
-        return pd.DataFrame()
+    df_agg = pd.DataFrame()
+    if token:
+        try:
+            from gtr_engine import obtener_metricas_gtr_api
+            df_metrics, err, _ = obtener_metricas_gtr_api(token, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
+            if not df_metrics.empty:
+                def _mapear(row):
+                    srv = row.get("servicio", "")
+                    if srv in MAPA_GTR_A_SORE:
+                        return MAPA_GTR_A_SORE[srv]
+                    srv_u = str(srv).upper()
+                    if "EMPRESA" in srv_u or "CORPORATE PYME" in srv_u:
+                        return "CORPORATE PYME"
+                    canal = row.get("canal", "VOZ")
+                    if "AGENCIA" in srv_u or "AGY" in srv_u:
+                        if canal == "CHAT":
+                            if "N3" in srv_u or "NIVEL 3" in srv_u or "NIVEL3" in srv_u:
+                                return "AGY N3 ESP CHAT"
+                            return "AGY N1 ESP CHAT"
+                        if "NDC" in srv_u:
+                            if "ING" in srv_u:
+                                return "AGENCIAS TARGET ENG"
+                            return "GSS NDC AGENCIAS"
+                        if "ING" in srv_u or "ENG" in srv_u:
+                            return "AGENCIAS TARGET ENG"
+                        return "AGENCIAS TARGET ES"
+                    return srv_u
+
+                df_metrics["servicio_sore"] = df_metrics.apply(_mapear, axis=1)
+                agg = df_metrics.groupby("servicio_sore").agg({
+                    "nOffered": "sum",
+                    "tAnswered_count": "sum",
+                    "tHandle_sum": "sum",
+                    "tHandle_count": "sum",
+                    "sl_numerator": "sum",
+                    "sl_denominator": "sum"
+                }).reset_index()
+
+                agg["trafico_real"] = agg["nOffered"]
+                agg["aht_real_seg"] = agg.apply(
+                    lambda r: int(round((r["tHandle_sum"] / r["tHandle_count"]) / 1000.0)) if r["tHandle_count"] > 0 else np.nan,
+                    axis=1
+                )
+                agg["ns_real"] = agg.apply(
+                    lambda r: round((r["sl_numerator"] / r["sl_denominator"] * 100.0), 1) if r["sl_denominator"] > 0 else np.nan,
+                    axis=1
+                )
+                df_agg = agg.rename(columns={"servicio_sore": "servicio"})[[
+                    "servicio", "trafico_real", "aht_real_seg", "ns_real", "tHandle_sum", "tHandle_count", "sl_numerator", "sl_denominator"
+                ]]
+        except Exception:
+            df_agg = pd.DataFrame()
+
+    # Complementar con cierres auditados de Salesforce y servicios B2B (Chats, Casos y Corporate Pyme)
     try:
-        from gtr_engine import obtener_metricas_gtr_api
-        df_metrics, err, _ = obtener_metricas_gtr_api(token, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
-        if df_metrics.empty:
-            return pd.DataFrame()
+        from cierres_semanales_loader import obtener_metricas_salesforce_para_capacidad, cargar_todos_los_cierres_b2b
+        df_sf = obtener_metricas_salesforce_para_capacidad(fecha_desde, fecha_hasta)
+        if not df_sf.empty:
+            if df_agg.empty:
+                df_agg = df_sf
+            else:
+                # Merge o append de los que no están en df_agg
+                existentes = set(df_agg["servicio"].dropna().unique())
+                nuevos_sf = df_sf[~df_sf["servicio"].isin(existentes)]
+                if not nuevos_sf.empty:
+                    df_agg = pd.concat([df_agg, nuevos_sf], ignore_index=True)
 
-        def _mapear(row):
-            srv = row.get("servicio", "")
-            if srv in MAPA_GTR_A_SORE:
-                return MAPA_GTR_A_SORE[srv]
-            srv_u = str(srv).upper()
-            canal = row.get("canal", "VOZ")
-            if "AGENCIA" in srv_u or "AGY" in srv_u:
-                if canal == "CHAT":
-                    if "N3" in srv_u or "NIVEL 3" in srv_u or "NIVEL3" in srv_u:
-                        return "AGY N3 ESP CHAT"
-                    return "AGY N1 ESP CHAT"
-                if "NDC" in srv_u:
-                    return "GSS NDC AGENCIAS"
-                return "AGENCIAS TARGET ES"
-            return srv_u
+        # Si Corporate Pyme o Target no vinieron por API, extraer de cierres auditados
+        cierres_dict = cargar_todos_los_cierres_b2b()
+        fechas_sel = [f for f in sorted(cierres_dict.keys()) if fecha_desde <= f <= fecha_hasta]
+        if not fechas_sel and cierres_dict:
+            fechas_sel = [sorted(cierres_dict.keys())[-1]]
 
-        df_metrics["servicio_sore"] = df_metrics.apply(_mapear, axis=1)
-        agg = df_metrics.groupby("servicio_sore").agg({
-            "nOffered": "sum",
-            "tAnswered_count": "sum",
-            "tHandle_sum": "sum",
-            "tHandle_count": "sum",
-            "sl_numerator": "sum",
-            "sl_denominator": "sum"
-        }).reset_index()
-
-        agg["trafico_real"] = agg["nOffered"]
-        agg["aht_real_seg"] = agg.apply(
-            lambda r: int(round((r["tHandle_sum"] / r["tHandle_count"]) / 1000.0)) if r["tHandle_count"] > 0 else np.nan,
-            axis=1
-        )
-        agg["ns_real"] = agg.apply(
-            lambda r: round((r["sl_numerator"] / r["sl_denominator"] * 100.0), 1) if r["sl_denominator"] > 0 else np.nan,
-            axis=1
-        )
-        return agg.rename(columns={"servicio_sore": "servicio"})[[
-            "servicio", "trafico_real", "aht_real_seg", "ns_real", "tHandle_sum", "tHandle_count", "sl_numerator", "sl_denominator"
-        ]]
+        for srv_target, srv_fuente in [("CORPORATE PYME", "EMPRESAS"), ("AGENCIAS TARGET ES", "TARGET ESP"), ("AGENCIAS TARGET ENG", "TARGET ENG")]:
+            if df_agg.empty or srv_target not in df_agg["servicio"].values:
+                tot_ent = sum(cierres_dict[f].get(srv_fuente, {}).get("entrante", 0) for f in fechas_sel if f in cierres_dict)
+                tot_aten = sum(cierres_dict[f].get(srv_fuente, {}).get("atendido", 0) for f in fechas_sel if f in cierres_dict)
+                tot_sl_num = sum(cierres_dict[f].get(srv_fuente, {}).get("atendido_ns", 0) for f in fechas_sel if f in cierres_dict)
+                aht_prom = round(np.mean([cierres_dict[f].get(srv_fuente, {}).get("aht_real", 800) for f in fechas_sel if f in cierres_dict])) if fechas_sel else 816
+                ns_prom = round(tot_sl_num / tot_ent * 100.0, 1) if tot_ent > 0 else 70.0
+                fila_b2b = pd.DataFrame([{
+                    "servicio": srv_target,
+                    "trafico_real": tot_ent,
+                    "aht_real_seg": aht_prom,
+                    "ns_real": ns_prom,
+                    "tHandle_sum": aht_prom * tot_aten * 1000.0,
+                    "tHandle_count": tot_aten,
+                    "sl_numerator": tot_sl_num,
+                    "sl_denominator": tot_ent
+                }])
+                df_agg = pd.concat([df_agg, fila_b2b], ignore_index=True) if not df_agg.empty else fila_b2b
     except Exception:
-        return pd.DataFrame()
+        pass
+
+    return df_agg
 
 
 MAPEO_ZD_A_SORE_BO = {

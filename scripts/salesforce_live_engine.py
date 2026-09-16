@@ -170,10 +170,10 @@ def advance_live_state_smoothly():
     conn.close()
 
     QUEUE_TARGETS = {
-        "AMC Agencias Español": {"target": 20, "min": 15, "max": 26, "agents": 7},
-        "AMC Agencias Inglés": {"target": 4, "min": 2, "max": 6, "agents": 3},
-        "AMC Corporativo SSC": {"target": 7, "min": 4, "max": 10, "agents": 4},
-        "AMC Dudas Operacionales": {"target": 2, "min": 1, "max": 4, "agents": 2}
+        "AMC Agencias Español": {"target": 8, "min": 3, "max": 14, "agents": 7},
+        "AMC Agencias Inglés": {"target": 2, "min": 0, "max": 4, "agents": 3},
+        "AMC Corporativo SSC": {"target": 3, "min": 1, "max": 5, "agents": 4},
+        "AMC Dudas Operacionales": {"target": 1, "min": 0, "max": 3, "agents": 2}
     }
 
     queues_data = []
@@ -191,11 +191,11 @@ def advance_live_state_smoothly():
                 delta = random.choice([-1, 0, 1, 1])
             else:
                 delta = random.choice([-1, 0, 0, 1])
-            new_val = max(1, curr_val + delta)
-            wait_sec = max(30, new_val * random.randint(18, 23))
+            new_val = max(0, curr_val + delta)
+            wait_sec = max(20, new_val * random.randint(10, 16))
         else:
             new_val = cfg["target"] + random.choice([-1, 0, 1])
-            wait_sec = new_val * 20
+            wait_sec = new_val * 14
 
         queues_data.append({
             "queue_name": q_name,
@@ -465,4 +465,16 @@ def detect_live_anomalies(df_queues, df_agents):
                 "message": f"{q['chats_in_queue']} chats esperando. Mayor tiempo de espera: {wait_min} minutos."
             })
 
-    return alerts
+    # Deduplicación estricta por (categoria, asesor) o (categoria, title) para evitar repeticiones en pantalla
+    deduped = []
+    seen = set()
+    for a in alerts:
+        key = (
+            a.get("categoria", ""),
+            str(a.get("asesor") or a.get("alias") or a.get("title", "")).strip().upper()
+        )
+        if key not in seen:
+            seen.add(key)
+            deduped.append(a)
+
+    return deduped

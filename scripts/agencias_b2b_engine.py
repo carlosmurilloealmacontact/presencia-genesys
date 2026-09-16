@@ -174,22 +174,32 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
         with col_ac:
             if al_criticas:
                 items_c = []
+                seen_c = set()
                 for a in al_criticas:
+                    as_key = str(a.get("asesor") or a.get("title", "")).strip().upper()
+                    if as_key in seen_c:
+                        continue
+                    seen_c.add(as_key)
                     if "asesor" in a:
                         items_c.append(f"<b>{a['asesor']}</b>: {a.get('tag', '')}")
                     else:
                         items_c.append(f"<b>{a.get('title', '')}</b>: {a.get('message', '')}")
-                bloque_c = f"<div style='background:#fff1f2; border:1px solid #fecdd3; border-left:4px solid #e11d48; border-radius:8px; padding:10px 14px; margin-bottom:12px;'><b style='color:#9f1239; font-size:13.5px;'>🚨 {len(al_criticas)} Alerta(s) Críticas (Pausas / Llamadas Prolongadas):</b><div style='margin-top:5px; color:#881337; font-size:12px; line-height:1.6; max-height:110px; overflow-y:auto;'>{' &nbsp;·&nbsp; '.join(items_c)}</div></div>"
+                bloque_c = f"<div style='background:#fff1f2; border:1px solid #fecdd3; border-left:4px solid #e11d48; border-radius:8px; padding:10px 14px; margin-bottom:12px;'><b style='color:#9f1239; font-size:13.5px;'>🚨 {len(items_c)} Alerta(s) Críticas (Pausas / Llamadas Prolongadas):</b><div style='margin-top:5px; color:#881337; font-size:12px; line-height:1.6; max-height:110px; overflow-y:auto;'>{' &nbsp;·&nbsp; '.join(items_c)}</div></div>"
                 st.markdown(bloque_c, unsafe_allow_html=True)
         with col_ao:
             if al_operativas:
                 items_o = []
+                seen_o = set()
                 for a in al_operativas:
+                    as_key = str(a.get("asesor") or a.get("title", "")).strip().upper()
+                    if as_key in seen_o:
+                        continue
+                    seen_o.add(as_key)
                     if "asesor" in a:
                         items_o.append(f"<b>{a['asesor']}</b>: {a.get('tag', '')}")
                     else:
                         items_o.append(f"<b>{a.get('title', '')}</b>: {a.get('message', '')}")
-                bloque_o = f"<div style='background:#fffbeb; border:1px solid #fef3c7; border-left:4px solid #d97706; border-radius:8px; padding:10px 14px; margin-bottom:12px;'><b style='color:#92400e; font-size:13.5px;'>⚠️ {len(al_operativas)} Desvío(s) Operativos (Chats Estancados / Colas):</b><div style='margin-top:5px; color:#78350f; font-size:12px; line-height:1.6; max-height:110px; overflow-y:auto;'>{' &nbsp;·&nbsp; '.join(items_o)}</div></div>"
+                bloque_o = f"<div style='background:#fffbeb; border:1px solid #fef3c7; border-left:4px solid #d97706; border-radius:8px; padding:10px 14px; margin-bottom:12px;'><b style='color:#92400e; font-size:13.5px;'>⚠️ {len(items_o)} Desvío(s) Operativos (Chats Estancados / Colas):</b><div style='margin-top:5px; color:#78350f; font-size:12px; line-height:1.6; max-height:110px; overflow-y:auto;'>{' &nbsp;·&nbsp; '.join(items_o)}</div></div>"
                 st.markdown(bloque_o, unsafe_allow_html=True)
 
     # 4. Monitor Visual: Colas de Chat AMC + Distribución de Piso
@@ -354,12 +364,21 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
 
 
 # ── PILAR 2: NIVELES DE SERVICIO MULTICANAL (UNIFICADO GTR) ─────────────────
-def obtener_metricas_agencias_b2b_unificadas():
-    """Matriz unificada de SLA para Agencias B2B con formato idéntico a GTR."""
+def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None):
+    """
+    Matriz unificada de SLA para Agencias B2B con formato idéntico a GTR.
+    Combina con máxima fidelidad los datos oficiales auditados de:
+    1. Genesys Cloud: TARGET ESP, TARGET ENG, CORPORATE PYME (telefonía).
+    2. Salesforce Messaging: AG CHAT ES, AG CORPORATE CHAT, AG CELULA REMISION (chats).
+    3. Salesforce Service Cloud: BO AGENCIAS TARGET, BO_CORPORATE (casos 24h).
+    """
+    from cierres_semanales_loader import obtener_cierre_b2b_por_fecha
+    cierres_dia = obtener_cierre_b2b_por_fecha(fecha_sel if fecha_sel != "live" else None)
+
     token = obtener_token_genesys()
     gtr_cfg = gtr.cargar_config_gtr()
     serv_genesys_data = {}
-    if token:
+    if token and fecha_sel == "live":
         try:
             df_raw, _ = gtr.consultar_metricas_genesys(token, None, None, gtr_cfg)
             if not df_raw.empty:
@@ -367,170 +386,116 @@ def obtener_metricas_agencias_b2b_unificadas():
         except Exception:
             pass
 
-    servicios_config = [
-        # ── GENESYS CLOUD (Voz & Chat) ──────────────────────────────────────────
+    servicios_def = [
+        # ── VOZ GENESYS CLOUD ──────────────────────────────────────────────────
         {
-            "servicio": "CORPORATE PYME",
+            "clave": "TARGET ESP",
+            "servicio": "TARGET ESP (Operacional SSC)",
             "plataforma": "Genesys Cloud",
             "canal": "VOZ",
             "meta_ns": 70.0,
             "umbral_txt": "≤ 20s",
-            "meta_aht": 816.0,
-            "default_ent": 184, "default_aten": 178, "default_aband": 3.3, "default_ns": 86.5, "default_aht": 794, "default_asa": 11
+            "meta_aht": 880.0
         },
         {
+            "clave": "TARGET ENG",
+            "servicio": "TARGET ENG (Internacional)",
+            "plataforma": "Genesys Cloud",
+            "canal": "VOZ",
+            "meta_ns": 70.0,
+            "umbral_txt": "≤ 20s",
+            "meta_aht": 637.0
+        },
+        {
+            "clave": "EMPRESAS",
+            "servicio": "CORPORATE PYME (Empresas Voz)",
+            "plataforma": "Genesys Cloud",
+            "canal": "VOZ",
+            "meta_ns": 70.0,
+            "umbral_txt": "≤ 20s",
+            "meta_aht": 816.0
+        },
+        # ── CHAT SALESFORCE MESSAGING (OMNI-CHANNEL) ───────────────────────────
+        {
+            "clave": "AG CHAT ES",
+            "servicio": "AG CHAT ES (Agencias Español)",
+            "plataforma": "Salesforce Messaging",
+            "canal": "CHAT",
+            "meta_ns": 80.0,
+            "umbral_txt": "≤ 100s (80/100)",
+            "meta_aht": 1222.0
+        },
+        {
+            "clave": "AG CORPORATE CHAT",
             "servicio": "AG CORPORATE CHAT",
-            "plataforma": "Genesys Cloud",
+            "plataforma": "Salesforce Messaging",
             "canal": "CHAT",
             "meta_ns": 80.0,
             "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 1200.0,
-            "default_ent": 92, "default_aten": 88, "default_aband": 4.3, "default_ns": 84.1, "default_aht": 1140, "default_asa": 48
+            "meta_aht": 1859.0
         },
         {
-            "servicio": "CHAT AGENCIAS ESP",
-            "plataforma": "Genesys Cloud",
+            "clave": "AG CELULA REMISION",
+            "servicio": "AG CELULA REMISION (NDC)",
+            "plataforma": "Salesforce Messaging",
             "canal": "CHAT",
             "meta_ns": 80.0,
             "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 1222.0,
-            "default_ent": 145, "default_aten": 139, "default_aband": 4.1, "default_ns": 82.7, "default_aht": 1195, "default_asa": 55
+            "meta_aht": 1111.0
         },
+        # ── CASOS SALESFORCE SERVICE CLOUD (BACK OFFICE SLA 24H) ───────────────
         {
-            "servicio": "AGY N1 ESP CHAT",
-            "plataforma": "Genesys Cloud",
-            "canal": "CHAT",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 1222.0,
-            "default_ent": 210, "default_aten": 198, "default_aband": 5.7, "default_ns": 78.8, "default_aht": 1260, "default_asa": 76
-        },
-        {
-            "servicio": "AGY N3 ESP CHAT",
-            "plataforma": "Genesys Cloud",
-            "canal": "CHAT",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 1222.0,
-            "default_ent": 160, "default_aten": 154, "default_aband": 3.8, "default_ns": 83.1, "default_aht": 1180, "default_asa": 52
-        },
-        {
-            "servicio": "AGY N1 ESP VOZ",
-            "plataforma": "Genesys Cloud",
-            "canal": "VOZ",
-            "meta_ns": 70.0,
-            "umbral_txt": "≤ 20s",
-            "meta_aht": 880.0,
-            "default_ent": 310, "default_aten": 298, "default_aband": 3.9, "default_ns": 81.2, "default_aht": 845, "default_asa": 14
-        },
-        {
-            "servicio": "AGY N3 ESP VOZ",
-            "plataforma": "Genesys Cloud",
-            "canal": "VOZ",
-            "meta_ns": 70.0,
-            "umbral_txt": "≤ 20s",
-            "meta_aht": 880.0,
-            "default_ent": 240, "default_aten": 232, "default_aband": 3.3, "default_ns": 85.3, "default_aht": 810, "default_asa": 12
-        },
-        {
-            "servicio": "AGY N1 ENG VOZ",
-            "plataforma": "Genesys Cloud",
-            "canal": "VOZ",
-            "meta_ns": 70.0,
-            "umbral_txt": "≤ 20s",
-            "meta_aht": 637.0,
-            "default_ent": 85, "default_aten": 82, "default_aband": 3.5, "default_ns": 88.2, "default_aht": 612, "default_asa": 9
-        },
-        {
-            "servicio": "BO AGENCIAS TARGET",
-            "plataforma": "Genesys Cloud",
-            "canal": "BO",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 24h",
-            "meta_aht": 900.0,
-            "default_ent": 64, "default_aten": 62, "default_aband": 0.0, "default_ns": 85.0, "default_aht": 870, "default_asa": 0
-        },
-        {
-            "servicio": "BO_CORPORATE",
-            "plataforma": "Genesys Cloud",
-            "canal": "BO",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 24h",
-            "meta_aht": 900.0,
-            "default_ent": 48, "default_aten": 47, "default_aband": 0.0, "default_ns": 89.4, "default_aht": 840, "default_asa": 0
-        },
-
-        # ── SALESFORCE SERVICE CLOUD (Chats Omni-Channel & Casos) ────────────────
-        {
-            "servicio": "AMC Agencias Español",
-            "plataforma": "Salesforce Service Cloud",
-            "canal": "CHAT",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 950.0,
-            "default_ent": 118, "default_aten": 112, "default_aband": 5.1, "default_ns": 76.2, "default_aht": 980, "default_asa": 68
-        },
-        {
-            "servicio": "AMC Agencias Inglés",
-            "plataforma": "Salesforce Service Cloud",
-            "canal": "CHAT",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 900.0,
-            "default_ent": 42, "default_aten": 40, "default_aband": 4.8, "default_ns": 89.5, "default_aht": 870, "default_asa": 42
-        },
-        {
-            "servicio": "AMC Corporativo SSC",
-            "plataforma": "Salesforce Service Cloud",
-            "canal": "CHAT",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 850.0,
-            "default_ent": 75, "default_aten": 72, "default_aband": 4.0, "default_ns": 81.0, "default_aht": 820, "default_asa": 59
-        },
-        {
-            "servicio": "AMC Dudas Operacionales",
-            "plataforma": "Salesforce Service Cloud",
-            "canal": "CHAT",
-            "meta_ns": 80.0,
-            "umbral_txt": "≤ 100s (80/100)",
-            "meta_aht": 750.0,
-            "default_ent": 28, "default_aten": 27, "default_aband": 3.6, "default_ns": 85.2, "default_aht": 710, "default_asa": 45
-        },
-        {
-            "servicio": "AMC Emisiones & Grupos",
+            "clave": "BO AGENCIAS TARGET",
+            "servicio": "BO AGENCIAS TARGET (Casos)",
             "plataforma": "Salesforce Service Cloud",
             "canal": "CASOS",
-            "meta_ns": 80.0,
-            "umbral_txt": "SLA 24h",
-            "meta_aht": 1200.0,
-            "default_ent": 12, "default_aten": 12, "default_aband": 0.0, "default_ns": 50.0, "default_aht": 1340, "default_asa": 0
+            "meta_ns": 85.0,
+            "umbral_txt": "SLA 24 Horas",
+            "meta_aht": 735.0
+        },
+        {
+            "clave": "BO_CORPORATE",
+            "servicio": "BO_CORPORATE (Casos Corporativos)",
+            "plataforma": "Salesforce Service Cloud",
+            "canal": "CASOS",
+            "meta_ns": 85.0,
+            "umbral_txt": "SLA 24 Horas",
+            "meta_aht": 735.0
         }
     ]
 
     filas = []
-    for sc in servicios_config:
+    for sc in servicios_def:
+        k = sc["clave"]
         srv_name = sc["servicio"]
         plat = sc["plataforma"]
         canal = sc["canal"]
         meta_ns = sc["meta_ns"]
         meta_aht = sc["meta_aht"]
 
-        if plat == "Genesys Cloud" and srv_name in serv_genesys_data:
-            g_d = serv_genesys_data[srv_name]
-            entrantes = int(g_d.get("LL ENT", sc["default_ent"]))
-            atendidas = int(g_d.get("LL ATEN", sc["default_aten"]))
-            aband = float(g_d.get("% ABAN", sc["default_aband"]))
-            ns_real = float(g_d.get("% NS", sc["default_ns"]))
-            aht_real = float(g_d.get("AHT", sc["default_aht"]))
-            asa = float(g_d.get("ASA", sc["default_asa"]))
+        c_data = cierres_dia.get(k, {}) if cierres_dia else {}
+        if c_data:
+            entrantes = c_data.get("entrante", 0)
+            atendidas = c_data.get("atendido", 0)
+            aband = c_data.get("pct_abandono", 0.0)
+            ns_real = c_data.get("ns_real", 0.0)
+            aht_real = c_data.get("aht_real", meta_aht)
+            asa = c_data.get("asa_real", 0.0)
+        elif plat == "Genesys Cloud" and k in serv_genesys_data:
+            g_d = serv_genesys_data[k]
+            entrantes = int(g_d.get("LL ENT", 0))
+            atendidas = int(g_d.get("LL ATEN", 0))
+            aband = float(g_d.get("% ABAN", 0.0))
+            ns_real = float(g_d.get("% NS", 0.0))
+            aht_real = float(g_d.get("AHT", meta_aht))
+            asa = float(g_d.get("ASA", 0.0))
         else:
-            entrantes = sc["default_ent"]
-            atendidas = sc["default_aten"]
-            aband = sc["default_aband"]
-            ns_real = sc["default_ns"]
-            aht_real = sc["default_aht"]
-            asa = sc["default_asa"]
+            entrantes = 0
+            atendidas = 0
+            aband = 0.0
+            ns_real = 100.0
+            aht_real = meta_aht
+            asa = 0.0
 
         dif_ns = ns_real - meta_ns
         desv_aht = ((aht_real - meta_aht) / meta_aht * 100.0) if meta_aht > 0 else 0.0
@@ -543,6 +508,7 @@ def obtener_metricas_agencias_b2b_unificadas():
             estado = "🔴 Crítico (< SLA)"
 
         filas.append({
+            "Clave": k,
             "Servicio": srv_name,
             "Plataforma": plat,
             "Canal": canal,
@@ -565,10 +531,23 @@ def obtener_metricas_agencias_b2b_unificadas():
 
 def render_subtab_niveles_servicio_unificado():
     """Renderiza la vista unificada de Niveles de Servicio Multicanal para Agencias B2B."""
-    st.markdown("### 📈 Niveles de Servicio Multicanal — Agencias B2B")
-    st.caption("Visión consolidada oficial: **Genesys Cloud** (Voz & Chat) + **Salesforce Service Cloud** (Chats & Casos) • Metas oficiales contractuales.")
+    from cierres_semanales_loader import cargar_todos_los_cierres_b2b
+    cierres_all = cargar_todos_los_cierres_b2b()
+    fechas_lista = sorted(cierres_all.keys(), reverse=True) if cierres_all else []
 
-    df_ns = obtener_metricas_agencias_b2b_unificadas()
+    col_title, col_fecha = st.columns([3.0, 2.0])
+    with col_title:
+        st.markdown("### 📈 Niveles de Servicio Multicanal — Agencias B2B")
+        st.caption("Visión consolidada oficial auditada: **Genesys Cloud** (Voz e Inbound) + **Salesforce** (Chats Omni-Channel & Casos) • Formato GTR.")
+
+    opciones_fechas = [f"{f} (Cierre Semanal Auditado)" if idx == 0 else f"{f} (Cierre Semanal)" for idx, f in enumerate(fechas_lista)]
+    opciones_fechas.append("🔴 En Vivo (Tiempo Real)")
+
+    with col_fecha:
+        sel_opc = st.selectbox("📅 Periodo de Medición:", opciones_fechas, index=0, key="b2b_sel_fecha_cierre")
+
+    fecha_param = "live" if "En Vivo" in sel_opc else sel_opc.split(" ")[0]
+    df_ns = obtener_metricas_agencias_b2b_unificadas(fecha_sel=fecha_param)
 
     criticos = df_ns[df_ns["Estado"] == "🔴 Crítico (< SLA)"]
     en_riesgo = df_ns[df_ns["Estado"] == "🟡 En Riesgo (-5%)"]

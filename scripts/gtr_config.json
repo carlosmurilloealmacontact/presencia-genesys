@@ -410,81 +410,81 @@
     },
     "b876a5a2-30bc-4496-a744-5e23a7aea5cd": {
       "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_SUPERIOR",
-      "servicio": "Ventas AMC",
+      "servicio": "CORPORATE PYME",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
     "39bbaa18-1e5d-4623-bbe3-1688ed6988a3": {
       "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_ELITE",
-      "servicio": "Ventas AMC",
+      "servicio": "CORPORATE PYME",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
     "7dfdef81-99d7-4ba8-a4b8-700fb5418010": {
       "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_PLUS",
-      "servicio": "Ventas AMC",
+      "servicio": "CORPORATE PYME",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
     "5984912d-33cf-4f1e-aea1-06f6cb1a43af": {
       "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_CMGO",
-      "servicio": "Ventas AMC",
+      "servicio": "CORPORATE PYME",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
     "f72ec3bf-46e4-41fa-b2c1-a452bca2c0ed": {
       "nombre_cola": "AMC_GSS_OPERACIONAL_INTERNA_ING_NIVEL1",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "AGENCIAS TARGET ENG",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "df2bf2ae-96e4-4100-889f-ff731d34dfd2": {
       "nombre_cola": "AMC_GSS_OPERACIONAL_INTEREU_ESP_NIVEL1",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "f8abefee-2257-4521-9dd7-261c89074334": {
       "nombre_cola": "AMC_GSS_OPERACIONAL_INTEREU_ING_NIVEL1",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "AGENCIAS TARGET ENG",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "ebb19aa6-332f-4efc-8fda-9097f8b05dc7": {
       "nombre_cola": "AMC_GSS_OPERACIONAL_INTERNA_ESP_NIVEL1",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "d1bbf187-0a3f-4d35-b6aa-cf2645f27684": {
       "nombre_cola": "AMC_GSS_OPERACIONAL_SSC_ESP_NIVEL1",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "bbcd0a4a-1c9d-4b20-8b41-1be79150c78c": {
       "nombre_cola": "AMC_GSS_NDC_INTERNA_ING_NIVEL1",
-      "servicio": "GSS NDC Agencias",
+      "servicio": "AGENCIAS TARGET ENG",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "6b442482-0c13-4a34-a06a-6e0679c02c78": {
       "nombre_cola": "AMC_GSS_NDC_INTEREU_ESP_NIVEL1",
-      "servicio": "GSS NDC Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "0d9760a4-06dc-4490-bc22-ae51647c49b0": {
       "nombre_cola": "AMC_GSS_NDC_INTEREU_ING_NIVEL1",
-      "servicio": "GSS NDC Agencias",
+      "servicio": "AGENCIAS TARGET ENG",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "f5192565-1e3d-4bf3-b205-1cb74906ac40": {
       "nombre_cola": "AMC_GSS_NDC_INTERNA_ESP_NIVEL1",
-      "servicio": "GSS NDC Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "ab126844-cf64-44a8-8688-c8b711375348": {
       "nombre_cola": "AMC_GSS_NDC_INTERNA_ESP_NIVEL2",
@@ -494,9 +494,9 @@
     },
     "68f2d5e2-150f-4885-ae7e-abb74837866c": {
       "nombre_cola": "AMC_GSS_NDC_SSC_ESP_NIVEL1",
-      "servicio": "GSS NDC Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
-      "macro": "GSS"
+      "macro": "TT_LATAM"
     },
     "353708b7-0d1a-4f13-945a-813b5378ff2c": {
       "nombre_cola": "KON_VOZ_SOPORTE_HVC_ES",
@@ -635,13 +635,13 @@
     },
     "6fc1127a-1e1b-4e70-aae6-3bc1d42c6ee2": {
       "nombre_cola": "AMC_GSS_NDC_SSC_ESP_NIVEL2",
-      "servicio": "GSS NDC Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
     "8b299434-6271-4e95-91e9-7e3f79e69016": {
       "nombre_cola": "AMC_GSS_OPERACIONAL_SSC_ESP_NIVEL2",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "AGENCIAS TARGET ES",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
@@ -653,7 +653,7 @@
     },
     "e493065e-8ce6-46cf-a1d7-cf99711e0d66": {
       "nombre_cola": "GSS_SCC_DEVOLUCIONES_SSC_ESP_CMGO",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "CORPORATE PYME",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
@@ -671,7 +671,7 @@
     },
     "1d77d47f-ea0f-4193-891a-fe1595526718": {
       "nombre_cola": "GSS_SCC_DEVOLUCIONES_SSC_ESP_SUPERIOR",
-      "servicio": "GSS Operacional Agencias",
+      "servicio": "CORPORATE PYME",
       "canal": "VOZ",
       "macro": "TT_LATAM"
     },
@@ -745,6 +745,84 @@
       "nombre_cola": "KON_POC_AWS_DT_DEV_ES",
       "excluir": true,
       "vendor": "KONECTA"
+    },
+    "1fa36d4f-f510-41f3-8e30-5ddf203f7bb2": {
+      "nombre_cola": "AMC_GSS_VENTAS_REGULAR",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "f317a52b-6cf8-4092-9533-2f186fc29a62": {
+      "nombre_cola": "AMC_GSS_VENTAS_NO_REGISTRADA",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "4850013e-0372-4dea-a258-0fe62d9c0d45": {
+      "nombre_cola": "AMC_GSS_APERTURA",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "c9864f0b-22cf-4bcd-8961-042867f94614": {
+      "nombre_cola": "AMC_GSS_DEVOLUCIONES_ELITE",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "49865dbf-175d-4b49-8664-dbe44669d72d": {
+      "nombre_cola": "AMC_GSS_DEVOLUCIONES_NO_REGISTRADA",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "bfc27ec3-ce9c-4c29-b910-e5ab58b68e3d": {
+      "nombre_cola": "AMC_GSS_DEVOLUCIONES_REGULAR",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "4007c961-053a-417e-a67e-119a5ce3e383": {
+      "nombre_cola": "AMC_GSS_GRUPOS_ELITE_FFHH",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "c89f110b-1cf6-4a4a-ab71-dfd7b38cf320": {
+      "nombre_cola": "GSS_SCC_DEVOLUCIONES_SSC_ESP_ELITE",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "4e82adc6-959e-40fe-8a05-2bfe204e58d5": {
+      "nombre_cola": "GSS_SCC_DEVOLUCIONES_SSC_ESP_PLUS",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "dc7923b1-35a2-451a-8723-b6f895a736a2": {
+      "nombre_cola": "GSS_SCC_APERTURA_SSC_ESP_NO_REGISTRADO",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "6f54392b-9109-4402-a0e6-83f9166d0e7b": {
+      "nombre_cola": "GSS_SCC_DEVOLUCIONES_SSC_ESP_NO_REGISTRADO",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "795a0797-34cf-4d00-bc8d-95c5b0827733": {
+      "nombre_cola": "GSS_SCC_VENTAS_SSC_ESP_NO_REGISTRADO",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
+    },
+    "925cbd8d-a07e-4257-9503-39fe8507afa9": {
+      "nombre_cola": "AMC_GSS_VENTAS_ELITE",
+      "servicio": "CORPORATE PYME",
+      "canal": "VOZ",
+      "macro": "TT_LATAM"
     }
   },
   "services": {
