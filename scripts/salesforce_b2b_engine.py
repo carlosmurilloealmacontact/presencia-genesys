@@ -248,21 +248,40 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
 
                     df_disp["Diagnóstico"] = df_disp.apply(evaluar_productividad_omnichannel, axis=1)
 
-                fl_c1, fl_c2, fl_c3 = st.columns([1.5, 1.2, 1.2])
+                fl_c1, fl_c2, fl_c3 = st.columns([1.4, 1.5, 1.1])
                 with fl_c1:
                     supervisores_en_vivo = ["Todos los Supervisores"] + sorted([s for s in df_disp["Supervisor"].unique() if s != "Sin Supervisor"])
                     sel_sup_live = st.selectbox("Supervisor:", supervisores_en_vivo, key="live_b2b_sup_filter")
                 with fl_c2:
-                    niveles_en_vivo = ["Todos", "N1", "N2", "N3"]
-                    sel_niv_live = st.selectbox("Nivel:", niveles_en_vivo, key="live_b2b_niv_filter")
+                    alertas_en_vivo = [
+                        "Todas las Alertas",
+                        "🚨 Solo con Alerta / Desvío",
+                        "🚨 Break Excedido",
+                        "🟡 Busy Bloqueado / Prolongado",
+                        "🔴 Ocioso sin Chats",
+                        "🟣 Chat Estancado (+35 min)",
+                        "🟢 Productivo / Normal"
+                    ]
+                    sel_alerta_live = st.selectbox("Alerta de Productividad:", alertas_en_vivo, key="live_b2b_alerta_filter")
                 with fl_c3:
                     estados_en_vivo = ["Todos", "Available", "Busy", "Break"]
                     sel_est_live = st.selectbox("Estado:", estados_en_vivo, key="live_b2b_est_filter")
 
                 if sel_sup_live != "Todos los Supervisores":
                     df_disp = df_disp[df_disp["Supervisor"] == sel_sup_live]
-                if sel_niv_live != "Todos":
-                    df_disp = df_disp[df_disp["Nivel"].str.contains(sel_niv_live, na=False)]
+                if sel_alerta_live == "🚨 Solo con Alerta / Desvío":
+                    df_disp = df_disp[df_disp["Diagnóstico"].str.contains("🚨|🔴|🟣|Busy prolongado|Sin asignación", regex=True, na=False)]
+                elif sel_alerta_live == "🚨 Break Excedido":
+                    df_disp = df_disp[df_disp["Diagnóstico"].str.contains("Break excedido", na=False)]
+                elif sel_alerta_live == "🟡 Busy Bloqueado / Prolongado":
+                    df_disp = df_disp[df_disp["Diagnóstico"].str.contains("Busy bloqueado|Busy prolongado", na=False)]
+                elif sel_alerta_live == "🔴 Ocioso sin Chats":
+                    df_disp = df_disp[df_disp["Diagnóstico"].str.contains("Ocioso|Sin asignación", na=False)]
+                elif sel_alerta_live == "🟣 Chat Estancado (+35 min)":
+                    df_disp = df_disp[df_disp["Diagnóstico"].str.contains("Chat estancado", na=False)]
+                elif sel_alerta_live == "🟢 Productivo / Normal":
+                    df_disp = df_disp[df_disp["Diagnóstico"].str.contains("Productivo|Plena carga", na=False)]
+
                 if sel_est_live != "Todos":
                     df_disp = df_disp[df_disp["status"] == sel_est_live]
 
