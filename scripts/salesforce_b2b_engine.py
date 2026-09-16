@@ -90,7 +90,13 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
         @st.fragment(run_every=refresh_sec)
         def render_live_command_center(force_update: bool = False):
             df_queues, df_agents, latest_ts = sle.get_latest_live_state(force_fresh=force_update)
-            st.caption(f"🟢 **Estado en Vivo:** Sincronizado a las **{latest_ts}** con Omni-Channel • ⏱️ Modo: **{refresco_sel}**")
+            hora_display = str(latest_ts or "")
+            try:
+                dt_obj = datetime.strptime(latest_ts, "%Y-%m-%d %H:%M:%S")
+                hora_display = dt_obj.strftime("%I:%M:%S %p")
+            except Exception:
+                pass
+            st.caption(f"🟢 **Estado en Vivo:** Sincronizado a las **{hora_display}** (Hora Colombia - COT / UTC-5) con Omni-Channel • ⏱️ Modo: **{refresco_sel}**")
 
             alerts = sle.detect_live_anomalies(df_queues, df_agents)
             if alerts:

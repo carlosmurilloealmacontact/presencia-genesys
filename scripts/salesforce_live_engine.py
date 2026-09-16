@@ -8,7 +8,21 @@ import os
 import sqlite3
 import random
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+try:
+    import zoneinfo
+    COLOMBIA_TZ = zoneinfo.ZoneInfo("America/Bogota")
+except Exception:
+    COLOMBIA_TZ = timezone(timedelta(hours=-5))
+
+
+def get_colombia_now():
+    """Retorna la fecha y hora actual garantizada en Zona Horaria Colombia (America/Bogota, UTC-5)."""
+    try:
+        return datetime.now(COLOMBIA_TZ)
+    except Exception:
+        return datetime.now(timezone(timedelta(hours=-5)))
 
 LIVE_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "salesforce_live.db")
 
@@ -75,11 +89,12 @@ def init_live_db():
 
 
 def save_live_snapshot(queues_data, agents_data):
-    """Guarda un snapshot del estado en vivo y mantiene la base de datos ligera."""
+    """Guarda un snapshot del estado en vivo en Hora Colombia y mantiene la base de datos ligera."""
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
     cur = conn.cursor()
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_col = get_colombia_now()
+    now_str = now_col.strftime("%Y-%m-%d %H:%M:%S")
 
     for q in queues_data:
         cur.execute("""
@@ -93,10 +108,11 @@ def save_live_snapshot(queues_data, agents_data):
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", "")))
 
-    # Mantener sólo las últimas 24 horas para evitar crecimiento innecesario
+    # Mantener sólo las últimas 24 horas en hora Colombia para evitar crecimiento innecesario
     try:
-        cur.execute("DELETE FROM live_chat_queues WHERE timestamp < datetime('now', '-1 day')")
-        cur.execute("DELETE FROM live_chat_agents WHERE timestamp < datetime('now', '-1 day')")
+        cutoff_str = (now_col - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("DELETE FROM live_chat_queues WHERE timestamp < ?", (cutoff_str,))
+        cur.execute("DELETE FROM live_chat_agents WHERE timestamp < ?", (cutoff_str,))
     except Exception:
         pass
 
@@ -268,9 +284,9 @@ def get_latest_live_state(force_fresh: bool = False):
         needs_tick = True
     else:
         try:
-            dt_last = datetime.strptime(latest_ts, "%Y-%m-%d %H:%M:%S")
-            segundos_diff = (datetime.now() - dt_last).total_seconds()
-            if segundos_diff >= 25:
+            dt_last = datetime.strptime(latest_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=COLOMBIA_TZ)
+            segundos_diff = (get_colombia_now() - dt_last).total_seconds()
+            if segundos_diff >= 25 or segundos_diff < 0:
                 needs_tick = True
         except Exception:
             needs_tick = True

@@ -6,8 +6,20 @@ Filtra exclusivamente la operacion de AMC y calcula SLAs, Antiguedad (Aging) y P
 import os
 import glob
 import pandas as pd
-import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+try:
+    import zoneinfo
+    COLOMBIA_TZ = zoneinfo.ZoneInfo("America/Bogota")
+except Exception:
+    COLOMBIA_TZ = timezone(timedelta(hours=-5))
+
+def get_colombia_now():
+    """Retorna la fecha y hora actual en Zona Horaria Colombia (UTC-5)."""
+    try:
+        return datetime.now(COLOMBIA_TZ)
+    except Exception:
+        return datetime.now(timezone(timedelta(hours=-5)))
 
 SALESFORCE_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "salesforce")
 
@@ -92,8 +104,8 @@ def load_and_clean_cases_data(file_path=None):
     if "Work Queue Control" in df.columns:
         df = df[df["Work Queue Control"].astype(str).str.contains("AMC", case=False, na=False)].copy()
 
-    # Parseo de fechas
-    now = datetime.now()
+    # Parseo de fechas (garantizado en Hora Colombia sin desfase UTC de servidores en la nube)
+    now = get_colombia_now().replace(tzinfo=None)
     if "Fecha de inicio" in df.columns:
         df["Fecha_Inicio_dt"] = pd.to_datetime(df["Fecha de inicio"], errors="coerce", dayfirst=True)
         # Antiguedad en dias y horas
