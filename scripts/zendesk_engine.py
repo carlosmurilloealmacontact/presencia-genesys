@@ -279,7 +279,8 @@ def cargar_bundle_zendesk() -> dict:
         try:
             df_hoy = pd.read_csv(file_prod_hoy)
             if not df_hoy.empty and "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_hoy.columns and "Tipo_de_Gestion" in df_hoy.columns:
-                df_hoy_agg = df_hoy.groupby(["Fecha", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Tipo_de_Gestion"]).size().reset_index(name="Recuento_Tickets")
+                grp_cols = ["Fecha", "grupo", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Tipo_de_Gestion"] if "grupo" in df_hoy.columns else ["Fecha", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Tipo_de_Gestion"]
+                df_hoy_agg = df_hoy.groupby(grp_cols).size().reset_index(name="Recuento_Tickets")
                 df_hoy_agg["Fecha_Timestamp"] = df_hoy_agg["Fecha"] + " 00:00:00"
                 df_hoy_agg["Tipo_de_Gestion_RAW"] = df_hoy_agg["Tipo_de_Gestion"]
 
@@ -563,8 +564,23 @@ def render_tab_zendesk(email_usuario: str = ""):
     else:
         df_diario_filtrado = None
 
+    # Checkbox para excluir autorizaciones de supervisor de la productividad operativa
+    excluir_auth = st.checkbox(
+        "🛡️ Excluir colas de Autorización de Supervisor de la productividad de asesores",
+        value=True,
+        help="Las colas 'Autorización Supervisor AMC' y 'Autorización Supervisor HVC AMC ES' corresponden a aprobaciones de códigos de involuntario gestionadas por supervisores. Al mantener esta opción activa, no se mezclarán con la productividad operativa de los asesores.",
+        key="zd_excluir_auth"
+    )
+
+    df_solo_autorizaciones = None
+    if df_diario_filtrado is not None and not df_diario_filtrado.empty and "grupo" in df_diario_filtrado.columns:
+        is_auth_mask = df_diario_filtrado["grupo"].str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+        df_solo_autorizaciones = df_diario_filtrado[is_auth_mask].copy()
+        if excluir_auth:
+            df_diario_filtrado = df_diario_filtrado[~is_auth_mask].copy()
+
     # Sub-navegación por pestañas de Zendesk
-    tab_zd_diario, tab_zd_antiguedad, tab_zd_intradia, tab_zd_backlog, tab_zd_asesores, tab_zd_tipologia, tab_zd_tiempos, tab_zd_volumen = st.tabs([
+    tab_zd_diario, tab_zd_antiguedad, tab_zd_intradia, tab_zd_backlog, tab_zd_asesores, tab_zd_tipologia, tab_zd_tiempos, tab_zd_volumen, tab_zd_autorizaciones = st.tabs([
         "📅 Productividad Diaria",
         "⏳ Antigüedad del Backlog",
         "⏱️ Cortes Intradía",
@@ -572,7 +588,8 @@ def render_tab_zendesk(email_usuario: str = ""):
         "👤 Desempeño Asesores",
         "🏷️ Tipología de Gestión",
         "⏱️ SLAs y Tiempos",
-        "📊 Volumen Histórico"
+        "📊 Volumen Histórico",
+        "🛡️ Autorizaciones Supervisor"
     ])
 
     # ---------------------------------------------------------------------
@@ -1117,3 +1134,125 @@ def render_tab_zendesk(email_usuario: str = ""):
             )
             st.plotly_chart(fig_v, use_container_width=True)
             st.dataframe(df_v.style.format({"Tickets": "{:,.0f}", "% Participación": "{:.2f}%", "% Acumulado": "{:.2f}%"}), use_container_width=True)
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 9: AUTORIZACIONES DE SUPERVISOR (CÓDIGOS DE INVOLUNTARIO)
+    # ---------------------------------------------------------------------
+    with tab_zd_autorizaciones:
+        st.subheader("🛡️ Monitor de Autorizaciones de Supervisor (Códigos de Involuntario)")
+        st.caption("Colas 'Autorización Supervisor AMC' y 'Autorización Supervisor HVC AMC ES'. Validaciones y liberaciones de códigos involuntarios gestionadas por supervisores (segregadas de la productividad de los asesores).")
+
+        # Base de datos de autorizaciones históricas (aplicando filtro de fechas)
+        df_auth_hist = None
+        if df_diario_enr is not None and not df_diario_enr.empty and "grupo" in df_diario_enr.columns:
+            m_auth = df_diario_enr["grupo"].str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+            df_auth_base = df_diario_enr[m_auth].copy()
+            if fecha_ini and fecha_fin:
+                f_ini_s = fecha_ini.strftime("%Y-%m-%d")
+                f_fin_s = fecha_fin.strftime("%Y-%m-%d")
+                df_auth_base = df_auth_base[(df_auth_base["Fecha"] >= f_ini_s) & (df_auth_base["Fecha"] <= f_fin_s)]
+            df_auth_hist = df_auth_base
+
+        # Base de datos de backlog en vivo de autorizaciones
+        df_b_vivo_raw = bundle.get("df_b_raw")
+        df_b_auth = None
+        if df_b_vivo_raw is not None and not df_b_vivo_raw.empty and "grupo" in df_b_vivo_raw.columns:
+            m_b_auth = df_b_vivo_raw["grupo"].str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+            df_b_auth = df_b_vivo_raw[m_b_auth].copy()
+
+        # Métricas principales
+        tot_auth_resueltas = df_auth_hist["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
+        tot_amc = df_auth_hist[df_auth_hist["grupo"].str.contains("AMC", case=False, na=False) & ~df_auth_hist["grupo"].str.contains("HVC", case=False, na=False)]["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
+        tot_hvc = df_auth_hist[df_auth_hist["grupo"].str.contains("HVC", case=False, na=False)]["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
+        tot_bl_auth = len(df_b_auth) if df_b_auth is not None and not df_b_auth.empty else 0
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Autorizaciones Resueltas", f"{tot_auth_resueltas:,.0f}", f"En rango {fecha_ini} a {fecha_fin}" if fecha_ini and fecha_fin else "Total histórico")
+        k2.metric("Supervisor AMC (Regular)", f"{tot_amc:,.0f}", f"{(tot_amc/tot_auth_resueltas*100):.1f}% del total" if tot_auth_resueltas > 0 else "0%")
+        k3.metric("Supervisor HVC AMC ES (VIP)", f"{tot_hvc:,.0f}", f"{(tot_hvc/tot_auth_resueltas*100):.1f}% del total" if tot_auth_resueltas > 0 else "0%")
+        k4.metric("🚨 Backlog en Cola Ahora", f"{tot_bl_auth:,}", "Pendientes de autorización en vivo", delta_color="inverse" if tot_bl_auth > 0 else "normal")
+
+        st.markdown("---")
+
+        if df_auth_hist is not None and not df_auth_hist.empty:
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                st.subheader("📈 Evolución Diaria de Autorizaciones por Cola")
+                df_auth_dia = df_auth_hist[df_auth_hist["Fecha"] != "Sin Fecha"].groupby(["Fecha", "grupo"])["Recuento_Tickets"].sum().reset_index()
+                fig_auth_dia = px.bar(
+                    df_auth_dia,
+                    x="Fecha",
+                    y="Recuento_Tickets",
+                    color="grupo",
+                    barmode="stack",
+                    text="Recuento_Tickets",
+                    title="Autorizaciones Diarias de Supervisores",
+                    color_discrete_map={
+                        "Autorización Supervisor AMC": "#1E88E5",
+                        "Autorización Supervisor HVC AMC ES": "#D81B60"
+                    }
+                )
+                fig_auth_dia.update_layout(height=420, margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_auth_dia, use_container_width=True)
+
+            with c2:
+                st.subheader("🧑‍💼 Supervisores con Más Autorizaciones")
+                df_sup_top = df_auth_hist.groupby(["Nombre_Asesor", "grupo"])["Recuento_Tickets"].sum().reset_index().sort_values(by="Recuento_Tickets", ascending=False).head(12)
+                fig_sup_top = px.bar(
+                    df_sup_top.sort_values(by="Recuento_Tickets", ascending=True),
+                    x="Recuento_Tickets",
+                    y="Nombre_Asesor",
+                    orientation="h",
+                    color="grupo",
+                    text="Recuento_Tickets",
+                    title="Top Gestores de Códigos de Involuntario",
+                    color_discrete_map={
+                        "Autorización Supervisor AMC": "#1E88E5",
+                        "Autorización Supervisor HVC AMC ES": "#D81B60"
+                    }
+                )
+                fig_sup_top.update_layout(height=420, yaxis=dict(title=""), margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_sup_top, use_container_width=True)
+
+            st.subheader("📋 Registro Histórico de Autorizaciones Procesadas")
+            st.dataframe(
+                df_auth_hist[["Fecha", "grupo", "Nombre_Asesor", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Recuento_Tickets"]]
+                .rename(columns={
+                    "grupo": "Cola de Autorización",
+                    "Nombre_Asesor": "Supervisor / Gestor",
+                    "TICKET_ASSIGNEE_PRIMARY_EMAIL": "Correo Corporativo",
+                    "Recuento_Tickets": "Casos Autorizados"
+                })
+                .sort_values(by=["Fecha", "Casos Autorizados"], ascending=[False, False]),
+                use_container_width=True
+            )
+        else:
+            st.info("No hay registros de autorizaciones en el rango de fechas seleccionado.")
+
+        # Sección de Backlog en vivo si hay casos pendientes
+        st.markdown("---")
+        st.subheader("🚨 Backlog en Cola de Autorizaciones en Tiempo Real")
+        if df_b_auth is not None and not df_b_auth.empty:
+            c_b1, c_b2 = st.columns([1, 1])
+            with c_b1:
+                amc_b_cnt = len(df_b_auth[df_b_auth["grupo"].str.contains("HVC", case=False, na=False) == False])
+                st.metric("Pendientes Autorización AMC", f"{amc_b_cnt}")
+            with c_b2:
+                hvc_b_cnt = len(df_b_auth[df_b_auth["grupo"].str.contains("HVC", case=False, na=False)])
+                st.metric("Pendientes Autorización HVC ES", f"{hvc_b_cnt}")
+
+            cols_show = [c for c in ["id", "grupo", "status", "priority", "created_at", "Nombre_Asesor", "subject"] if c in df_b_auth.columns]
+            st.dataframe(
+                df_b_auth[cols_show].rename(columns={
+                    "id": "ID Ticket",
+                    "grupo": "Cola",
+                    "status": "Estado",
+                    "priority": "Prioridad",
+                    "created_at": "Fecha Ingreso UTC",
+                    "Nombre_Asesor": "Asignado",
+                    "subject": "Asunto / Solicitud"
+                }),
+                use_container_width=True
+            )
+        else:
+            st.success("✅ ¡Excelente! No hay tickets pendientes en las colas de autorización de supervisor.")
