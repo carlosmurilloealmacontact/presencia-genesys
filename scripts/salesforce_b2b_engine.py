@@ -215,6 +215,7 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                     df_disp[["Nombre Real", "Nivel", "Campaña", "Supervisor"]] = enriched
                     df_disp["Simultaneidad"] = df_disp["active_chats"].astype(str) + " de 3 (" + df_disp["capacity_pct"].astype(str) + "%)"
                     df_disp["Tiempo"] = (df_disp["time_in_status_sec"] // 60).astype(str) + " min"
+                    df_disp["Sesiones (ms-)"] = df_disp["chat_session_ids"].fillna("—").replace("", "—") if "chat_session_ids" in df_disp.columns else "—"
 
                     def evaluar_productividad_omnichannel(row):
                         st_val = str(row.get("status", "")).strip()
@@ -285,14 +286,27 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                 if sel_est_live != "Todos":
                     df_disp = df_disp[df_disp["status"] == sel_est_live]
 
+                cols_cols = ["Nombre Real", "Nivel", "Supervisor", "status", "Simultaneidad"]
+                if "Sesiones (ms-)" in df_disp.columns:
+                    cols_cols.append("Sesiones (ms-)")
+                cols_cols.extend(["Tiempo", "Diagnóstico"])
+
                 st.dataframe(
-                    df_disp[["Nombre Real", "Nivel", "Supervisor", "status", "Simultaneidad", "Tiempo", "Diagnóstico"]].rename(columns={
+                    df_disp[cols_cols].rename(columns={
                         "status": "Estado Omni-Channel",
+                        "Sesiones (ms-)": "💬 Sesiones Chat (ms-)",
                         "Tiempo": "⏱️ Tiempo en Estado",
                         "Diagnóstico": "Alerta de Productividad"
                     }),
                     use_container_width=True,
-                    hide_index=True
+                    hide_index=True,
+                    column_config={
+                        "💬 Sesiones Chat (ms-)": st.column_config.TextColumn(
+                            "💬 Sesiones Chat (ms-)",
+                            help="Identificadores únicos de chat ms- asignados al asesor en Omni-Channel.",
+                            width="medium"
+                        )
+                    }
                 )
 
         render_live_command_center(force_update=btn_forzar)
