@@ -1,0 +1,674 @@
+[
+  {
+    "id": 25964458,
+    "name": "Administradores",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 32140807,
+    "name": "Allotment LATAM Travel",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 21177462879379,
+    "name": "Análisis MdP",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 5758454835475,
+    "name": "Anti Fraude",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 32141187,
+    "name": "Asesorías LATAM Travel",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 42700559378451,
+    "name": "Autorização A360 AEC",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 24105234786451,
+    "name": "Autorização A360 KON BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 37784577226387,
+    "name": "Autorização Supervisor AeC",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 55241451550867,
+    "name": "Autorização Supervisor HVC AEC",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 26763838828179,
+    "name": "Autorização Supervisor HVC KON BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 17579004808979,
+    "name": "Autorização Supervisor INTERNAS BR",
+    "deleted": false,
+    "description": "Antes Autorização Supervisor PAU (cambiado por PROYIM-12169)"
+  },
+  {
+    "id": 17579002100883,
+    "name": "Autorização Supervisor KON BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 43548057160595,
+    "name": "Autorização Supervisor LAE BR",
+    "deleted": false,
+    "description": "Grupo Creado a solicitud del ticket en Jira PROYIM-8801"
+  },
+  {
+    "id": 19789788919187,
+    "name": "Autorización SOP LUA AMC",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 25053517951123,
+    "name": "Autorización SOP LUA KON ES",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 17578995784339,
+    "name": "Autorización Supervisor AMC",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 17578964408339,
+    "name": "Autorización Supervisor EST",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 26763888434579,
+    "name": "Autorización Supervisor HVC AMC ES",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 26763770450323,
+    "name": "Autorización Supervisor HVC KON ES",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 17579011117459,
+    "name": "Autorización Supervisor KON",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 43548018609043,
+    "name": "Autorización Supervisor LAE SSC",
+    "deleted": false,
+    "description": "Grupo Creado a Solicitud del ticket en Jira PROYIM-8801"
+  },
+  {
+    "id": 49002959117971,
+    "name": "Autorización Supervisor RRSS",
+    "deleted": false,
+    "description": "Solicitado en PROYIM-11271"
+  },
+  {
+    "id": 28578528,
+    "name": "Backoffice LAE SSC",
+    "deleted": false,
+    "description": "Nombre anterior: Operaciones CUS / Backoffice LAE ES"
+  },
+  {
+    "id": 360000238368,
+    "name": "BAG - AEP (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360007268474,
+    "name": "BAG - ANF (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360000233207,
+    "name": "BAG - BSB (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360007266953,
+    "name": "BAG - CCP (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360007268454,
+    "name": "BAG - CJC (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360007268434,
+    "name": "BAG - CUZ (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360000236848,
+    "name": "BAG - EZE (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360007267053,
+    "name": "BAG - FLN (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360007267033,
+    "name": "BAG - FOR (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360000238408,
+    "name": "BAG - GIG (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360000238388,
+    "name": "BAG - GRU (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360007266973,
+    "name": "BAG - IQQ (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360000233187,
+    "name": "BAG - LIM (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360000182388,
+    "name": "BAG - SCL (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 46868118929043,
+    "name": "Bagagens AEC CC BR",
+    "deleted": false,
+    "description": "Solicitado en el PROYIM-10524"
+  },
+  {
+    "id": 360004215233,
+    "name": "BO Canais CC BR",
+    "deleted": false,
+    "description": "Antes se llamaba MPCC BR - Anulações e Devoluções ac Suporte DT  Devoluções BR"
+  },
+  {
+    "id": 32207447,
+    "name": "BO LATAM Pass CC BR",
+    "deleted": false,
+    "description": "Antes se llamaba BO Operações - BR ac Suporte DT FFP BR"
+  },
+  {
+    "id": 42179407,
+    "name": "BO LATAM Travel BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 48857085320979,
+    "name": "BO POS VENDA AEC",
+    "deleted": false,
+    "description": "Creado a solicitud PROYIM-11142"
+  },
+  {
+    "id": 360006313573,
+    "name": "BO Reclamações não aéreo",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 42214008,
+    "name": "CAF LATAM Travel BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 11917984627603,
+    "name": "Canais de Defesa KOB PT",
+    "deleted": false,
+    "description": "Nombre anterior: Canais de Defesa BR - KON BR"
+  },
+  {
+    "id": 6425003145875,
+    "name": "Canais de Defesa LAE PT",
+    "deleted": false,
+    "description": "Nombre anterior: Canais de Defesa BR"
+  },
+  {
+    "id": 27345547,
+    "name": "Canales de Defensa LAE SSC",
+    "deleted": false,
+    "description": "Nombre previo: CUS"
+  },
+  {
+    "id": 27784257,
+    "name": "Capacity",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360010160754,
+    "name": "Cargo Reservas BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360006134673,
+    "name": "Célula de Conciliação LAE PT",
+    "deleted": false,
+    "description": "Nombre anterior: Célula de Conciliação"
+  },
+  {
+    "id": 28546907,
+    "name": "Célula de Redes Sociais",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 1500001290981,
+    "name": "Célula LATAM Travel BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 4991991218835,
+    "name": "Célula LATAM Travel SSC",
+    "deleted": false,
+    "description": "Solicitud de GOPE (fvicencio)"
+  },
+  {
+    "id": 1500002247902,
+    "name": "Célula PI AMC ES",
+    "deleted": false,
+    "description": "Célula PI SSC - AMC (antes Célula PI Legal CO y Célula PI SSC - AMC)"
+  },
+  {
+    "id": 16862273546515,
+    "name": "Célula PI LAE ES",
+    "deleted": false,
+    "description": "Nombre anterior: Célula PI SSC - LAE"
+  },
+  {
+    "id": 41727287,
+    "name": "Comprobantes LATAM TRAVEL",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 32141067,
+    "name": "Control de Ingreso LATAM Travel",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 1500003067721,
+    "name": "Cotizaciones Cargo",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 32138887,
+    "name": "CUS LATAM Travel",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 25839987,
+    "name": "Default Group (No Usar)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 1500002757702,
+    "name": "Devolución Travel Voucher",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 4421365696787,
+    "name": "Dream Team Devoluciones BR",
+    "deleted": false,
+    "description": "Antiguo Dream Team Devoluciones BR"
+  },
+  {
+    "id": 13753953081363,
+    "name": "DT Devoluciones KON ES",
+    "deleted": false,
+    "description": "Nombre anterior: DT DEVOLUCIONES KON"
+  },
+  {
+    "id": 13753959487123,
+    "name": "DT FFP AMC",
+    "deleted": false,
+    "description": "Nombre anterior: DT FFP AMC. Nombre Anterior: DT FFP AMC ES (PROYIM-11119)"
+  },
+  {
+    "id": 4421367720339,
+    "name": "DT FFP BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 39063921363859,
+    "name": "Emisiones TV APTO (Exclusivo de Auditoria)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 37682288,
+    "name": "Equipajes AMC SSC",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 27403897,
+    "name": "Equipo Deloitte",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 28090958,
+    "name": "FSA",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 1500003281582,
+    "name": "Grupo BPO",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 4798751551891,
+    "name": "Grupo Reportes",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 38441884512787,
+    "name": "Grupo Respaldo (No usar)",
+    "deleted": false,
+    "description": "Grupo Respaldo (No usar)"
+  },
+  {
+    "id": 1500003281622,
+    "name": "Grupo Tesorería",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 42179567,
+    "name": "HC LATAM Travel BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 15881607455635,
+    "name": "HVC KON BR",
+    "deleted": false,
+    "description": "Antes HVC AMC BR Antes HVC AMC PT cambio solicitado en PROYIM-10703 Antes se llamaba HVC KON BR"
+  },
+  {
+    "id": 1500006341401,
+    "name": "HVC KON ING",
+    "deleted": false,
+    "description": "Antes HVC ING cambio solicitado en PROYIM-10703"
+  },
+  {
+    "id": 12760212252563,
+    "name": "HVC KON SSC",
+    "deleted": false,
+    "description": "Antes HVC KON cambio solicitado en PROYIM-10703"
+  },
+  {
+    "id": 1500006347982,
+    "name": "INTERNAS HVC BR",
+    "deleted": false,
+    "description": "Antes (SUPORTE HVC BR) PROYIM-12163 Antes (HVC POR)"
+  },
+  {
+    "id": 1500006341381,
+    "name": "INTERNAS HVC SSC",
+    "deleted": false,
+    "description": "Antes (Soporte HVC SSC) PROYIM-12163 Antes (HVC ESP)"
+  },
+  {
+    "id": 360000203187,
+    "name": "Inventario LATAM Travel",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 31137867,
+    "name": "LATAM CARGO",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 43479507,
+    "name": "LR - Servicios de Carga PE",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 36208547,
+    "name": "LUA AMC",
+    "deleted": false,
+    "description": "Grupo Antes llamado LUA AMC ES. Cambiado por PROYIM-11025"
+  },
+  {
+    "id": 35599867,
+    "name": "LUA KON ES",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 5863468967443,
+    "name": "Mantenimiento IT",
+    "deleted": false,
+    "description": "Allegro, TDM, Zendesk-APEC"
+  },
+  {
+    "id": 360010695193,
+    "name": "PIC\\Analistas",
+    "deleted": false,
+    "description": "Grupo de analistas de contenido del ORION, a cargo de revisar la colaboración de sus lectores"
+  },
+  {
+    "id": 360010694894,
+    "name": "PIC\\Líderes",
+    "deleted": false,
+    "description": "Grupo de líderes de contenido del ORION, a cargo de revisar la edición de sus analistas"
+  },
+  {
+    "id": 1900001322265,
+    "name": "Plataforma Reclamos (respaldo)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 1500002757722,
+    "name": "Procesos pago devoluciones",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 1500002746001,
+    "name": "Procesos pago Travel Voucher",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 32138747,
+    "name": "Productos LATAM Travel",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 43954527,
+    "name": "Pruebas .com (NO USAR)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 28143947,
+    "name": "Redes Sociales OS",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 28175288,
+    "name": "Redes Sociales Senior",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 42696488,
+    "name": "Reembolso Fale",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 32174468,
+    "name": "Reservas LATAM Travel",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 10525463569683,
+    "name": "Rol Excepciones",
+    "deleted": false,
+    "description": "Grupo creado para Capacity"
+  },
+  {
+    "id": 6536369746579,
+    "name": "Service Recovery LAE PT",
+    "deleted": false,
+    "description": "Nombre anterior: Service Recovery BR"
+  },
+  {
+    "id": 29107226013331,
+    "name": "Service Recovery LAE sensibles PT",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360004963313,
+    "name": "Service Recovery LAE sensibles SSC",
+    "deleted": false,
+    "description": "Nombre anterior: CUS Recovery CL / Service Recovery LAE SSC"
+  },
+  {
+    "id": 18295138435475,
+    "name": "Service Recovery LAE SSC",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360004212034,
+    "name": "Serviços Especiais BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 43875847,
+    "name": "Soporte DT Devoluciones EST",
+    "deleted": false,
+    "description": "Nombre anterior: MPCC  Devoluciones y Anulaciones"
+  },
+  {
+    "id": 26810117,
+    "name": "Soporte DT FFP EST",
+    "deleted": false,
+    "description": "Nombre anterior: BO Operaciones"
+  },
+  {
+    "id": 27345507,
+    "name": "Soporte LATAM Travel AR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 27345567,
+    "name": "Soporte Portales",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 26848558,
+    "name": "Soporte Sistemas",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 26848578,
+    "name": "SSEE",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 360004215253,
+    "name": "Suporte Canais BR",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 46799163905939,
+    "name": "Test C3PO",
+    "deleted": false,
+    "description": "Creado para realizar pruebas de C3PO"
+  },
+  {
+    "id": 28546807,
+    "name": "URA (NO USAR)",
+    "deleted": false,
+    "description": ""
+  },
+  {
+    "id": 4431684636307,
+    "name": "ZGestion",
+    "deleted": false,
+    "description": ""
+  }
+]

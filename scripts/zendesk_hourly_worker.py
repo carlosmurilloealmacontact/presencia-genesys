@@ -105,7 +105,7 @@ def ejecutar_corte_horario_zendesk() -> dict:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=180
+            timeout=360
         )
         duracion = round(time.time() - inicio, 1)
 
