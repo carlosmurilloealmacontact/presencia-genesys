@@ -616,7 +616,7 @@ def render_tab_zendesk(email_usuario: str = ""):
             df_diario_filtrado = df_diario_filtrado[~is_auth_mask].copy()
 
     # Sub-navegación por pestañas de Zendesk
-    tab_zd_diario, tab_zd_demanda, tab_zd_antiguedad, tab_zd_intradia, tab_zd_backlog, tab_zd_asesores, tab_zd_tipologia, tab_zd_tiempos, tab_zd_volumen, tab_zd_autorizaciones = st.tabs([
+    tab_zd_diario, tab_zd_demanda, tab_zd_antiguedad, tab_zd_intradia, tab_zd_backlog, tab_zd_asesores, tab_zd_tipologia, tab_zd_tiempos, tab_zd_volumen, tab_zd_autorizaciones, tab_zd_glosario = st.tabs([
         "📅 Productividad Diaria",
         "📥 Demanda Diaria (Nuevos)",
         "⏳ Antigüedad del Backlog",
@@ -626,7 +626,8 @@ def render_tab_zendesk(email_usuario: str = ""):
         "🏷️ Tipología de Gestión",
         "⏱️ SLAs y Tiempos",
         "📊 Volumen Histórico",
-        "🛡️ Autorizaciones Supervisor"
+        "🛡️ Autorizaciones Supervisor",
+        "📚 Glosario y Guía"
     ])
 
     # ---------------------------------------------------------------------
@@ -1399,3 +1400,86 @@ def render_tab_zendesk(email_usuario: str = ""):
             )
         else:
             st.success("✅ ¡Excelente! No hay tickets pendientes en las colas de autorización de supervisor.")
+
+    # ---------------------------------------------------------------------
+    # SUBMÓDULO 11: GLOSARIO Y GUÍA OPERATIVA DE ZENDESK
+    # ---------------------------------------------------------------------
+    with tab_zd_glosario:
+        st.subheader("📚 Glosario de Términos y Guía Operativa — Zendesk Support")
+        st.caption("Diccionario técnico y operativo de todas las métricas, dimensiones, estados y reglas de cálculo del módulo.")
+
+        with st.expander("🎫 1. Conceptos Básicos y Ciclo de Vida del Ticket", expanded=True):
+            st.markdown("""
+- **Ticket / Caso**: Unidad transaccional individual de atención en Zendesk que agrupa toda la interacción entre un usuario/pasajero y la aerolínea/operación de Almacontact.
+- **Ciclo de Vida de los Estados (`Status`)**:
+  - `New (Nuevo)`: El ticket acaba de ingresar a Zendesk y aún no ha sido respondido ni tomado por ningún asesor.
+  - `Open (Abierto)`: El ticket está asignado a un asesor o cola y requiere atención o gestión operativa activa.
+  - `Pending (Pendiente)`: El asesor respondió al usuario y se encuentra a la espera de información adicional o documentos del cliente.
+  - `Hold (En Espera)`: El ticket está pausado internamente a la espera de una respuesta de un tercero o área externa (ej: Mantenimiento, Fraude, Equipajes Central).
+  - `Solved (Resuelto)`: El asesor completó la gestión y envió la solución al cliente. En este estado se computa la **Productividad Operativa**.
+  - `Closed (Cerrado)`: Tras permanecer entre 3 y 5 días en estado *Solved* sin que el usuario reabra el caso, Zendesk lo sella de forma inmutable y definitiva.
+- **Diferencia Clave entre Solved y Closed**: Para efectos de productividad histórica y reportería acumulada, la consulta considera `status >= solved` para capturar tanto los casos recientemente resueltos como los que ya archivó el sistema.
+            """)
+
+        with st.expander("📥 2. Demanda de Entrada vs Capacidad de Salida (Inflow vs Outflow)", expanded=True):
+            st.markdown("""
+- **Demanda Diaria (Inflow / Casos Nuevos)**:
+  - Se calcula a partir del timestamp exacto de creación del ticket (`created_at`) convertido a zona horaria **Colombia (UTC-5 / America/Bogota)**.
+  - Representa el volumen real de solicitudes que la operación recibe cada día en cada cola.
+- **Capacidad de Salida (Outflow / Casos Resueltos)**:
+  - Se calcula según la fecha en que el caso fue marcado como `Solved`.
+  - Representa el volumen de tickets resueltos por la fuerza operativa.
+- **Balance Neto de Backlog (`Inflow - Outflow`)**:
+  - **Balance Positivo (+)**: Entraron más casos de los que se resolvieron. El backlog de la cola **aumenta**.
+  - **Balance Negativo (-)**: La operación resolvió más casos de los que ingresaron. Se genera **desahogo de cola**.
+  - **Balance Neutro (0)**: Operación en equilibrio perfecto.
+            """)
+
+        with st.expander("⏱️ 3. Métricas de Tiempo, Velocidad y SLAs", expanded=True):
+            st.markdown("""
+- **FRT (First Response Time / Tiempo de Primera Respuesta)**:
+  - Tiempo transcurrido (en minutos) desde que el ticket se crea hasta que el primer asesor envía una respuesta pública al cliente.
+  - Mide la agilidad de la cola y la inmediatez del primer contacto.
+- **RWT (Requester Wait Time / Tiempo de Espera del Usuario)**:
+  - Tiempo acumulado (en horas) que el pasajero pasa esperando una respuesta de Almacontact mientras el caso está en estados activos (`New` u `Open`).
+  - Excluye los tiempos en que el caso está esperando al pasajero (`Pending`).
+- **Tiempo de Resolución Total**:
+  - Duración total (en horas o días) desde la creación del ticket hasta su resolución definitiva.
+- **Mediana vs Promedio**: En este panel se reporta principalmente la **Mediana** de tiempos en lugar del promedio simple, ya que la mediana es inmune a valores atípicos (tickets excepcionales olvidados durante meses que distorsionarían la realidad operativa).
+            """)
+
+        with st.expander("⏳ 4. Matriz de Antigüedad del Backlog Operativo", expanded=True):
+            st.markdown("""
+Distribución de los tickets que actualmente permanecen sin resolver en Zendesk, según su fecha de creación:
+- **`< 48H`**: Casos dentro de la ventana de atención primaria o SLA estándar.
+- **`> 48H <= 15 DÍAS`**: Backlog en etapa intermedia que requiere seguimiento preventivo.
+- **`> 15 Y <= 30 DÍAS`**: Casos demorados o con escalamientos complejos que requieren aceleración.
+- **`> 30 DÍAS`**: Backlog crítico / deuda operacional acumulada con alto riesgo de insatisfacción o penalidad.
+            """)
+
+        with st.expander("⏱️ 5. Cortes Intradía y Segmentación de Asesores", expanded=True):
+            st.markdown("""
+- **Cortes Intradía**: Mediciones horarias acumuladas (ej: 8:00 a. m., 10:00 a. m., 2:00 p. m. Hora Col) que permiten al equipo de GTR y Supervisión verificar la cadencia horaria de resolución de cada asesor en tiempo real.
+- **Condición del Asesor (Curva de Aprendizaje)**:
+  - **`NUEVO`**: Asesor con **90 días o menos** de antigüedad en la operación. Se evalúa con metas de productividad adaptadas a su curva de maduración.
+  - **`ANTIGUO`**: Asesor con **más de 90 días** de antigüedad, con dominio pleno de procesos y tipologías.
+            """)
+
+        with st.expander("🏢 6. Colas de Atención y Segregación de Autorizaciones", expanded=True):
+            st.markdown("""
+- **Colas Operativas de Asesores (Atención Directa)**:
+  - `LUA AMC`: Soporte integral de reservas, emisiones y cambios para pasajeros.
+  - `DT FFP AMC`: Programa de lealtad y viajero frecuente (canjes, millas, cuentas).
+  - `Equipajes AMC SSC`: Indemnizaciones, rastreo y reclamos de equipaje demorado o dañado.
+  - `Célula PI AMC ES`: Protección involuntaria y gestiones especiales de reprogramación.
+  - `Autorización SOP LUA AMC`: Cola técnica de segundo nivel de soporte.
+- **🛡️ Colas de Autorización de Supervisor (Códigos de Involuntario)**:
+  - `Autorización Supervisor AMC` y `Autorización Supervisor HVC AMC ES`: Colas exclusivas donde los supervisores aprueban códigos de exoneración e involuntarios solicitados por los agentes.
+  - **Regla de Negocio**: Estas autorizaciones se excluyen automáticamente de la productividad operativa de los asesores mediante el filtro superior, evitando que se mezclen gestiones administrativas de liderazgo con la productividad de línea. Cuentan con su propia pestaña de control dedicado.
+            """)
+
+        with st.expander("🏷️ 7. Tipologías de Gestión y Enriquecimiento Socio Maestro", expanded=False):
+            st.markdown("""
+- **Tipología de Gestión (`custom_fields`)**: Campo estructurado de Zendesk (`15124153673235`) donde el asesor categoriza el motivo raíz del contacto (ej: *Compras en LATAM*, *Reclamo Equipaje*, *Endoso Ley Chile*).
+- **Cruce con Socio Maestro**: Cruce automático del correo del asesor con la base de datos de Gestión Humana de Almacontact para asignar en memoria y sin latencia su **Servicio**, **Coordinador**, **Supervisor** y **Condición de Antigüedad**.
+            """)
