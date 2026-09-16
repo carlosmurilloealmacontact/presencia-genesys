@@ -1808,22 +1808,22 @@ def render_tab_capacidad(agentes_map: dict):
                 """,
                 unsafe_allow_html=True
             )
-        elif not es_superavit_con:
+        elif w_h_delta_asistencia < 0:
             st.markdown(
                 f"""
                 <div style="background: #fef2f2; border: 1px solid #fecaca; border-left: 5px solid #ef4444; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
                     <b style="color: #991b1b; font-size: 12px;">🚨 Causa Raíz: Falta de Conexión / Ausentismo:</b><br>
-                    <span style="font-size: 11px; color: #7f1d1d; line-height: 1.45;">Faltaron <b>{abs(w_delta_con_h):.1f} horas</b> de personal ({w_pct_delta_con:.1f}% vs plan) para sostener la operación.</span>
+                    <span style="font-size: 11px; color: #7f1d1d; line-height: 1.45;">Faltaron <b>{abs(w_h_delta_asistencia):.1f} horas</b> de personal ({w_pct_delta_asistencia:.1f}% vs plan) para sostener la operación.</span>
                 </div>
                 """,
                 unsafe_allow_html=True
             )
-        elif es_superavit_con and w_h_pau_fuga > 0:
+        elif w_h_delta_asistencia >= 0 and w_h_pau_fuga > 0:
             st.markdown(
                 f"""
                 <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 5px solid #f59e0b; border-radius: 8px; padding: 9px 12px; margin-top: 8px;">
                     <b style="color: #92400e; font-size: 12px;">🟠 Causa Raíz: Fuga Crítica en Pausas / Auxiliares:</b><br>
-                    <span style="font-size: 11px; color: #78350f; line-height: 1.45;">Se contó con suficiente personal (<b>{w_pct_delta_con:+.1f}%</b>), pero las pausas que sobrepasaron la meta del 14% destruyeron <b>{w_h_pau_fuga:,.1f} horas netas de trabajo</b>, dejando colas desatendidas en momentos clave.</span>
+                    <span style="font-size: 11px; color: #78350f; line-height: 1.45;">Se contó con suficiente personal (<b>{w_pct_delta_asistencia:+.1f}%</b>), pero las pausas que sobrepasaron la meta del 14% destruyeron <b>{w_h_pau_fuga:,.1f} horas netas de trabajo</b>, dejando colas desatendidas en momentos clave.</span>
                 </div>
                 """,
                 unsafe_allow_html=True
