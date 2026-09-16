@@ -788,13 +788,13 @@ def render_tab_zendesk(email_usuario: str = ""):
             st.subheader("📋 Registro Diario Detallado de Demanda y Capacidad por Cola")
             st.dataframe(
                 df_dem_f[["Fecha", "grupo", "Casos_Nuevos", "Casos_Resueltos", "Balance_Neto"]]
+                .sort_values(by=["Fecha", "Casos_Nuevos"], ascending=[False, False])
                 .rename(columns={
                     "grupo": "Cola / Servicio",
                     "Casos_Nuevos": "📥 Casos Nuevos (Inflow)",
                     "Casos_Resueltos": "📤 Casos Resueltos (Outflow)",
                     "Balance_Neto": "⚖️ Balance Neto"
-                })
-                .sort_values(by=["Fecha", "Casos_Nuevos"], ascending=[False, False]),
+                }),
                 use_container_width=True
             )
         else:
