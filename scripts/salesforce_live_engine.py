@@ -75,7 +75,7 @@ def init_live_db():
 
 
 def save_live_snapshot(queues_data, agents_data):
-    """Guarda un snapshot del estado en vivo."""
+    """Guarda un snapshot del estado en vivo y mantiene la base de datos ligera."""
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
     cur = conn.cursor()
@@ -93,74 +93,148 @@ def save_live_snapshot(queues_data, agents_data):
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", "")))
 
+    # Mantener sólo las últimas 24 horas para evitar crecimiento innecesario
+    try:
+        cur.execute("DELETE FROM live_chat_queues WHERE timestamp < datetime('now', '-1 day')")
+        cur.execute("DELETE FROM live_chat_agents WHERE timestamp < datetime('now', '-1 day')")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
 
-def generate_simulated_live_tick():
+def advance_live_state_smoothly():
     """
-    Genera un tick en tiempo real calibrado con la realidad operativa descrita en la grabacion:
-    - 14 a 44 chats esperando en cola.
-    - Simultaneidad de 3 chats = 100%.
-    - Ejecutivos en Available, Busy (bloqueando entrada) y Break.
+    Avanza el estado de colas y agentes con dinámica operativa continua (cadena de Markov / Brownian):
+    - Las colas evolucionan suavemente (+-1 o +-2 chats), sin saltos bruscos erráticos.
+    - El volumen total se mantiene calibrado en el rango operativo real de AMC (24 a 38 chats en espera).
+    - Los cronómetros de tiempo en estado de cada asesor avanzan de forma natural y continua.
+    - Las transiciones de estado de los asesores son coherentes con el flujo de atención.
     """
-    queues_data = [
-        {
-            "queue_name": "AMC Agencias Español",
-            "chats_in_queue": random.randint(18, 35),
-            "longest_wait_sec": random.randint(180, 540),
-            "agents_online": 7
-        },
-        {
-            "queue_name": "AMC Agencias Inglés",
-            "chats_in_queue": random.randint(3, 8),
-            "longest_wait_sec": random.randint(45, 180),
-            "agents_online": 3
-        },
-        {
-            "queue_name": "AMC Corporativo SSC",
-            "chats_in_queue": random.randint(5, 12),
-            "longest_wait_sec": random.randint(90, 320),
-            "agents_online": 4
-        },
-        {
-            "queue_name": "AMC Dudas Operacionales",
-            "chats_in_queue": random.randint(1, 4),
-            "longest_wait_sec": random.randint(30, 90),
-            "agents_online": 2
-        }
-    ]
+    init_live_db()
+    conn = sqlite3.connect(LIVE_DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("SELECT MAX(timestamp) FROM live_chat_queues")
+    latest_ts = cur.fetchone()[0]
+
+    prev_queues = {}
+    prev_agents = {}
+
+    if latest_ts:
+        try:
+            df_prev_q = pd.read_sql_query(
+                "SELECT queue_name, chats_in_queue, longest_wait_sec, agents_online FROM live_chat_queues WHERE timestamp = ?",
+                conn,
+                params=(latest_ts,)
+            )
+            for _, r in df_prev_q.iterrows():
+                prev_queues[r["queue_name"]] = {
+                    "chats": int(r["chats_in_queue"]),
+                    "wait": int(r["longest_wait_sec"]),
+                    "agents": int(r["agents_online"])
+                }
+
+            df_prev_a = pd.read_sql_query(
+                "SELECT agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill FROM live_chat_agents WHERE timestamp = ?",
+                conn,
+                params=(latest_ts,)
+            )
+            for _, r in df_prev_a.iterrows():
+                prev_agents[r["agent_name"]] = {
+                    "status": str(r["status"]),
+                    "active_chats": int(r["active_chats"]),
+                    "capacity_pct": int(r["capacity_pct"]),
+                    "time_in_status_sec": int(r["time_in_status_sec"]),
+                    "skill": str(r["skill"])
+                }
+        except Exception:
+            pass
+    conn.close()
+
+    QUEUE_TARGETS = {
+        "AMC Agencias Español": {"target": 20, "min": 15, "max": 26, "agents": 7},
+        "AMC Agencias Inglés": {"target": 4, "min": 2, "max": 6, "agents": 3},
+        "AMC Corporativo SSC": {"target": 7, "min": 4, "max": 10, "agents": 4},
+        "AMC Dudas Operacionales": {"target": 2, "min": 1, "max": 4, "agents": 2}
+    }
+
+    queues_data = []
+    for q_name, cfg in QUEUE_TARGETS.items():
+        prev = prev_queues.get(q_name)
+        if prev:
+            curr_val = prev["chats"]
+            if curr_val > cfg["max"]:
+                delta = random.choice([-2, -1, -1])
+            elif curr_val < cfg["min"]:
+                delta = random.choice([1, 1, 2])
+            elif curr_val > cfg["target"]:
+                delta = random.choice([-1, -1, 0, 1])
+            elif curr_val < cfg["target"]:
+                delta = random.choice([-1, 0, 1, 1])
+            else:
+                delta = random.choice([-1, 0, 0, 1])
+            new_val = max(1, curr_val + delta)
+            wait_sec = max(30, new_val * random.randint(18, 23))
+        else:
+            new_val = cfg["target"] + random.choice([-1, 0, 1])
+            wait_sec = new_val * 20
+
+        queues_data.append({
+            "queue_name": q_name,
+            "chats_in_queue": new_val,
+            "longest_wait_sec": wait_sec,
+            "agents_online": cfg["agents"]
+        })
 
     agents_data = []
     for ag in DEFAULT_AGENTS:
-        status_choice = ag["base_status"]
-        # Simulacion leve de transiciones
-        rand_val = random.random()
-        if rand_val < 0.15:
-            status = "Busy"
-        elif rand_val < 0.25:
-            status = "Break"
+        name = ag["name"]
+        prev_a = prev_agents.get(name)
+
+        if prev_a:
+            st = prev_a["status"]
+            t_sec = prev_a["time_in_status_sec"] + 30
+            chats = prev_a["active_chats"]
+
+            if st == "Break":
+                if t_sec >= random.randint(900, 1200):
+                    st = "Available"
+                    t_sec = 30
+                    chats = 1
+            elif st == "Busy":
+                if t_sec >= random.randint(800, 1200):
+                    st = "Available"
+                    t_sec = 30
+                    chats = min(2, max(1, chats))
+            else:  # Available
+                current_breaks = len([a for a in agents_data if a.get("status") == "Break"])
+                if random.random() < 0.02 and current_breaks < 2:
+                    st = "Break"
+                    t_sec = 30
+                    chats = 0
+                elif random.random() < 0.03 and chats > 0:
+                    st = "Busy"
+                    t_sec = 30
+                else:
+                    if random.random() < 0.28:
+                        delta_chats = random.choice([-1, 1])
+                        chats = max(0, min(3, chats + delta_chats))
+
+            cap_pct = int(round((chats / 3.0) * 100))
         else:
-            status = status_choice
-
-        # Simultaneidad: Maximo 3 chats (1 chat = 33%, 2 = 67%, 3 = 100%)
-        if status == "Break":
-            active_chats = 0
-        elif status == "Busy":
-            # Puede tener 1 o 2 chats activos y ponerse en busy para no recibir el 3ro
-            active_chats = random.choice([1, 2])
-        else:  # Available
-            active_chats = random.choices([1, 2, 3], weights=[0.25, 0.45, 0.30])[0]
-
-        capacity_pct = int(round((active_chats / 3.0) * 100))
-        time_in_status = random.randint(60, 2400)
+            st = ag["base_status"]
+            chats = 0 if st == "Break" else (random.choice([1, 2]) if st == "Busy" else random.choice([1, 2, 3]))
+            cap_pct = int(round((chats / 3.0) * 100))
+            t_sec = random.randint(120, 600)
 
         agents_data.append({
-            "agent_name": ag["name"],
-            "status": status,
-            "active_chats": active_chats,
-            "capacity_pct": capacity_pct,
-            "time_in_status_sec": time_in_status,
+            "agent_name": name,
+            "status": st,
+            "active_chats": chats,
+            "capacity_pct": cap_pct,
+            "time_in_status_sec": t_sec,
             "skill": ag["skill"]
         })
 
@@ -168,27 +242,48 @@ def generate_simulated_live_tick():
     return queues_data, agents_data
 
 
+def generate_simulated_live_tick():
+    """Mantiene compatibilidad hacia atrás delegando a la función suave."""
+    return advance_live_state_smoothly()
+
+
 def get_latest_live_state(force_fresh: bool = False):
-    """Obtiene el ultimo estado registrado de colas y agentes."""
+    """
+    Obtiene el estado más reciente de colas y agentes en tiempo real.
+    Si han transcurrido más de 25 segundos desde el último snapshot registrado, o si se forzó actualización,
+    avanza dinámicamente el estado para que el panel siempre se mantenga vivo y en evolución continua.
+    """
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
-
-    # Verificar si hay datos
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM live_chat_queues")
-    count = cur.fetchone()[0]
 
-    if count == 0 or force_fresh:
-        conn.close()
-        # Generar snapshot fresco
-        generate_simulated_live_tick()
-        conn = sqlite3.connect(LIVE_DB_PATH)
-        cur = conn.cursor()
-
-    # Obtener el timestamp mas reciente
     cur.execute("SELECT MAX(timestamp) FROM live_chat_queues")
     latest_ts = cur.fetchone()[0]
+    conn.close()
 
+    needs_tick = False
+    if not latest_ts:
+        needs_tick = True
+    elif force_fresh:
+        needs_tick = True
+    else:
+        try:
+            dt_last = datetime.strptime(latest_ts, "%Y-%m-%d %H:%M:%S")
+            segundos_diff = (datetime.now() - dt_last).total_seconds()
+            if segundos_diff >= 25:
+                needs_tick = True
+        except Exception:
+            needs_tick = True
+
+    if needs_tick:
+        advance_live_state_smoothly()
+        conn = sqlite3.connect(LIVE_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(timestamp) FROM live_chat_queues")
+        latest_ts = cur.fetchone()[0]
+        conn.close()
+
+    conn = sqlite3.connect(LIVE_DB_PATH)
     df_queues = pd.read_sql_query(
         "SELECT * FROM live_chat_queues WHERE timestamp = ? ORDER BY chats_in_queue DESC",
         conn,
@@ -200,7 +295,6 @@ def get_latest_live_state(force_fresh: bool = False):
         conn,
         params=(latest_ts,)
     )
-
     conn.close()
     return df_queues, df_agents, latest_ts
 
