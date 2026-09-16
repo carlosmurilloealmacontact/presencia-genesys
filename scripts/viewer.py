@@ -978,7 +978,10 @@ USUARIOS_SALESFORCE_AUTORIZADOS = {
     "marelin.cardona@almaexperience.co",
     "marelin.cardona.almacontact@outsourcing-account.com",
     "marelin.cardona@almacontactcol.info",
-    # Andrés Rodríguez
+    # Andrés Rodríguez (Andrés Mauricio Rodríguez Uribe)
+    "arodriguez.almacontact@outsourcing-account.com",
+    "arodriguez@almaexperience.co",
+    "arodriguez@almacontactcol.info",
     "andres.rodriguez@almaexperience.co",
     "andres.rodriguez.almacontact@outsourcing-account.com",
     "andres.rodriguez@almacontactcol.info",
@@ -1002,18 +1005,16 @@ def es_usuario_salesforce_autorizado(email: str) -> bool:
         "marelin.cardona",
         "marelync",
         "andres.rodriguez",
+        "andresrodriguez",
         "andresr",
+        "arodriguez",
     ]
     return any(p in em for p in patrones_autorizados)
 
 
 if es_usuario_salesforce_autorizado(current_email) or not auth_configurado:
     SECCIONES_APP.append("🏢 Agencias B2B")
-    # Para la coordinación de Agencias (Marelyn Cardona y Andrés Rodríguez), todo su mundo
-    # está 100% unificado en '🏢 Agencias B2B', evitando duplicar pestañas con '☁️ Salesforce B2B'.
-    es_coord_agencias = any(k in current_email for k in ["marelyn", "marelin", "andres.rodriguez", "andresr"])
-    if (current_email in ADMINS_AUTORIZADOS or not auth_configurado) and not es_coord_agencias:
-        SECCIONES_APP.append("☁️ Salesforce B2B")
+    SECCIONES_APP.append("☁️ Salesforce B2B")
 
 # Pestaña de Zendesk:
 # Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
@@ -1037,7 +1038,10 @@ USUARIOS_CAPACIDAD_AUTORIZADOS = {
     "marelin.cardona@almaexperience.co",
     "marelin.cardona.almacontact@outsourcing-account.com",
     "marelin.cardona@almacontactcol.info",
-    # Andrés Rodríguez
+    # Andrés Rodríguez (Andrés Mauricio Rodríguez Uribe)
+    "arodriguez.almacontact@outsourcing-account.com",
+    "arodriguez@almaexperience.co",
+    "arodriguez@almacontactcol.info",
     "andres.rodriguez@almaexperience.co",
     "andres.rodriguez.almacontact@outsourcing-account.com",
     "andres.rodriguez@almacontactcol.info",
@@ -1073,6 +1077,7 @@ def es_usuario_capacidad_autorizado(email: str) -> bool:
         "andres.rodriguez",
         "andresrodriguez",
         "andresr",
+        "arodriguez",
         "andresfelipeurrego",
         "andres.urrego",
         "andresurrego",
@@ -1091,7 +1096,7 @@ if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
 col_nav, col_auth = st.columns([4, 1.2])
 with col_nav:
     default_tab = SECCIONES_APP[0]
-    if any(k in current_email for k in ["marelyn.cardona", "marelin.cardona", "marelync", "andres.rodriguez", "andresr"]) and "🏢 Agencias B2B" in SECCIONES_APP:
+    if any(k in current_email for k in ["marelyn.cardona", "marelin.cardona", "marelync", "andres.rodriguez", "andresr", "arodriguez"]) and "🏢 Agencias B2B" in SECCIONES_APP:
         default_tab = "🏢 Agencias B2B"
 
     seccion_activa = st.segmented_control(

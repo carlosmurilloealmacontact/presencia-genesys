@@ -80,9 +80,14 @@ def init_live_db():
         active_chats INTEGER NOT NULL,
         capacity_pct INTEGER NOT NULL,
         time_in_status_sec INTEGER NOT NULL,
-        skill TEXT
+        skill TEXT,
+        chat_session_ids TEXT
     )
     """)
+    try:
+        cur.execute("ALTER TABLE live_chat_agents ADD COLUMN chat_session_ids TEXT")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -104,9 +109,9 @@ def save_live_snapshot(queues_data, agents_data):
 
     for a in agents_data:
         cur.execute("""
-        INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", "")))
+        INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill, chat_session_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")))
 
     # Mantener sólo las últimas 24 horas en hora Colombia para evitar crecimiento innecesario
     try:
@@ -153,7 +158,7 @@ def advance_live_state_smoothly():
                 }
 
             df_prev_a = pd.read_sql_query(
-                "SELECT agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill FROM live_chat_agents WHERE timestamp = ?",
+                "SELECT * FROM live_chat_agents WHERE timestamp = ?",
                 conn,
                 params=(latest_ts,)
             )
@@ -163,7 +168,8 @@ def advance_live_state_smoothly():
                     "active_chats": int(r["active_chats"]),
                     "capacity_pct": int(r["capacity_pct"]),
                     "time_in_status_sec": int(r["time_in_status_sec"]),
-                    "skill": str(r["skill"])
+                    "skill": str(r["skill"]),
+                    "chat_session_ids": str(r.get("chat_session_ids") or "")
                 }
         except Exception:
             pass
@@ -239,11 +245,26 @@ def advance_live_state_smoothly():
                         chats = max(0, min(3, chats + delta_chats))
 
             cap_pct = int(round((chats / 3.0) * 100))
+            prev_sess_raw = prev_a.get("chat_session_ids", "") if prev_a else ""
+            prev_sessions = [s.strip() for s in prev_sess_raw.split(",") if s.strip().startswith("ms-")]
+            if chats > len(prev_sessions):
+                nuevos = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats - len(prev_sessions))]
+                sesiones = prev_sessions + nuevos
+            elif chats < len(prev_sessions):
+                sesiones = prev_sessions[:chats]
+            else:
+                sesiones = prev_sessions if chats > 0 else []
+
+            if chats > 0 and not sesiones:
+                sesiones = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats)]
+            sesiones_str = ", ".join(sesiones) if sesiones else ""
         else:
             st = ag["base_status"]
             chats = 0 if st == "Break" else (random.choice([1, 2]) if st == "Busy" else random.choice([1, 2, 3]))
             cap_pct = int(round((chats / 3.0) * 100))
             t_sec = random.randint(120, 600)
+            sesiones = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats)] if chats > 0 else []
+            sesiones_str = ", ".join(sesiones) if sesiones else ""
 
         agents_data.append({
             "agent_name": name,
@@ -251,7 +272,8 @@ def advance_live_state_smoothly():
             "active_chats": chats,
             "capacity_pct": cap_pct,
             "time_in_status_sec": t_sec,
-            "skill": ag["skill"]
+            "skill": ag["skill"],
+            "chat_session_ids": sesiones_str
         })
 
     save_live_snapshot(queues_data, agents_data)
