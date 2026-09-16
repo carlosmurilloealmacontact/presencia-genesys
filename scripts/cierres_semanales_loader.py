@@ -21,6 +21,33 @@ import numpy as np
 PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 _CACHE_CIERRES_B2B = None
+_CACHE_SIGNATURE = None
+
+
+def _get_archivos_cierres() -> list:
+    """Busca todos los archivos de seguimiento de agencias en la raíz y en data/."""
+    patrones = [
+        os.path.join(PROJECT_ROOT, "*Seguimiento_Intervalo_LATAM_AGENCIAS_*.xlsb"),
+        os.path.join(PROJECT_ROOT, "*(CONFIDENCIAL)*Seguimiento_Intervalo_LATAM_AGENCIAS_*.xlsb"),
+        os.path.join(PROJECT_ROOT, "data", "*Seguimiento_Intervalo_LATAM_AGENCIAS_*.xlsb"),
+        os.path.join(PROJECT_ROOT, "data", "*(CONFIDENCIAL)*Seguimiento_Intervalo_LATAM_AGENCIAS_*.xlsb"),
+    ]
+    encontrados = set()
+    for pat in patrones:
+        for f in glob.glob(pat):
+            encontrados.add(os.path.normpath(f))
+    return sorted(list(encontrados))
+
+
+def _calcular_firma_archivos(archivos: list) -> tuple:
+    """Calcula una firma única basada en nombres de archivo y timestamps de modificación."""
+    firma = []
+    for f in archivos:
+        try:
+            firma.append((f, os.path.getmtime(f), os.path.getsize(f)))
+        except OSError:
+            pass
+    return tuple(firma)
 
 
 def _parse_serial_excel_date(serial_val):
@@ -31,21 +58,41 @@ def _parse_serial_excel_date(serial_val):
         return None
 
 
+def _buscar_metrica(srv_nombre: str, dict_m: dict, default_val: float) -> float:
+    """Busca una métrica por coincidencia exacta o normalizada."""
+    if not dict_m:
+        return default_val
+    if srv_nombre in dict_m:
+        return dict_m[srv_nombre]
+    clean_target = re.sub(r'[^A-Z0-9]', '', srv_nombre.upper())
+    for k, v in dict_m.items():
+        clean_k = re.sub(r'[^A-Z0-9]', '', str(k).upper())
+        if clean_k == clean_target:
+            return v
+    for k, v in dict_m.items():
+        clean_k = re.sub(r'[^A-Z0-9]', '', str(k).upper())
+        if clean_k and clean_target and (clean_k in clean_target or clean_target in clean_k):
+            return v
+    return default_val
+
+
 def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
     """
     Carga y consolida todos los archivos V7_Seguimiento_Intervalo_LATAM_AGENCIAS_*.xlsb
-    disponibles en la raíz del proyecto.
+    disponibles en la raíz del proyecto o en data/.
+    Detecta automáticamente si se agregaron o modificaron archivos nuevos.
     Retorna un diccionario indexado por fecha ('YYYY-MM-DD') con las métricas oficiales.
     """
-    global _CACHE_CIERRES_B2B
+    global _CACHE_CIERRES_B2B, _CACHE_SIGNATURE
+
+    archivos = _get_archivos_cierres()
+    firma_actual = _calcular_firma_archivos(archivos)
+
     if _CACHE_CIERRES_B2B is not None and not forzar_recarga:
-        return _CACHE_CIERRES_B2B
+        if firma_actual == _CACHE_SIGNATURE:
+            return _CACHE_CIERRES_B2B
 
     import pyxlsb
-
-    archivos = sorted(glob.glob(os.path.join(PROJECT_ROOT, "(CONFIDENCIAL)V7_Seguimiento_Intervalo_LATAM_AGENCIAS_*.xlsb")))
-    if not archivos:
-        archivos = sorted(glob.glob(os.path.join(PROJECT_ROOT, "*Seguimiento_Intervalo_LATAM_AGENCIAS_*.xlsb")))
 
     resumen_por_fecha = {}
 
@@ -140,16 +187,16 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                     meta_ns_pct = 80.0
                     if "CORPORATE" in srv_upper:
                         meta_aht = 1859.0
-                        aht_val = dict_aht_real.get("AG CORPORATE CHAT", 1825.0)
-                        asa_val = dict_asa_real.get("AG CORPORATE CHAT", 358.0)
+                        aht_val = _buscar_metrica("AG CORPORATE CHAT", dict_aht_real, 1825.0)
+                        asa_val = _buscar_metrica("AG CORPORATE CHAT", dict_asa_real, 358.0)
                     elif "REMISION" in srv_upper:
                         meta_aht = 1111.0
-                        aht_val = dict_aht_real.get("AG CELULA REMISION", 1161.4)
-                        asa_val = dict_asa_real.get("AG CELULA REMISION", 43.0)
+                        aht_val = _buscar_metrica("AG CELULA REMISION", dict_aht_real, 1161.4)
+                        asa_val = _buscar_metrica("AG CELULA REMISION", dict_asa_real, 43.0)
                     else:
                         meta_aht = 1222.0
-                        aht_val = dict_aht_real.get("AG CHAT ES", 1201.0)
-                        asa_val = dict_asa_real.get("AG CHAT ES", 1972.2)
+                        aht_val = _buscar_metrica("AG CHAT ES", dict_aht_real, 1201.0)
+                        asa_val = _buscar_metrica("AG CHAT ES", dict_asa_real, 1972.2)
                 else:
                     canal = "VOZ"
                     plataforma = "Genesys Cloud"
@@ -157,16 +204,16 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                     meta_ns_pct = 70.0
                     if "ENG" in srv_upper:
                         meta_aht = 637.0
-                        aht_val = dict_aht_real.get("TARGET ENG", 464.0)
-                        asa_val = dict_asa_real.get("TARGET ENG", 38.2)
+                        aht_val = _buscar_metrica("TARGET ENG", dict_aht_real, 464.0)
+                        asa_val = _buscar_metrica("TARGET ENG", dict_asa_real, 38.2)
                     elif "EMPRESA" in srv_upper or "CORPORATE" in srv_upper:
                         meta_aht = 816.0
-                        aht_val = dict_aht_real.get("TOTAL \nEMPRESAS", 1233.1)
-                        asa_val = dict_asa_real.get("TOTAL \nEMPRESAS", 143.4)
+                        aht_val = _buscar_metrica("TOTAL \nEMPRESAS", dict_aht_real, _buscar_metrica("EMPRESAS", dict_aht_real, 1233.1))
+                        asa_val = _buscar_metrica("TOTAL \nEMPRESAS", dict_asa_real, _buscar_metrica("EMPRESAS", dict_asa_real, 143.4))
                     else:
                         meta_aht = 880.0
-                        aht_val = dict_aht_real.get("TARGET ESP", 973.9)
-                        asa_val = dict_asa_real.get("TARGET ESP", 112.1)
+                        aht_val = _buscar_metrica("TARGET ESP", dict_aht_real, 973.9)
+                        asa_val = _buscar_metrica("TARGET ESP", dict_asa_real, 112.1)
 
                 servicios_dia[srv_raw] = {
                     "fecha": fecha_oficial,
@@ -190,6 +237,7 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
         resumen_por_fecha[fecha_oficial] = servicios_dia
 
     _CACHE_CIERRES_B2B = resumen_por_fecha
+    _CACHE_SIGNATURE = firma_actual
     return resumen_por_fecha
 
 
