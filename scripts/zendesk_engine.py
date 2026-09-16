@@ -816,15 +816,40 @@ def render_tab_zendesk(email_usuario: str = ""):
             with st.expander("📑 Ver Matriz Oficial de Antigüedad (% FÁBRICA) y Desglose por Estado", expanded=False):
                 if m_resumen is not None and not m_resumen.empty:
                     st.subheader("1. Matriz Resumen de Antigüedad (% FÁBRICA)")
+                    ren_m = {
+                        "<48H": "<48h",
+                        ">48H<=15DIAS": "2-15d",
+                        ">15Y<=30DIAS": "15-30d",
+                        ">30DIAS": ">30d",
+                        "FABRICA": "% Fábrica"
+                    }
+                    m_res_display = m_resumen.rename(columns=ren_m)
+
                     def destacar_fabrica(row):
                         if row.get("SERVICIO") == "FABRICA":
                             return ["background-color: #1F4E79; color: white; font-weight: bold;"] * len(row)
                         return [""] * len(row)
-                    st.dataframe(m_resumen.style.apply(destacar_fabrica, axis=1), use_container_width=True, hide_index=True)
+                    st.dataframe(m_res_display.style.apply(destacar_fabrica, axis=1), use_container_width=True, hide_index=True)
 
                 if d_desglose is not None and not d_desglose.empty:
                     st.subheader("2. Desglose Operativo por Servicio y Estado")
-                    cols_mostrar = [c for c in d_desglose.columns if c not in ["SERVICIO_PADRE", "TIPO_FILA", "ESTADO"]]
+
+                    c_mode1, c_mode2 = st.columns([2.5, 2.5])
+                    with c_mode1:
+                        modo_desglose = st.radio(
+                            "Formato de visualización del Desglose:",
+                            ["📱 Compacto (Casos y % en una celda)", "📊 Columnas Separadas"],
+                            horizontal=True,
+                            key="zd_modo_desglose"
+                        )
+
+                    rangos_map = [
+                        ("<48H", "<48h"),
+                        (">48H<=15DIAS", "2-15d"),
+                        (">15Y<=30DIAS", "15-30d"),
+                        (">30DIAS", ">30d")
+                    ]
+
                     def estilo_desglose(row):
                         tipo = row.get("TIPO_FILA", "")
                         if tipo == "TOTAL":
@@ -832,7 +857,59 @@ def render_tab_zendesk(email_usuario: str = ""):
                         elif tipo == "SERVICIO":
                             return ["background-color: #D9E1F2; color: #002060; font-weight: bold;"] * len(row)
                         return [""] * len(row)
-                    st.dataframe(d_desglose[cols_mostrar].style.apply(estilo_desglose, axis=1), use_container_width=True, hide_index=True)
+
+                    if modo_desglose == "📱 Compacto (Casos y % en una celda)":
+                        filas_c = []
+                        for _, row in d_desglose.iterrows():
+                            f = {
+                                "SERVICIO": row["SERVICIO"],
+                                "TIPO_FILA": row.get("TIPO_FILA", ""),
+                                "SERVICIO_PADRE": row.get("SERVICIO_PADRE", "")
+                            }
+                            for r_orig, r_nuevo in rangos_map:
+                                c = row.get(f"{r_orig} CASOS", 0)
+                                p = row.get(f"{r_orig} % ANT.", "0,0%")
+                                f[r_nuevo] = f"{c:,} ({p})" if c > 0 else "-"
+                            f["Total"] = f"{row.get('Total CASOS', 0):,}"
+                            filas_c.append(f)
+                        df_d_show = pd.DataFrame(filas_c)
+                        cols_c = ["SERVICIO", "<48h", "2-15d", "15-30d", ">30d", "Total"]
+
+                        col_cfg = {
+                            "SERVICIO": st.column_config.TextColumn("Servicio / Estado", width="medium"),
+                            "<48h": st.column_config.TextColumn("<48h", width="small"),
+                            "2-15d": st.column_config.TextColumn("2-15d", width="small"),
+                            "15-30d": st.column_config.TextColumn("15-30d", width="small"),
+                            ">30d": st.column_config.TextColumn(">30d", width="small"),
+                            "Total": st.column_config.TextColumn("Total", width="small"),
+                        }
+                        st.dataframe(
+                            df_d_show[["TIPO_FILA"] + cols_c].style.apply(estilo_desglose, axis=1),
+                            use_container_width=True,
+                            hide_index=True,
+                            column_order=cols_c,
+                            column_config=col_cfg
+                        )
+                    else:
+                        ren_sep = {
+                            "<48H CASOS": "<48h",
+                            "<48H % ANT.": "% <48h",
+                            ">48H<=15DIAS CASOS": "2-15d",
+                            ">48H<=15DIAS % ANT.": "% 2-15d",
+                            ">15Y<=30DIAS CASOS": "15-30d",
+                            ">15Y<=30DIAS % ANT.": "% 15-30d",
+                            ">30DIAS CASOS": ">30d",
+                            ">30DIAS % ANT.": "% >30d",
+                            "Total CASOS": "Total"
+                        }
+                        df_d_sep = d_desglose.rename(columns=ren_sep)
+                        cols_sep = [c for c in df_d_sep.columns if c not in ["SERVICIO_PADRE", "TIPO_FILA", "ESTADO"]]
+                        st.dataframe(
+                            df_d_sep[["TIPO_FILA"] + cols_sep].style.apply(estilo_desglose, axis=1),
+                            use_container_width=True,
+                            hide_index=True,
+                            column_order=cols_sep
+                        )
 
             # Detalle individual de tickets
             st.subheader("📋 Detalle de Tickets en Cola de Espera (Hora Colombia UTC-5)")
