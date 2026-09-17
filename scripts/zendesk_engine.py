@@ -1563,19 +1563,28 @@ def render_tab_zendesk(email_usuario: str = ""):
                 return ""
 
             cols_as_sla = ["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio", "Tickets", "% RWT <= 48h", "% FRT <= 24h", "Mediana_RWT_hrs", "Mediana_FRT_min"]
+            styler_sla = df_as_sla[cols_as_sla].rename(columns={
+                "Nombre_Asesor": "Asesor",
+                "Tickets": "Tickets Resueltos",
+                "Mediana_RWT_hrs": "Mediana Res. (hrs)",
+                "Mediana_FRT_min": "Mediana FRT (min)"
+            }).style
+
+            # Compatibilidad universal: map (pandas >= 2.1) y applymap (pandas < 2.1)
+            map_fn = getattr(styler_sla, "map", getattr(styler_sla, "applymap", None))
+            if map_fn:
+                styler_sla = map_fn(estilo_sla_val, subset=["% RWT <= 48h", "% FRT <= 24h"])
+
+            styler_sla = styler_sla.format({
+                "Tickets Resueltos": "{:,.0f}",
+                "% RWT <= 48h": "{:.1f}%",
+                "% FRT <= 24h": "{:.1f}%",
+                "Mediana Res. (hrs)": "{:.1f}h",
+                "Mediana FRT (min)": "{:.1f}m"
+            })
+
             st.dataframe(
-                df_as_sla[cols_as_sla].rename(columns={
-                    "Nombre_Asesor": "Asesor",
-                    "Tickets": "Tickets Resueltos",
-                    "Mediana_RWT_hrs": "Mediana Res. (hrs)",
-                    "Mediana_FRT_min": "Mediana FRT (min)"
-                }).style.applymap(estilo_sla_val, subset=["% RWT <= 48h", "% FRT <= 24h"]).format({
-                    "Tickets Resueltos": "{:,.0f}",
-                    "% RWT <= 48h": "{:.1f}%",
-                    "% FRT <= 24h": "{:.1f}%",
-                    "Mediana Res. (hrs)": "{:.1f}h",
-                    "Mediana FRT (min)": "{:.1f}m"
-                }),
+                styler_sla,
                 use_container_width=True,
                 height=350
             )
