@@ -173,15 +173,33 @@ def ejecutar_corte_horario_zendesk() -> dict:
         return {"status": "error", "error": str(e)}
 
 
+def iniciar_hilo_salesforce_live():
+    """Inicia el monitor continuo de Salesforce Omni-Supervisor en un hilo de fondo independiente."""
+    try:
+        import threading
+        scripts_dir = str(PROJECT_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import salesforce_continuous_worker as scw
+        sf_thread = threading.Thread(target=scw.run_continuous_worker, name="SalesforceLiveThread", daemon=True)
+        sf_thread.start()
+        print("  [SF LIVE] ✅ Hilo de monitoreo en vivo continuo de Salesforce iniciado (cada 30s).")
+        return sf_thread
+    except Exception as ex:
+        print(f"  [WARN] No se pudo iniciar hilo de Salesforce Live: {ex}")
+        return None
+
+
 def iniciar_demonio_horario(intervalo_segundos: int = 3600):
-    """Bucle infinito para ejecución autónoma desatendida como servicio de fondo."""
-    print(f"🚀 Iniciando Demonio Horario Zendesk (Intervalo: {intervalo_segundos}s / {intervalo_segundos//60} min)...")
+    """Bucle infinito para ejecución autónoma desatendida multicanal (Zendesk + Salesforce)."""
+    print(f"🚀 Iniciando Demonio Horario Multicanal (Zendesk cada {intervalo_segundos//60} min + Salesforce Live 30s)...")
+    iniciar_hilo_salesforce_live()
     while True:
         try:
             ejecutar_corte_horario_zendesk()
         except Exception as ex:
             print(f"[CRITICAL] Error en ciclo del demonio: {ex}")
-        print(f"💤 Esperando {intervalo_segundos//60} minutos para el próximo corte...")
+        print(f"💤 Esperando {intervalo_segundos//60} minutos para el próximo corte de Zendesk...")
         time.sleep(intervalo_segundos)
 
 

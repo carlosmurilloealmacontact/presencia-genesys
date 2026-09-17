@@ -29,6 +29,25 @@ def load_live_config():
         return None
 
 
+def parse_salesforce_time_str(t_str: str) -> int:
+    s = str(t_str).strip()
+    if not s or s == "--":
+        return 0
+    mins = re.search(r"(\d+)\s*min", s, re.IGNORECASE)
+    secs = re.search(r"(\d+)\s*s\b", s, re.IGNORECASE)
+    m = int(mins.group(1)) if mins else 0
+    sec = int(secs.group(1)) if secs else 0
+    if m > 0 or sec > 0:
+        return m * 60 + sec
+    if ":" in s:
+        p = s.split(":")
+        try:
+            return int(p[0]) * 60 + int(p[1])
+        except Exception:
+            return 0
+    return 0
+
+
 def extract_live_data(page):
     """
     Extrae la informacion de colas AMC y agentes desde el DOM de Salesforce Lightning.
@@ -44,7 +63,7 @@ def extract_live_data(page):
     # 2. Intentar parsear la tabla real de Omni-Supervisor ("Resumen de retraso de colas")
     # Columnas esperadas: COLA | PRIORIDAD | TAMAÑO DE TRABAJO | TIPO | ESPERA TOTAL | TIEMPO DE ESPERA MÁS LARGO | TIEMPO DE ESPERA MEDIO
     try:
-        rows = page.locator("table tbody tr").all()
+        rows = page.locator("table tbody tr, .slds-table tbody tr").all()
         for row in rows:
             try:
                 row_text = row.inner_text().strip()
@@ -56,19 +75,17 @@ def extract_live_data(page):
                         if len(parts) < 3:
                             parts = [p.strip() for p in row_text.split("\n") if p.strip()]
 
-                        # Buscar ESPERA TOTAL y TIEMPO DE ESPERA MÁS LARGO
-                        # Típicamente ESPERA TOTAL es el número entero antes de los tiempos o guiones
                         count = 0
                         longest_sec = 0
                         for idx, p in enumerate(parts):
                             if p.isdigit() and idx >= 2:
                                 count = int(p)
-                                # El siguiente elemento suele ser el tiempo de espera más largo
-                                if idx + 1 < len(parts):
-                                    t_part = parts[idx + 1]
-                                    if ":" in t_part:
-                                        t_sub = t_part.split(":")
-                                        longest_sec = int(t_sub[0]) * 60 + int(t_sub[1])
+                                # Buscar tiempos en las siguientes columnas ('12 min 21 s' o '8 min 35 s')
+                                for next_p in parts[idx + 1:]:
+                                    t_sec = parse_salesforce_time_str(next_p)
+                                    if t_sec > 0:
+                                        longest_sec = t_sec
+                                        break
                                 break
 
                         queues_map[q_name]["chats_in_queue"] = count

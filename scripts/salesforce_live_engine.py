@@ -483,21 +483,7 @@ def get_latest_live_state(force_fresh: bool = False):
     latest_ts = cur.fetchone()[0]
     conn.close()
 
-    needs_tick = False
     if not latest_ts:
-        needs_tick = True
-    elif force_fresh:
-        needs_tick = True
-    else:
-        try:
-            dt_last = datetime.strptime(latest_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=COLOMBIA_TZ)
-            segundos_diff = (get_colombia_now() - dt_last).total_seconds()
-            if segundos_diff >= 25 or segundos_diff < 0:
-                needs_tick = True
-        except Exception:
-            needs_tick = True
-
-    if needs_tick:
         advance_live_state_smoothly()
         conn = sqlite3.connect(LIVE_DB_PATH)
         cur = conn.cursor()
