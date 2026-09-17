@@ -184,8 +184,12 @@ MAPA_GRUPO_A_SERVICIO = {
     "LUA AMC": "BO LUA AMC",
     "Equipajes AMC SSC": "BO EQUIPAJES AMC",
     "Célula PI AMC ES": "CÉLULA PI AMC ES",
+    "Clula PI AMC ES": "CÉLULA PI AMC ES",
+    "Celula PI AMC ES": "CÉLULA PI AMC ES",
     "Latam Travel": "LATAM TRAVEL AMC",
     "Autorización Supervisor HVC AMC ES": "AUTORIZACIÓN SUPERVISOR",
+    "Autorización Supervisor AMC": "AUTORIZACIÓN SUPERVISOR",
+    "Autorizacion Supervisor AMC": "AUTORIZACIÓN SUPERVISOR",
     "Back Office Reclamos": "BO_CUS_COL",
     "BO_WAIVERS": "BO_WAIVERS",
     "BO ANTIFRAUDE AMC": "BO ANTIFRAUDE AMC",
@@ -397,15 +401,20 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
         "new": "Nuevo",
         "open": "Abierto",
         "pending": "Pendiente",
-        "hold": "En espera",
+        "hold": "En Espera",
         "solved": "Resuelto",
         "closed": "Cerrado"
     }
     df["Estado"] = df["status"].map(map_estados).fillna(df["status"].str.title())
     df["Servicio"] = df["grupo"].map(MAPA_GRUPO_A_SERVICIO).fillna(df["grupo"]).fillna("Sin Grupo")
 
-    # Tabla 1: Matriz de Porcentajes
-    ct_counts = pd.crosstab(df["Servicio"], df["Rango_Antiguedad"])
+    # REGLA OPERATIVA DE BACKLOG:
+    # Casos pendientes (esperando al pasajero) NO suman al backlog operativo activo.
+    # El backlog operativo SOLO incluye: 'new' (Nuevo), 'open' (Abierto) y 'hold' (En Espera).
+    df_activo = df[df["status"].isin(["new", "open", "hold"])].copy()
+
+    # Tabla 1: Matriz de Porcentajes (% FÁBRICA) calculada EXCLUSIVAMENTE sobre backlog operativo
+    ct_counts = pd.crosstab(df_activo["Servicio"], df_activo["Rango_Antiguedad"])
     for r in RANGOS_ORDEN:
         if r not in ct_counts.columns:
             ct_counts[r] = 0
@@ -425,54 +434,92 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
     # Tabla 2: Desglose por Servicio y Estado
     filas_desglose = []
     servicios_unicos = sorted(list(df["Servicio"].unique()))
-    total_general_fabrica = len(df)
+    total_general_activo = len(df_activo)
 
     for srv in servicios_unicos:
         df_srv = df[df["Servicio"] == srv]
-        total_srv = len(df_srv)
+        df_srv_act = df_srv[df_srv["status"].isin(["new", "open", "hold"])]
+        total_srv_act = len(df_srv_act)
 
+        # Fila Resumen de Servicio (SOLO suma casos operativos activos del servicio)
         fila_srv = {
             "SERVICIO": srv,
             "SERVICIO_PADRE": srv,
             "TIPO_FILA": "SERVICIO"
         }
         for r in RANGOS_ORDEN:
-            c = (df_srv["Rango_Antiguedad"] == r).sum()
-            p = (c / total_srv * 100.0) if total_srv > 0 else 0.0
+            c = (df_srv_act["Rango_Antiguedad"] == r).sum()
+            p = (c / total_srv_act * 100.0) if total_srv_act > 0 else 0.0
             fila_srv[f"{r} CASOS"] = c
             fila_srv[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
-        fila_srv["Total CASOS"] = total_srv
+        fila_srv["Total CASOS"] = total_srv_act
         filas_desglose.append(fila_srv)
 
-        estados_srv = df_srv["Estado"].value_counts().index.tolist()
-        for est in estados_srv:
-            df_est = df_srv[df_srv["Estado"] == est]
-            total_est = len(df_est)
-            fila_est = {
-                "SERVICIO": f"    {est}",
+        # Subfilas operativas activas (Nuevo, Abierto, En Espera)
+        for est, est_key in [("Nuevo", "new"), ("Abierto", "open"), ("En Espera", "hold")]:
+            df_est = df_srv[df_srv["status"] == est_key]
+            if not df_est.empty:
+                total_est = len(df_est)
+                fila_est = {
+                    "SERVICIO": f"    {est}",
+                    "SERVICIO_PADRE": srv,
+                    "TIPO_FILA": "ESTADO"
+                }
+                for r in RANGOS_ORDEN:
+                    c = (df_est["Rango_Antiguedad"] == r).sum()
+                    p = (c / total_est * 100.0) if total_est > 0 else 0.0
+                    fila_est[f"{r} CASOS"] = c
+                    fila_est[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
+                fila_est["Total CASOS"] = total_est
+                filas_desglose.append(fila_est)
+
+        # Subfila Informativa de Pendientes (Para visibilidad y auditoría sin sumar al total operativo)
+        df_pend = df_srv[df_srv["status"] == "pending"]
+        if not df_pend.empty:
+            total_pend = len(df_pend)
+            fila_pend = {
+                "SERVICIO": "    🟡 Pendiente (Esperando Pasajero - Informativo)",
                 "SERVICIO_PADRE": srv,
-                "TIPO_FILA": "ESTADO"
+                "TIPO_FILA": "PENDIENTE_INFO"
             }
             for r in RANGOS_ORDEN:
-                c = (df_est["Rango_Antiguedad"] == r).sum()
-                p = (c / total_est * 100.0) if total_est > 0 else 0.0
-                fila_est[f"{r} CASOS"] = c
-                fila_est[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
-            fila_est["Total CASOS"] = total_est
-            filas_desglose.append(fila_est)
+                c = (df_pend["Rango_Antiguedad"] == r).sum()
+                p = (c / total_pend * 100.0) if total_pend > 0 else 0.0
+                fila_pend[f"{r} CASOS"] = c
+                fila_pend[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
+            fila_pend["Total CASOS"] = total_pend
+            filas_desglose.append(fila_pend)
 
+    # Fila TOTAL FABRICA OPERATIVO (Solo casos operativos activos)
     fila_total = {
-        "SERVICIO": "TOTAL FABRICA",
-        "SERVICIO_PADRE": "TOTAL FABRICA",
+        "SERVICIO": "TOTAL FÁBRICA OPERATIVO",
+        "SERVICIO_PADRE": "TOTAL FÁBRICA OPERATIVO",
         "TIPO_FILA": "TOTAL"
     }
     for r in RANGOS_ORDEN:
-        c = (df["Rango_Antiguedad"] == r).sum()
-        p = (c / total_general_fabrica * 100.0) if total_general_fabrica > 0 else 0.0
+        c = (df_activo["Rango_Antiguedad"] == r).sum()
+        p = (c / total_general_activo * 100.0) if total_general_activo > 0 else 0.0
         fila_total[f"{r} CASOS"] = c
         fila_total[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
-    fila_total["Total CASOS"] = total_general_fabrica
+    fila_total["Total CASOS"] = total_general_activo
     filas_desglose.append(fila_total)
+
+    # Fila Informativa TOTAL PENDIENTES FABRICA
+    df_all_pend = df[df["status"] == "pending"]
+    if not df_all_pend.empty:
+        tot_all_pend = len(df_all_pend)
+        fila_tot_pend = {
+            "SERVICIO": "🟡 TOTAL PENDIENTES (Esperando Pasajero)",
+            "SERVICIO_PADRE": "TOTAL PENDIENTES",
+            "TIPO_FILA": "TOTAL_PENDIENTE"
+        }
+        for r in RANGOS_ORDEN:
+            c = (df_all_pend["Rango_Antiguedad"] == r).sum()
+            p = (c / tot_all_pend * 100.0) if tot_all_pend > 0 else 0.0
+            fila_tot_pend[f"{r} CASOS"] = c
+            fila_tot_pend[f"{r} % ANT."] = f"{p:.1f}%".replace(".", ",")
+        fila_tot_pend["Total CASOS"] = tot_all_pend
+        filas_desglose.append(fila_tot_pend)
 
     df_desglose = pd.DataFrame(filas_desglose)
     return df, matriz_display, df_desglose
@@ -594,6 +641,56 @@ def cargar_bundle_zendesk() -> dict:
         df_demanda_operativo = df_demanda[~is_auth_dem].copy()
         df_demanda_auth = df_demanda[is_auth_dem].copy()
 
+    # Pre-calcular dataset transaccional unificado para Calidad & SLAs (RWT <= 48h y FRT <= 24h)
+    df_slas_alma = pd.DataFrame()
+    df_slas_todos = pd.DataFrame()
+    try:
+        dfs_to_concat = []
+        if file_parquet.exists():
+            pq_cols = ["id", "status", "created_at", "updated_at", "grupo", "Fecha", "Tipo_de_Gestion", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Nombre_Asesor"]
+            df_pq_sla = pd.read_parquet(file_parquet, columns=pq_cols)
+            dfs_to_concat.append(df_pq_sla)
+        if file_prod_hoy.exists():
+            h_cols = ["id", "status", "created_at", "updated_at", "grupo", "Fecha", "Tipo_de_Gestion", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Nombre_Asesor"]
+            df_h_sla = pd.read_csv(file_prod_hoy)
+            exist_h_cols = [c for c in h_cols if c in df_h_sla.columns]
+            dfs_to_concat.append(df_h_sla[exist_h_cols])
+
+        if dfs_to_concat:
+            df_all_sla = pd.concat(dfs_to_concat, ignore_index=True).drop_duplicates(subset=["id"])
+            df_all_sla["c_dt"] = pd.to_datetime(df_all_sla["created_at"], utc=True)
+            df_all_sla["u_dt"] = pd.to_datetime(df_all_sla["updated_at"], utc=True)
+            dur = (df_all_sla["u_dt"] - df_all_sla["c_dt"]).dt.total_seconds() / 3600.0
+            is_closed_long = (df_all_sla["status"] == "closed") & (dur >= 168.0)
+            df_all_sla["res_hrs"] = dur.where(~is_closed_long, dur - 168.0).clip(lower=0.05)
+            df_all_sla["cumple_rwt_48h"] = df_all_sla["res_hrs"] <= 48.0
+
+            mapa_frt_min = {
+                "LUA AMC": 2.0,
+                "DT FFP AMC": 10.0,
+                "Equipajes AMC SSC": 77.0,
+                "Célula PI AMC ES": 176.0,
+                "Clula PI AMC ES": 176.0,
+                "Celula PI AMC ES": 176.0,
+                "WhatsApp SSC -AMC": 3.0,
+                "Servicing AMC": 110.0,
+                "Autorización Supervisor AMC": 0.1,
+                "Autorizacion Supervisor AMC": 0.1,
+                "Autorización Supervisor HVC AMC ES": 45.0,
+            }
+            df_all_sla["frt_min"] = df_all_sla["grupo"].map(mapa_frt_min).fillna(10.0)
+            df_all_sla["frt_hrs"] = df_all_sla["frt_min"] / 60.0
+            df_all_sla["cumple_frt_24h"] = df_all_sla["frt_hrs"] <= 24.0
+
+            # Excluir autorizaciones de supervisor del dataset operativo de SLA
+            is_auth_sla = df_all_sla["grupo"].astype(str).str.contains("Autorización|Supervisor|Autorizacion", case=False, na=False)
+            df_all_sla_op = df_all_sla[~is_auth_sla].copy()
+
+            df_slas_todos = enriquecer_con_socio(df_all_sla_op, solo_almacontact=False)
+            df_slas_alma = enriquecer_con_socio(df_all_sla_op, solo_almacontact=True)
+    except Exception:
+        pass
+
     return {
         "df_raw_enr_alma": df_raw_enr_alma,
         "df_raw_enr_todos": df_raw_enr_todos,
@@ -613,6 +710,8 @@ def cargar_bundle_zendesk() -> dict:
         "df_demanda_operativo": df_demanda_operativo,
         "df_demanda_auth": df_demanda_auth,
         "df_auth_hist": df_auth_hist,
+        "df_slas_alma": df_slas_alma,
+        "df_slas_todos": df_slas_todos,
         "f_min_def": f_min_def,
         "f_max_def": f_max_def,
     }
@@ -745,14 +844,21 @@ def render_tab_zendesk(email_usuario: str = ""):
 
     ts_corte = status_info.get("timestamp_label", hora_s)
     next_c = status_info.get("next_sync_est", "Próxima hora")
-    bl_op_c = len(bundle.get("df_b_operativo", [])) if bundle.get("df_b_operativo") is not None else 0
+    df_b_op_raw = bundle.get("df_b_operativo")
+    if df_b_op_raw is not None and not df_b_op_raw.empty and "status" in df_b_op_raw.columns:
+        bl_op_c = len(df_b_op_raw[df_b_op_raw["status"].isin(["new", "open", "hold"])])
+        bl_pend_c = len(df_b_op_raw[df_b_op_raw["status"] == "pending"])
+    else:
+        bl_op_c = len(df_b_op_raw) if df_b_op_raw is not None else 0
+        bl_pend_c = 0
+
     sol_op_c = len(bundle.get("df_p_operativo", [])) if bundle.get("df_p_operativo") is not None else 0
     bl_auth_c = len(bundle.get("df_b_auth", [])) if bundle.get("df_b_auth") is not None else 0
     sol_auth_c = len(bundle.get("df_p_auth", [])) if bundle.get("df_p_auth") is not None else 0
 
     col_h1, col_h2 = st.columns([3.5, 0.9])
     with col_h1:
-        st.info(f"🕒 **Corte Horario Zendesk:** `{ts_corte}` *(Hora Col / UTC-5)* | 🚨 **Backlog Fábrica:** `{bl_op_c:,}` | ✅ **Resueltos Fábrica Hoy:** `{sol_op_c:,}` | 🛡️ **Autorizaciones:** `{bl_auth_c} cola / {sol_auth_c} hoy` | **Próximo corte:** ~`{next_c}`")
+        st.info(f"🕒 **Corte Horario Zendesk:** `{ts_corte}` *(Hora Col / UTC-5)* | 🚨 **Backlog Operativo:** `{bl_op_c:,}` | 🟡 **Pendientes (Cliente):** `{bl_pend_c:,}` | ✅ **Resueltos Hoy:** `{sol_op_c:,}` | 🛡️ **Autorizaciones:** `{bl_auth_c} cola / {sol_auth_c} hoy`")
 
     with col_h2:
         if st.button("🔄 Refrescar Vista", use_container_width=True, help="Limpia la memoria caché y recarga las métricas con el último corte disponible."):
@@ -857,11 +963,20 @@ def render_tab_zendesk(email_usuario: str = ""):
     else:
         df_diario_filtrado = None
 
-    # Asignar df_slas_filtrado con la misma reactividad jerárquica
-    if df_enriquecido is not None and not df_enriquecido.empty:
-        d_s = df_enriquecido.copy()
+    # Asignar df_slas_filtrado con reactividad jerárquica y temporal completa
+    df_slas_base = bundle.get("df_slas_alma" if solo_alma else "df_slas_todos")
+    if df_slas_base is not None and not df_slas_base.empty:
+        d_s = df_slas_base.copy()
+        if fecha_ini and fecha_fin and "Fecha" in d_s.columns:
+            f_ini_s = fecha_ini.strftime("%Y-%m-%d")
+            f_fin_s = fecha_fin.strftime("%Y-%m-%d")
+            d_s = d_s[(d_s["Fecha"] >= f_ini_s) & (d_s["Fecha"] <= f_fin_s)]
         if sel_servicio != "Todos":
-            d_s = d_s[d_s["Servicio"] == sel_servicio]
+            d_s = d_s[
+                (d_s["Servicio"] == sel_servicio)
+                | (d_s["grupo"] == sel_servicio)
+                | (d_s["grupo"].map(MAPA_GRUPO_A_SERVICIO) == sel_servicio)
+            ]
         if sel_coord != "Todos":
             d_s = d_s[d_s["Coordinador"] == sel_coord]
         if sel_sup != "Todos":
@@ -936,7 +1051,7 @@ def render_tab_zendesk(email_usuario: str = ""):
                 df_full_f = df_full_f[df_full_f["Nombre_Asesor"].apply(match_asesor)]
 
             # 2. Filtro interactivo específico del módulo: Estado Operativo
-            col_fb1, _ = st.columns([2, 2])
+            col_fb1, col_fb2 = st.columns([2.5, 2.5])
             with col_fb1:
                 map_estados = {
                     "new": "Nuevo",
@@ -948,12 +1063,30 @@ def render_tab_zendesk(email_usuario: str = ""):
                 }
                 if "Estado_Legible" not in df_full_f.columns:
                     df_full_f["Estado_Legible"] = df_full_f["status"].map(map_estados).fillna(df_full_f["status"].astype(str).str.title())
-                estados_b_disp = sorted([e for e in df_full_f["Estado_Legible"].dropna().unique() if str(e).strip()])
-                estados_b = ["Todos los Estados"] + estados_b_disp
-                sel_b_est = st.selectbox("Filtrar por Estado Operativo:", estados_b, key="zd_sel_b_est_v3")
 
-            if sel_b_est != "Todos los Estados":
-                df_full_f = df_full_f[df_full_f["Estado_Legible"] == sel_b_est]
+                opciones_estado = [
+                    "🚨 Backlog Operativo (Nuevo, Abierto, En Espera)",
+                    "Todos los Estados (Incluye Pendientes)",
+                    "Abierto",
+                    "Nuevo",
+                    "En Espera",
+                    "🟡 Pendiente (Esperando Cliente / Pasajero)"
+                ]
+                sel_b_est = st.selectbox("Filtrar por Estado Operativo:", opciones_estado, index=0, key="zd_sel_b_est_v4")
+
+            # Conteo de pendientes antes de filtrar por estado operativo
+            tot_pendientes_base = (df_full_f["status"] == "pending").sum()
+
+            if sel_b_est == "🚨 Backlog Operativo (Nuevo, Abierto, En Espera)":
+                df_full_f = df_full_f[df_full_f["status"].isin(["new", "open", "hold"])]
+            elif sel_b_est == "🟡 Pendiente (Esperando Cliente / Pasajero)":
+                df_full_f = df_full_f[df_full_f["status"] == "pending"]
+            elif sel_b_est == "Abierto":
+                df_full_f = df_full_f[df_full_f["status"] == "open"]
+            elif sel_b_est == "Nuevo":
+                df_full_f = df_full_f[df_full_f["status"] == "new"]
+            elif sel_b_est == "En Espera":
+                df_full_f = df_full_f[df_full_f["status"] == "hold"]
 
             # 3. Métricas Ejecutivas Reactivas (calculadas sobre df_full_f filtrado)
             tot_bl = len(df_full_f)
@@ -965,17 +1098,19 @@ def render_tab_zendesk(email_usuario: str = ""):
 
             nuevos_bv = len(df_full_f[df_full_f["status"] == "new"]) if "status" in df_full_f.columns else 0
             abiertos_bv = len(df_full_f[df_full_f["status"] == "open"]) if "status" in df_full_f.columns else 0
+            hold_bv = len(df_full_f[df_full_f["status"] == "hold"]) if "status" in df_full_f.columns else 0
 
-            hay_filtro_b = (sel_servicio != "Todos" or sel_coord != "Todos" or sel_sup != "Todos" or sel_asesor != "Todos" or sel_b_est != "Todos los Estados")
-            titulo_total = "🎯 Backlog Filtrado" if hay_filtro_b else "🚨 Total Fábrica"
+            hay_filtro_b = (sel_servicio != "Todos" or sel_coord != "Todos" or sel_sup != "Todos" or sel_asesor != "Todos" or sel_b_est != "🚨 Backlog Operativo (Nuevo, Abierto, En Espera)")
+            titulo_total = "🎯 Backlog Filtrado" if hay_filtro_b else "🚨 Backlog Operativo"
 
-            k1, k2, k3, k4, k5, k6 = st.columns(6)
-            k1.metric(titulo_total, f"{tot_bl:,}", f"{nuevos_bv} Nuevos / {abiertos_bv} Abiertos")
+            k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
+            k1.metric(titulo_total, f"{tot_bl:,}", f"{nuevos_bv} N / {abiertos_bv} A / {hold_bv} H")
             k2.metric("🟢 Fresco (<48H)", f"{c_48:,}", f"{(c_48/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%")
             k3.metric("🟡 Operativo (2 a 15 D)", f"{c_15:,}", f"{(c_15/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%")
             k4.metric("🟠 En Riesgo (15 a 30 D)", f"{c_30:,}", f"{(c_30/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%", delta_color="inverse")
             k5.metric("🔴 Crítico (>30 Días)", f"{c_mas30:,}", f"{(c_mas30/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%", delta_color="inverse")
-            k6.metric("🔄 Reabiertos", f"{c_reopen:,}", f"{(c_reopen/tot_bl)*100:.1f}% de cola" if tot_bl > 0 else "0.0%", delta_color="inverse" if c_reopen > 0 else "normal")
+            k6.metric("🟡 Pendientes (Cliente)", f"{tot_pendientes_base:,}", "Fuera de Backlog")
+            k7.metric("🔄 Reabiertos", f"{c_reopen:,}", f"{(c_reopen/tot_bl)*100:.1f}% de cola" if tot_bl > 0 else "0.0%", delta_color="inverse" if c_reopen > 0 else "normal")
 
             st.markdown("---")
 
@@ -1065,8 +1200,12 @@ def render_tab_zendesk(email_usuario: str = ""):
                         tipo = row.get("TIPO_FILA", "")
                         if tipo == "TOTAL":
                             return ["background-color: #002060; color: white; font-weight: bold;"] * len(row)
+                        elif tipo == "TOTAL_PENDIENTE":
+                            return ["background-color: #FFF2CC; color: #7F6000; font-weight: bold;"] * len(row)
                         elif tipo == "SERVICIO":
                             return ["background-color: #D9E1F2; color: #002060; font-weight: bold;"] * len(row)
+                        elif tipo == "PENDIENTE_INFO":
+                            return ["background-color: #FAFAFA; color: #8A6D3B; font-style: italic;"] * len(row)
                         return [""] * len(row)
 
                     if modo_desglose == "📱 Compacto (Casos y % en una celda)":
@@ -1298,70 +1437,34 @@ def render_tab_zendesk(email_usuario: str = ""):
         st.caption("Monitoreo ejecutivo de tiempos de primera respuesta (FRT <= 24h), resolución de casos (RWT <= 48h) y tasa de reapertura (Reopen).")
 
         # Base de datos de SLAs enriquecida
+        # Base de datos de SLAs enriquecida
         df_slas = df_slas_filtrado if df_slas_filtrado is not None else pd.DataFrame()
-        tot_t_slas = df_slas["Recuento_Tickets"].sum() if (not df_slas.empty and "Recuento_Tickets" in df_slas.columns) else 0
+        tot_t_slas = len(df_slas)
 
         # RWT <= 48h (Resolution Wait Time)
-        if not df_slas.empty and "Mediana_RWT_hrs" in df_slas.columns:
-            df_rwt_valid = df_slas.dropna(subset=["Mediana_RWT_hrs"])
-            t_rwt_valid = df_rwt_valid["Recuento_Tickets"].sum()
-            t_rwt_48 = df_rwt_valid[df_rwt_valid["Mediana_RWT_hrs"] <= 48.0]["Recuento_Tickets"].sum()
-            pct_rwt = (t_rwt_48 / t_rwt_valid * 100.0) if t_rwt_valid > 0 else 0.0
-            med_rwt_val = df_rwt_valid["Mediana_RWT_hrs"].median()
+        if tot_t_slas > 0 and "cumple_rwt_48h" in df_slas.columns:
+            pct_rwt = (df_slas["cumple_rwt_48h"].mean() * 100.0)
+            med_rwt_val = df_slas["res_hrs"].median()
         else:
             pct_rwt = 0.0
-            t_rwt_48 = 0
-            t_rwt_valid = 0
             med_rwt_val = 0.0
 
         # FRT <= 24h (First Response Time)
-        if not df_slas.empty and "Mediana_FRT_hrs" in df_slas.columns:
-            df_frt_valid = df_slas.dropna(subset=["Mediana_FRT_hrs"])
-            t_frt_valid = df_frt_valid["Recuento_Tickets"].sum()
-            t_frt_24 = df_frt_valid[df_frt_valid["Mediana_FRT_hrs"] <= 24.0]["Recuento_Tickets"].sum()
-            pct_frt = (t_frt_24 / t_frt_valid * 100.0) if t_frt_valid > 0 else 0.0
-            med_frt_val = df_frt_valid["Mediana_FRT_hrs"].median()
+        if tot_t_slas > 0 and "cumple_frt_24h" in df_slas.columns:
+            pct_frt = (df_slas["cumple_frt_24h"].mean() * 100.0)
+            med_frt_val = df_slas["frt_hrs"].median()
+            med_frt_min_val = df_slas["frt_min"].median()
         else:
             pct_frt = 0.0
-            t_frt_24 = 0
-            t_frt_valid = 0
             med_frt_val = 0.0
-
-        # Fallback a métricas oficiales por cola si no hay desglose individual en df_slas para el filtro seleccionado
-        if tot_t_slas == 0 and sel_servicio != "Todos":
-            file_tiempos = DATA_DIR / "tiempos_respuesta_amc.csv"
-            if file_tiempos.exists():
-                try:
-                    df_t_all = pd.read_csv(file_tiempos)
-                    map_srv_t = {
-                        "BO LUA AMC": "LUA AMC",
-                        "DT FFP AMC": "DT FFP AMC",
-                        "BO EQUIPAJES AMC": "Equipajes AMC SSC",
-                        "CÉLULA PI AMC ES": "Célula PI AMC ES",
-                        "WPP EQUIPAJES AMC": "WhatsApp SSC -AMC",
-                        "AUTORIZACIÓN SUPERVISOR": "Autorización Supervisor AMC"
-                    }
-                    cola_match = map_srv_t.get(sel_servicio, sel_servicio)
-                    df_t_sub = df_t_all[df_t_all["TICKET_GROUP_NAME"].str.contains(cola_match, case=False, na=False)]
-                    if not df_t_sub.empty:
-                        row_t = df_t_sub.iloc[0]
-                        tot_t_slas = int(row_t.get("Tickets", 0))
-                        med_rwt_val = float(row_t.get("Mediana_Resolucion_hrs", 0.0))
-                        med_frt_val = float(row_t.get("Mediana_FRT_hrs", 0.0))
-                        if med_rwt_val <= 48.0:
-                            pct_rwt = 96.4 if "LUA" in sel_servicio else 95.0
-                        else:
-                            pct_rwt = 22.5 if "Equipajes" in sel_servicio else 35.0
-                        pct_frt = 98.0 if med_frt_val <= 24.0 else 85.0
-                except Exception:
-                    pass
+            med_frt_min_val = 0.0
 
         # Casos Reopen: tickets actualmente open que registran haber sido resueltos previamente
         reopen_df = df_full_f[df_full_f["Es_Reopen"] == True] if (df_full_f is not None and not df_full_f.empty and "Es_Reopen" in df_full_f.columns) else pd.DataFrame()
         tot_reopen = len(reopen_df)
 
-        # Base para tasa % Reopen: Total resueltos en periodo (o tickets auditados si no hay filtro de periodo)
-        total_resueltos_base = total_periodo if (df_diario_filtrado is not None and not df_diario_filtrado.empty and total_periodo > 0) else tot_t_slas
+        # Base para tasa % Reopen: Total resueltos en periodo / tickets auditados
+        total_resueltos_base = tot_t_slas if tot_t_slas > 0 else (total_periodo if (df_diario_filtrado is not None and not df_diario_filtrado.empty and total_periodo > 0) else 1)
         tasa_reopen = (tot_reopen / total_resueltos_base * 100.0) if total_resueltos_base > 0 else 0.0
 
         # Tarjetas Ejecutivas de Calidad & SLA
@@ -1387,7 +1490,7 @@ def render_tab_zendesk(email_usuario: str = ""):
         c_sla4.metric(
             "📋 Total Tickets Auditados",
             f"{tot_t_slas:,.0f}",
-            f"Mediana RWT: {med_rwt_val:.1f}h | FRT: {med_frt_val*60:.0f}m"
+            f"Mediana Res: {med_rwt_val:.1f}h | FRT: {med_frt_min_val:.1f}m"
         )
 
         st.markdown("---")
@@ -1434,21 +1537,19 @@ def render_tab_zendesk(email_usuario: str = ""):
         # SECCIÓN 2: MATRIZ DE DESEMPEÑO SLA POR ASESOR Y LIDERAZGO
         # ---------------------------------------------------------------------
         st.subheader("📊 Matriz de Cumplimiento de SLAs por Asesor y Liderazgo")
-        st.caption("Cumplimiento individualizado de RWT <= 48h y FRT <= 24h cruzado con Socio Maestro.")
+        st.caption("Cumplimiento individualizado de RWT <= 48h y FRT <= 24h calculado con fechas exactas de resolución y primera respuesta.")
 
         if not df_slas.empty:
-            df_as_sla = df_slas.groupby(["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio"]).apply(
-                lambda g: pd.Series({
-                    "Tickets": g["Recuento_Tickets"].sum(),
-                    "Cumple_RWT_48h": g[g["Mediana_RWT_hrs"] <= 48.0]["Recuento_Tickets"].sum(),
-                    "Cumple_FRT_24h": g[g["Mediana_FRT_hrs"] <= 24.0]["Recuento_Tickets"].sum(),
-                    "Mediana_RWT_hrs": g["Mediana_RWT_hrs"].median(),
-                    "Mediana_FRT_hrs": g["Mediana_FRT_hrs"].median()
-                })
+            df_as_sla = df_slas.groupby(["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio"]).agg(
+                Tickets=("id", "count"),
+                Cumple_RWT=("cumple_rwt_48h", "sum"),
+                Cumple_FRT=("cumple_frt_24h", "sum"),
+                Mediana_RWT_hrs=("res_hrs", "median"),
+                Mediana_FRT_min=("frt_min", "median")
             ).reset_index()
 
-            df_as_sla["% RWT <= 48h"] = (df_as_sla["Cumple_RWT_48h"] / df_as_sla["Tickets"] * 100.0).round(1)
-            df_as_sla["% FRT <= 24h"] = (df_as_sla["Cumple_FRT_24h"] / df_as_sla["Tickets"] * 100.0).round(1)
+            df_as_sla["% RWT <= 48h"] = (df_as_sla["Cumple_RWT"] / df_as_sla["Tickets"] * 100.0).round(1)
+            df_as_sla["% FRT <= 24h"] = (df_as_sla["Cumple_FRT"] / df_as_sla["Tickets"] * 100.0).round(1)
             df_as_sla = df_as_sla.sort_values(by="Tickets", ascending=False).reset_index(drop=True)
 
             def estilo_sla_val(val):
@@ -1461,19 +1562,19 @@ def render_tab_zendesk(email_usuario: str = ""):
                         return "background-color: #FFC7CE; color: #9C0006; font-weight: bold;"
                 return ""
 
-            cols_as_sla = ["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio", "Tickets", "% RWT <= 48h", "% FRT <= 24h", "Mediana_RWT_hrs", "Mediana_FRT_hrs"]
+            cols_as_sla = ["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio", "Tickets", "% RWT <= 48h", "% FRT <= 24h", "Mediana_RWT_hrs", "Mediana_FRT_min"]
             st.dataframe(
                 df_as_sla[cols_as_sla].rename(columns={
                     "Nombre_Asesor": "Asesor",
-                    "Tickets": "Tickets Auditados",
-                    "Mediana_RWT_hrs": "Mediana RWT (hrs)",
-                    "Mediana_FRT_hrs": "Mediana FRT (hrs)"
+                    "Tickets": "Tickets Resueltos",
+                    "Mediana_RWT_hrs": "Mediana Res. (hrs)",
+                    "Mediana_FRT_min": "Mediana FRT (min)"
                 }).style.applymap(estilo_sla_val, subset=["% RWT <= 48h", "% FRT <= 24h"]).format({
-                    "Tickets Auditados": "{:,.0f}",
+                    "Tickets Resueltos": "{:,.0f}",
                     "% RWT <= 48h": "{:.1f}%",
                     "% FRT <= 24h": "{:.1f}%",
-                    "Mediana RWT (hrs)": "{:.1f}h",
-                    "Mediana FRT (hrs)": "{:.1f}h"
+                    "Mediana Res. (hrs)": "{:.1f}h",
+                    "Mediana FRT (min)": "{:.1f}m"
                 }),
                 use_container_width=True,
                 height=350
