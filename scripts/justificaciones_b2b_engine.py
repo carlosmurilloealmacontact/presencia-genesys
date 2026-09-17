@@ -389,17 +389,129 @@ def precargar_justificaciones_ejemplo_ayer():
         )
 
 
-def diagnosticar_justificacion_automatica(ns_real: float, ns_meta: float, aht_real: float, aht_meta: float, entrantes: int = 0) -> str:
-    """Genera una explicación diagnóstica preliminar basada en las palancas operativas."""
+def generar_justificacion_automatica_avanzada(datos_m: dict, observacion_manual: str = "") -> str:
+    """
+    Construye de manera 100% algorítmica la justificación operativa oficial de causa raíz
+    para la pérdida o cumplimiento del Nivel de Servicio (NS) en Agencias B2B.
+
+    Analiza cuantitativamente:
+    1. Brecha de Nivel de Servicio (cumplimiento vs desvío).
+    2. Sobredemanda porcentual vs. Forecast (%FORE).
+    3. Nivel de Contestación (% ATEN) y Abandono.
+    4. Desviación de AHT (meta vs real, amortiguador favorable o agravante).
+    5. Brecha de Staffing (Staff Requerido vs Staff Real en piso).
+    6. Anexos cualitativos específicos si fueron registrados por supervisión.
+    """
+    ns_real = float(datos_m.get("ns_real", datos_m.get("NS Real", 0.0)))
+    ns_meta = float(datos_m.get("meta_ns", datos_m.get("NS Meta", 70.0)))
+    entrantes = int(datos_m.get("entrantes", datos_m.get("entrante", datos_m.get("Entrantes", 0))))
+    atendidas = int(datos_m.get("atendidas", datos_m.get("atendido", datos_m.get("Atendidas", 0))))
+    forecast = float(datos_m.get("forecast", 0.0))
+    aht_real = float(datos_m.get("aht_real", datos_m.get("AHT Real (s)", 0.0)))
+    meta_aht = float(datos_m.get("meta_aht", datos_m.get("AHT Meta (s)", 0.0)))
+
+    # 1. Verificación de Cumplimiento
     if ns_real >= ns_meta:
-        return "🟢 Meta alcanzada sin desvío"
+        return f"🟢 Meta alcanzada sin desvío ({ns_real:.1f}% vs meta {ns_meta:.1f}%). Operación en cumplimiento contractual."
 
-    dif_ns = ns_meta - ns_real
-    desv_aht = aht_real - aht_meta
+    dif_ns = ns_real - ns_meta
+    icono = "🛑" if ns_real < (ns_meta - 5.0) else "⚠️"
 
-    if desv_aht > 60:
-        return f"⚠️ Cierre NNSS {ns_real:.1f}%: Pérdida de NS asociada a desvío de AHT (+{int(desv_aht)}s sobre meta) por procesos largos."
-    elif dif_ns > 15:
-        return f"🛑 Cierre NNSS {ns_real:.1f}%: Impacto severo en NS (-{dif_ns:.1f}pp). Causa probable: Sobredemanda en franjas pico o falta de dotación en cola."
+    # 2. Sobredemanda
+    pct_fore = datos_m.get("pct_fore")
+    if pct_fore is not None and abs(float(pct_fore)) > 0.001:
+        sobredemanda = float(pct_fore)
+    elif forecast > 0 and entrantes > 0:
+        sobredemanda = round(((entrantes - forecast) / forecast * 100.0), 2)
     else:
-        return f"⚠️ Cierre NNSS {ns_real:.1f}%: A menos de 5pp de meta. Oportunidad en rezago entre intervalos y adherencia."
+        sobredemanda = 0.0
+
+    # 3. Contestación
+    pct_cont = datos_m.get("pct_contestacion")
+    if pct_cont is not None and float(pct_cont) > 0.001:
+        contestacion = float(pct_cont)
+    elif entrantes > 0:
+        contestacion = round((atendidas / entrantes * 100.0), 1)
+    else:
+        contestacion = 0.0
+
+    # 4. Desvío AHT
+    dif_aht = int(round(aht_real - meta_aht)) if meta_aht > 0 else 0
+
+    # 5. Brecha de personal
+    staff_req = float(datos_m.get("staff_req", 0.0))
+    staff_real = float(datos_m.get("staff_real", 0.0))
+    deficit_staff = int(round(staff_req - staff_real)) if (staff_req > 0 and staff_real > 0) else 0
+
+    # Observación cualitativa complementaria
+    obs_clean = observacion_manual.strip() if observacion_manual else ""
+    # Si la observación ya es una justificación completa previamente guardada, respetar su redacción si aplica
+    if "cierre nnss" in obs_clean.lower() and ("sobredemanda" in obs_clean.lower() or "pérdida" in obs_clean.lower() or "perdida" in obs_clean.lower()):
+        return obs_clean
+
+    partes = [f"Cierre NNSS {ns_real:.2f}% {icono}"]
+
+    # Determinar Causa Raíz Primaria:
+    if deficit_staff >= 3 or ("falta" in obs_clean.lower() and "requerido" in obs_clean.lower()):
+        cant_ag = f"-{deficit_staff} agentes" if deficit_staff >= 1 else "déficit de dotación"
+        if "agentes menos" in obs_clean.lower() or "requerido" in obs_clean.lower():
+            partes.append(f"Pérdida de NNSS por falta de requerido, en la programación se contaban con {obs_clean}.")
+        else:
+            partes.append(f"Pérdida de NNSS por falta de requerido ({cant_ag} en piso vs requerido).")
+
+        if dif_aht < 0:
+            partes.append(f"Se presentó buen control de llamadas largas cerrando con un AHT de {int(aht_real)}s ({abs(dif_aht)}s por debajo de la meta).")
+        elif dif_aht > 0:
+            partes.append(f"AHT cerró en {int(aht_real)}s (+{dif_aht}s sobre meta).")
+
+    elif "caída" in obs_clean.lower() or "caida" in obs_clean.lower() or "salesforce" in obs_clean.lower() or "incidencia" in obs_clean.lower():
+        partes.append(f"Pérdida de NNSS por {obs_clean}.")
+        if dif_aht > 60:
+            partes.append(f"Adicionalmente, AHT por fuera de meta cerrando en {int(aht_real)}s ({dif_aht}s por encima de la meta de {int(meta_aht)}s).")
+        elif dif_aht < 0:
+            partes.append(f"El AHT cerró favorable en {int(aht_real)}s ({abs(dif_aht)}s por debajo de meta).")
+
+    elif sobredemanda >= 10.0:
+        partes.append(f"Pérdida de NNSS por sobredemanda del {sobredemanda:.2f}% con una contestación del {contestacion:.1f}%.")
+        if dif_aht <= -15:
+            partes.append(f"El AHT cerró favorable con una duración de {int(aht_real)}s lo que representa {abs(dif_aht)}s por debajo de la meta.")
+        elif dif_aht >= 20:
+            partes.append(f"Adicionalmente se presentó AHT fuera de meta cerrando en {int(aht_real)}s (+{dif_aht}s sobre programado).")
+        else:
+            partes.append(f"AHT controlado en {int(aht_real)}s.")
+
+    elif dif_aht >= 60:
+        partes.append(f"Pérdida de NNSS por AHT por fuera de meta cerrando en {int(aht_real)}s lo que representa {dif_aht}s por encima de la meta ({int(meta_aht)}s), afectando la rotación de atención.")
+        if sobredemanda > 0:
+            partes.append(f"Con sobredemanda de tráfico del {sobredemanda:.1f}%.")
+        if obs_clean:
+            partes.append(f"Factor adicional: {obs_clean}.")
+
+    elif sobredemanda > 0:
+        partes.append(f"Pérdida de NNSS por sobredemanda, aunque en el ponderado del día no tenemos una sobredemanda mayor al 10%, en los intervalos perdidos se superó la capacidad de atención.")
+        if dif_aht < 0:
+            partes.append(f"El AHT cerró favorable con una duración de {int(aht_real)}s lo que representa {abs(dif_aht)}s por debajo de lo programado.")
+        else:
+            partes.append(f"AHT cerró en {int(aht_real)}s ({dif_aht:+d}s vs meta).")
+
+    else:
+        partes.append(f"Pérdida de NNSS por desvío operativo ({abs(dif_ns):.1f}pp por debajo de meta contractual).")
+        if dif_aht < 0:
+            partes.append(f"AHT favorable en {int(aht_real)}s ({abs(dif_aht)}s por debajo de meta).")
+        elif dif_aht > 0:
+            partes.append(f"AHT excedido en {int(aht_real)}s (+{dif_aht}s sobre meta).")
+        if obs_clean:
+            partes.append(f"Observación: {obs_clean}.")
+
+    return " ".join(partes)
+
+
+def diagnosticar_justificacion_automatica(ns_real: float, ns_meta: float, aht_real: float, aht_meta: float, entrantes: int = 0) -> str:
+    """Fallback ligero de compatibilidad previa."""
+    return generar_justificacion_automatica_avanzada({
+        "ns_real": ns_real,
+        "meta_ns": ns_meta,
+        "aht_real": aht_real,
+        "meta_aht": aht_meta,
+        "entrantes": entrantes
+    })

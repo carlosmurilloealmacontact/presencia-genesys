@@ -47,19 +47,26 @@ def load_omni_url():
     return default_url
 
 
-def obtener_codigo_verificacion_outlook(max_wait_sec: int = 90, max_age_seconds: int = 240) -> str:
+def obtener_codigo_verificacion_outlook(min_received_time: datetime = None, max_wait_sec: int = 120) -> str:
     """
     Monitorea la bandeja de entrada de Outlook vía Windows MAPI
     buscando el correo reciente de 'Verificar su identidad en Salesforce'.
+    Garantiza que el código pertenezca a la solicitud actual (min_received_time).
     """
-    print("[*] Conectando con Microsoft Outlook (MAPI) para capturar el código 2FA...")
+    if min_received_time is None:
+        min_received_time = datetime.now() - timedelta(minutes=3)
+
+    print(f"[*] Buscando código 2FA en Outlook posterior a las {min_received_time.strftime('%H:%M:%S')}...")
     start_time = time.time()
 
     while time.time() - start_time < max_wait_sec:
         try:
             import win32com.client
+            import pythoncom
+            pythoncom.CoInitialize()
             outlook = win32com.client.Dispatch("Outlook.Application")
             namespace = outlook.GetNamespace("MAPI")
+
             inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
             messages = inbox.Items
             messages.Sort("[ReceivedTime]", True)
@@ -74,29 +81,28 @@ def obtener_codigo_verificacion_outlook(max_wait_sec: int = 90, max_age_seconds:
                     if recv_time:
                         try:
                             t_naive = recv_time.replace(tzinfo=None)
-                            diff_sec = (datetime.now() - t_naive).total_seconds()
                         except Exception:
-                            diff_sec = 0
+                            t_naive = datetime.now()
 
-                        # Aceptar correos que llegaron en los últimos max_age_seconds (4 minutos)
-                        if diff_sec <= max_age_seconds:
+                        # Verificar si es posterior a la hora en que se envió el formulario
+                        if t_naive >= min_received_time:
                             body = str(getattr(msg, "Body", "") or "")
                             codes = re.findall(r"\b\d{6}\b", body)
                             if codes:
-                                print(f"[+] ¡Código 2FA detectado en Outlook!: {codes[0]} (Recibido hace {int(diff_sec)}s)")
+                                print(f"[+] ¡Nuevo código 2FA recibido a las {t_naive.strftime('%H:%M:%S')}!: {codes[0]}")
+                                pythoncom.CoUninitialize()
                                 return codes[0]
-                            else:
-                                print(f"[*] Correo encontrado pero sin código de 6 dígitos todavía...")
                         else:
-                            print(f"[*] Correo anterior de Salesforce descartado (hace {int(diff_sec)}s). Esperando el nuevo...")
+                            print(f"[*] Último correo en Outlook es de las {t_naive.strftime('%H:%M:%S')}. Esperando llegada del nuevo código...")
                             break
+            pythoncom.CoUninitialize()
         except Exception as e_mapi:
             print(f"[!] Aviso leyendo Outlook MAPI: {e_mapi}")
             time.sleep(2)
 
         time.sleep(3)
 
-    print("[!] Tiempo de espera agotado buscando código reciente en Outlook.")
+    print("[!] Tiempo de espera agotado buscando código nuevo en Outlook.")
     return None
 
 
@@ -115,6 +121,8 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
     curr_url = page.url.lower()
     page_title = page.title().lower()
 
+    attempt_start = datetime.now() - timedelta(seconds=15)
+
     # 1. Detectar si requiere login de usuario / contraseña
     is_login = False
     try:
@@ -132,6 +140,7 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
 
     if is_login:
         print("[*] Formulario de inicio de sesión detectado en Salesforce...")
+        attempt_start = datetime.now() - timedelta(seconds=5)
         try:
             # Paso 1: Usuario
             if page.locator("#username").is_visible(timeout=4000):
@@ -170,7 +179,7 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
 
     if is_verification:
         print("[*] Pantalla de verificación de identidad (2FA) detectada. Buscando código en Outlook...")
-        code = obtener_codigo_verificacion_outlook(max_wait_sec=90, max_age_seconds=300)
+        code = obtener_codigo_verificacion_outlook(min_received_time=attempt_start, max_wait_sec=120)
         if code:
             try:
                 # Escribir el código en el campo correspondiente
@@ -181,7 +190,7 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
 
                 # Marcar casilla "No volver a preguntar" para registrar este equipo
                 try:
-                    chk = page.locator("input[type='checkbox']").first
+                    chk = page.locator("#rememberUnaccDevice, input[type='checkbox']").first
                     if chk.is_visible(timeout=2000):
                         if not chk.is_checked():
                             chk.check()
@@ -190,7 +199,7 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
                     pass
 
                 # Enviar formulario de verificación
-                btn_verify = page.locator("#save, input[type='submit'], button:has-text('Verificar')").first
+                btn_verify = page.locator("#save, input[type='submit'], input[value='Verificar'], button:has-text('Verificar')").first
                 if btn_verify.is_visible(timeout=3000):
                     btn_verify.click()
                     print("[*] Formulario de verificación enviado...")
@@ -198,25 +207,42 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
             except Exception as e_ver:
                 print(f"[!] Error al ingresar código de verificación: {e_ver}")
         else:
-            print("[!] No se pudo obtener el código reciente de Outlook.")
+            print("[!] No se pudo obtener el código nuevo de Outlook.")
 
-    # 3. Confirmar que la sesión está en Lightning / Omni-Supervisor
-    for _ in range(5):
+    # 3. Confirmar que la sesión está en Lightning / Omni-Supervisor / Command Center
+    print("[*] Verificando redirección a Salesforce Lightning / Command Center...")
+    for i in range(15):
         curr_url = page.url.lower()
-        if ("lightning" in curr_url or "one.app" in curr_url) and "login" not in curr_url and "identity" not in curr_url:
-            print("[+] ¡Sesión autenticada y activa en Salesforce Lightning!")
+        page_title = page.title().lower()
+
+        # Si ya pasó de login y verificación
+        is_authenticated = (
+            ("lightning" in curr_url or "one.app" in curr_url or "frontdoor.jsp" in curr_url or "command center" in page_title)
+            and "login" not in curr_url
+            and "identity" not in curr_url
+            and "iniciar sesión" not in page_title
+            and "verificar su identidad" not in page_title
+        )
+
+        if is_authenticated:
+            print(f"[+] ¡Sesión autenticada y activa en Salesforce! (URL: {page.url[:60]}..., Título: {page.title()})")
+            time.sleep(4)
             try:
                 context.storage_state(path=STATE_PATH)
-                print(f"[+] Estado de sesión actualizado en: {STATE_PATH}")
-            except Exception:
-                pass
+                print(f"[+] Estado de sesión guardado en: {STATE_PATH}")
+            except Exception as e_st:
+                print(f"[*] Nota storage_state: {e_st}")
 
             # Si no estamos en la URL de Omni-Supervisor, navegar hacia ella
             if "supervisorpanel" not in curr_url:
-                print(f"[*] Navegando a Omni-Supervisor: {target_url}...")
-                page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
-                time.sleep(6)
+                print(f"[*] Navegando directamente a Omni-Supervisor: {target_url}...")
+                try:
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                    time.sleep(6)
+                except Exception as e_nav:
+                    print(f"[*] Nota navegación: {e_nav}")
             return True
+
         time.sleep(2)
 
     return False

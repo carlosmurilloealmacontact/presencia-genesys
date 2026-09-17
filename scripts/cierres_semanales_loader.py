@@ -157,6 +157,10 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
 
         dict_aht_real = {}
         dict_asa_real = {}
+        dict_fore_pct = {}
+        dict_aten_pct = {}
+        dict_staff_req = {}
+        dict_staff_real = {}
         if len(detalle_rows) > 16:
             cols_srv = [c.v for c in detalle_rows[2] if c.v is not None]
             for r in detalle_rows[:25]:
@@ -175,6 +179,30 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                                 val_asa = vals[idx_c + 2]
                                 if isinstance(val_asa, (int, float)):
                                     dict_asa_real[str(srv_name).strip()] = round(float(val_asa), 1)
+                    elif "%FORE" in etiqueta:
+                        for idx_c, srv_name in enumerate(cols_srv):
+                            if idx_c + 2 < len(vals):
+                                val_f = vals[idx_c + 2]
+                                if isinstance(val_f, (int, float)):
+                                    dict_fore_pct[str(srv_name).strip()] = round(float(val_f) * 100.0, 2)
+                    elif etiqueta == "% ATEN":
+                        for idx_c, srv_name in enumerate(cols_srv):
+                            if idx_c + 2 < len(vals):
+                                val_at = vals[idx_c + 2]
+                                if isinstance(val_at, (int, float)):
+                                    dict_aten_pct[str(srv_name).strip()] = round(float(val_at) * 100.0, 1)
+                    elif "STAFF REQ" in etiqueta:
+                        for idx_c, srv_name in enumerate(cols_srv):
+                            if idx_c + 2 < len(vals):
+                                val_sr = vals[idx_c + 2]
+                                if isinstance(val_sr, (int, float)):
+                                    dict_staff_req[str(srv_name).strip()] = round(float(val_sr), 1)
+                    elif "STAFF. REAL" in etiqueta or "STAFF REAL" in etiqueta:
+                        for idx_c, srv_name in enumerate(cols_srv):
+                            if idx_c + 2 < len(vals):
+                                val_srl = vals[idx_c + 2]
+                                if isinstance(val_srl, (int, float)):
+                                    dict_staff_real[str(srv_name).strip()] = round(float(val_srl), 1)
 
         servicios_dia = {}
         for r in ctrl_rows[2:]:
@@ -235,6 +263,11 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                         aht_val = _buscar_metrica("TARGET ESP", dict_aht_real, 973.9)
                         asa_val = _buscar_metrica("TARGET ESP", dict_asa_real, 112.1)
 
+                fore_pct_val = _buscar_metrica(srv_raw, dict_fore_pct, round(((ent - fcst) / fcst * 100.0), 2) if fcst > 0 else 0.0)
+                aten_pct_val = _buscar_metrica(srv_raw, dict_aten_pct, round((aten / ent * 100.0), 1) if ent > 0 else 0.0)
+                st_req_val = _buscar_metrica(srv_raw, dict_staff_req, 0.0)
+                st_real_val = _buscar_metrica(srv_raw, dict_staff_real, 0.0)
+
                 servicios_dia[srv_raw] = {
                     "fecha": fecha_oficial,
                     "servicio": srv_raw,
@@ -251,7 +284,11 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                     "umbral_txt": umbral_txt,
                     "aht_real": aht_val,
                     "meta_aht": meta_aht,
-                    "asa_real": asa_val
+                    "asa_real": asa_val,
+                    "pct_fore": fore_pct_val,
+                    "pct_contestacion": aten_pct_val,
+                    "staff_req": st_req_val,
+                    "staff_real": st_real_val
                 }
 
         resumen_por_fecha[fecha_oficial] = servicios_dia
@@ -352,6 +389,8 @@ def obtener_cierre_b2b_por_rango(fecha_desde: str, fecha_hasta: str) -> dict:
         ns_real = round((aten_ns / ent * 100.0), 2) if ent > 0 else 100.0
         aht_real = round(s["aht_sum"] / aten) if aten > 0 else s["meta_aht"]
         asa_real = round(s["asa_sum"] / aten, 1) if aten > 0 else 0.0
+        pct_fore_r = round(((ent - s["forecast"]) / s["forecast"] * 100.0), 2) if s["forecast"] > 0 else 0.0
+        pct_cont_r = round((aten / ent * 100.0), 1) if ent > 0 else 0.0
 
         resultado[srv] = {
             "fecha": s["fecha"],
@@ -370,6 +409,8 @@ def obtener_cierre_b2b_por_rango(fecha_desde: str, fecha_hasta: str) -> dict:
             "aht_real": aht_real,
             "meta_aht": s["meta_aht"],
             "asa_real": asa_real,
+            "pct_fore": pct_fore_r,
+            "pct_contestacion": pct_cont_r,
             "dias_con_datos": s["dias_con_datos"]
         }
 

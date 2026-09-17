@@ -587,25 +587,38 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
 
         if ns_real >= meta_ns:
             estado = "🟢 Cumple SLA"
-            just_txt = "🟢 Meta alcanzada sin desvío"
         elif ns_real >= meta_ns - 5.0:
             estado = "🟡 En Riesgo (-5%)"
-            j_item = justificaciones.get(k, "")
-            if isinstance(j_item, dict):
-                just_txt = j_item.get("justificacion") or (jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "En riesgo de incumplimiento")
-            elif isinstance(j_item, str) and j_item:
-                just_txt = j_item
-            else:
-                just_txt = jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "En riesgo de incumplimiento"
         else:
             estado = "🔴 Crítico (< SLA)"
-            j_item = justificaciones.get(k, "")
-            if isinstance(j_item, dict):
-                just_txt = j_item.get("justificacion") or (jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "Pérdida de NS sin justificar")
-            elif isinstance(j_item, str) and j_item:
-                just_txt = j_item
-            else:
-                just_txt = jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "Pérdida de NS sin justificar"
+
+        dict_calc = {
+            "servicio": srv_name,
+            "clave": k,
+            "canal": canal,
+            "plataforma": plat,
+            "ns_real": ns_real,
+            "meta_ns": meta_ns,
+            "entrantes": entrantes,
+            "atendidas": atendidas,
+            "forecast": c_data.get("forecast", 0.0),
+            "aht_real": aht_real,
+            "meta_aht": meta_aht,
+            "pct_abandono": aband,
+            "pct_fore": c_data.get("pct_fore"),
+            "pct_contestacion": c_data.get("pct_contestacion"),
+            "staff_req": c_data.get("staff_req", 0.0),
+            "staff_real": c_data.get("staff_real", 0.0)
+        }
+
+        # Extraer observación cualitativa si un líder la registró previamente
+        j_item = justificaciones.get(k, "")
+        obs_manual = j_item.get("justificacion", "") if isinstance(j_item, dict) else (j_item if isinstance(j_item, str) else "")
+
+        if jb:
+            just_txt = jb.generar_justificacion_automatica_avanzada(dict_calc, obs_manual)
+        else:
+            just_txt = "🟢 Meta alcanzada sin desvío" if estado == "🟢 Cumple SLA" else f"Pérdida de NS ({dif_ns:+.1f}pp)"
 
         filas.append({
             "Clave": k,
@@ -768,10 +781,10 @@ def render_subtab_niveles_servicio_unificado():
         }
     )
 
-    # ── MÓDULO DE REGISTRO Y EDICIÓN DE JUSTIFICACIONES OPERATIVAS ───────────
-    with st.expander("✍️ Registrar / Editar Justificación de Pérdida de Nivel de Servicio", expanded=(modo_vista == "📅 Día Específico")):
-        st.markdown("##### 📝 Panel de Justificación de Desvíos de NS (Líderes B2B & GTR)")
-        st.caption("Permite a la coordinación (Marelyn Cardona, Andrés Rodríguez y Supervisores) documentar formalmente la causa raíz de la pérdida de NS con persistencia central en Neon Postgres.")
+    # ── MÓDULO DE DIAGNÓSTICO ANALÍTICO Y AJUSTES CUALITATIVOS (OPCIONAL) ────
+    with st.expander("🤖 Motor Analítico de Causa Raíz & Observaciones Cualitativas (Opcional)", expanded=False):
+        st.markdown("##### 🔍 Diagnóstico Algorítmico Cuantitativo Automático")
+        st.caption("Las justificaciones de la tabla superior son calculadas **100% de forma autónoma** cruzando Sobredemanda (%FORE), Contestación, Variación de AHT y Staffing. Si ocurrió una contingencia no numérica (ej. corte de energía o falla de Salesforce), puedes anexarla a continuación:")
 
         c_j1, c_j2, c_j3 = st.columns([1.5, 1.5, 1.2])
 
@@ -780,14 +793,14 @@ def render_subtab_niveles_servicio_unificado():
         servicios_opc_sorted = servicios_caidos + [s for s in servicios_opc if s not in servicios_caidos] if servicios_caidos else servicios_opc
 
         with c_j1:
-            sel_srv_just = st.selectbox("1. Servicio a Justificar:", servicios_opc_sorted, key="b2b_just_sel_srv")
+            sel_srv_just = st.selectbox("1. Servicio Seleccionado:", servicios_opc_sorted, key="b2b_just_sel_srv")
             row_srv = df_ns[df_ns["Servicio"] == sel_srv_just].iloc[0] if not df_ns[df_ns["Servicio"] == sel_srv_just].empty else None
             ns_val_srv = float(row_srv["NS Real"]) if row_srv is not None else 0.0
             meta_val_srv = float(row_srv["NS Meta"]) if row_srv is not None else 70.0
             clave_srv = row_srv["Clave"] if row_srv is not None else sel_srv_just
 
         with c_j2:
-            sel_motivo = st.selectbox("2. Causa Raíz Principal:", jb.MOTIVOS_PREDEFINIDOS if jb else ["Sobredemanda", "AHT Largo", "Falta de Personal"], key="b2b_just_sel_motivo")
+            sel_motivo = st.selectbox("2. Causa Raíz Detectada / Clasificación:", jb.MOTIVOS_PREDEFINIDOS if jb else ["Sobredemanda", "AHT Largo", "Falta de Personal"], key="b2b_just_sel_motivo")
 
         with c_j3:
             fecha_just_guardar = fecha_param if (fecha_param and fecha_param != "live") else date.today().strftime("%Y-%m-%d")
@@ -797,16 +810,16 @@ def render_subtab_niveles_servicio_unificado():
         just_actual = jb.obtener_justificaciones_por_fecha(fecha_just_guardar).get(clave_srv, {}).get("justificacion", "") if jb else ""
 
         txt_just = st.text_area(
-            "3. Detalle de la Justificación (Explicación para Operaciones & Gerencia):",
+            "3. Observación Cualitativa Complementaria (Opcional):",
             value=just_actual,
-            placeholder="Ej. Pérdida de NNSS por sobredemanda del 24.10% con una contestación del 13.0%, caída de plataforma hasta las 10:00 am, falta de requerido de 7 agentes...",
-            height=100,
+            placeholder="Ej. Caída de Salesforce hasta las 10:00 am, grupo nuevo de 6 personas en curva de aprendizaje, incapacidad médica...",
+            height=90,
             key="b2b_just_txt_input"
         )
 
-        c_save_btn, c_save_info = st.columns([1.3, 3.0])
+        c_save_btn, c_save_info = st.columns([1.4, 3.0])
         with c_save_btn:
-            if st.button("💾 Guardar Justificación", type="primary", use_container_width=True, key="btn_b2b_save_just"):
+            if st.button("💾 Guardar Observación", type="primary", use_container_width=True, key="btn_b2b_save_just"):
                 if txt_just.strip() and jb:
                     user_registra = getattr(st.user, "name", "") or getattr(st.user, "email", "Coordinación B2B") if hasattr(st, "user") else "Coordinación B2B"
                     ok = jb.guardar_justificacion(
@@ -819,13 +832,13 @@ def render_subtab_niveles_servicio_unificado():
                         registrado_por=user_registra
                     )
                     if ok:
-                        st.success("✅ Justificación guardada exitosamente en Neon Postgres.")
+                        st.success("✅ Observación registrada e integrada al cálculo automático.")
                     else:
                         st.warning("⚠️ Guardado en réplica local.")
                     time.sleep(0.6)
                     st.rerun()
-                else:
-                    st.error("Por favor ingresa el texto de la justificación.")
+                elif not txt_just.strip():
+                    st.info("El sistema ya calcula la justificación completa con datos duros. No es necesario escribir nada a menos que exista una contingencia externa.")
 
     if not df_disp.empty:
         st.write("")

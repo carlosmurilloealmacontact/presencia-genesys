@@ -16,7 +16,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 818.6,
       "meta_aht": 880.0,
-      "asa_real": 19.8
+      "asa_real": 19.8,
+      "pct_fore": -14.52,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "TARGET ENG": {
       "fecha": "2026-09-13",
@@ -34,7 +38,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 510.3,
       "meta_aht": 637.0,
-      "asa_real": 56.9
+      "asa_real": 56.9,
+      "pct_fore": 0.57,
+      "pct_contestacion": 94.4,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "EMPRESAS": {
       "fecha": "2026-09-13",
@@ -52,7 +60,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 706.1,
       "meta_aht": 816.0,
-      "asa_real": 58.7
+      "asa_real": 58.7,
+      "pct_fore": 5.46,
+      "pct_contestacion": 91.5,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CORPORATE CHAT": {
       "fecha": "2026-09-13",
@@ -70,7 +82,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 919.5,
       "meta_aht": 1859.0,
-      "asa_real": 11.5
+      "asa_real": 11.5,
+      "pct_fore": -2.84,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CHAT ES": {
       "fecha": "2026-09-13",
@@ -88,7 +104,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1144.9,
       "meta_aht": 1222.0,
-      "asa_real": 252.6
+      "asa_real": 252.6,
+      "pct_fore": 45.93,
+      "pct_contestacion": 95.6,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CELULA REMISION": {
       "fecha": "2026-09-13",
@@ -106,7 +126,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1161.4,
       "meta_aht": 1111.0,
-      "asa_real": 43.0
+      "asa_real": 43.0,
+      "pct_fore": 0.0,
+      "pct_contestacion": 0.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "BO AGENCIAS TARGET": {
       "fecha": "2026-09-13",
@@ -124,7 +148,11 @@
       "umbral_txt": "SLA 24 Horas",
       "aht_real": 735,
       "meta_aht": 735.0,
-      "asa_real": 0
+      "asa_real": 0,
+      "pct_fore": -84.72,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.6
     },
     "BO_CORPORATE": {
       "fecha": "2026-09-13",
@@ -142,7 +170,11 @@
       "umbral_txt": "SLA 24 Horas",
       "aht_real": 735,
       "meta_aht": 735.0,
-      "asa_real": 0
+      "asa_real": 0,
+      "pct_fore": 66.57,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     }
   },
   "2026-09-14": {
@@ -162,7 +194,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 964.9,
       "meta_aht": 880.0,
-      "asa_real": 141.6
+      "asa_real": 141.6,
+      "pct_fore": 28.47,
+      "pct_contestacion": 89.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "TARGET ENG": {
       "fecha": "2026-09-14",
@@ -180,7 +216,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 531.0,
       "meta_aht": 637.0,
-      "asa_real": 33.0
+      "asa_real": 33.0,
+      "pct_fore": 11.93,
+      "pct_contestacion": 98.3,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "EMPRESAS": {
       "fecha": "2026-09-14",
@@ -198,7 +238,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 1240.9,
       "meta_aht": 816.0,
-      "asa_real": 164.0
+      "asa_real": 164.0,
+      "pct_fore": -19.0,
+      "pct_contestacion": 88.6,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CORPORATE CHAT": {
       "fecha": "2026-09-14",
@@ -216,7 +260,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1917.7,
       "meta_aht": 1859.0,
-      "asa_real": 329.6
+      "asa_real": 329.6,
+      "pct_fore": 26.47,
+      "pct_contestacion": 91.7,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CHAT ES": {
       "fecha": "2026-09-14",
@@ -234,7 +282,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1040.8,
       "meta_aht": 1222.0,
-      "asa_real": 3214.5
+      "asa_real": 3214.5,
+      "pct_fore": 20.11,
+      "pct_contestacion": 85.5,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CELULA REMISION": {
       "fecha": "2026-09-14",
@@ -252,7 +304,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1059.6,
       "meta_aht": 1111.0,
-      "asa_real": 43.0
+      "asa_real": 43.0,
+      "pct_fore": 0.0,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "BO AGENCIAS TARGET": {
       "fecha": "2026-09-14",
@@ -270,7 +326,11 @@
       "umbral_txt": "SLA 24 Horas",
       "aht_real": 735,
       "meta_aht": 735.0,
-      "asa_real": 0
+      "asa_real": 0,
+      "pct_fore": -64.46,
+      "pct_contestacion": 97.4,
+      "staff_req": 0.0,
+      "staff_real": -0.4
     },
     "BO_CORPORATE": {
       "fecha": "2026-09-14",
@@ -288,7 +348,11 @@
       "umbral_txt": "SLA 24 Horas",
       "aht_real": 735,
       "meta_aht": 735.0,
-      "asa_real": 0
+      "asa_real": 0,
+      "pct_fore": -58.24,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     }
   },
   "2026-09-15": {
@@ -308,7 +372,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 973.9,
       "meta_aht": 880.0,
-      "asa_real": 143.4
+      "asa_real": 143.4,
+      "pct_fore": 16.44,
+      "pct_contestacion": 91.1,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "TARGET ENG": {
       "fecha": "2026-09-15",
@@ -326,7 +394,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 464.0,
       "meta_aht": 637.0,
-      "asa_real": 38.2
+      "asa_real": 38.2,
+      "pct_fore": -15.87,
+      "pct_contestacion": 95.6,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "EMPRESAS": {
       "fecha": "2026-09-15",
@@ -344,7 +416,11 @@
       "umbral_txt": "≤ 20s",
       "aht_real": 1233.1,
       "meta_aht": 816.0,
-      "asa_real": 203.3
+      "asa_real": 203.3,
+      "pct_fore": -10.79,
+      "pct_contestacion": 81.9,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CORPORATE CHAT": {
       "fecha": "2026-09-15",
@@ -362,7 +438,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1827.0,
       "meta_aht": 1859.0,
-      "asa_real": 427.8
+      "asa_real": 427.8,
+      "pct_fore": 13.8,
+      "pct_contestacion": 95.2,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CHAT ES": {
       "fecha": "2026-09-15",
@@ -380,7 +460,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1201.0,
       "meta_aht": 1222.0,
-      "asa_real": 1972.2
+      "asa_real": 1972.2,
+      "pct_fore": 13.06,
+      "pct_contestacion": 86.5,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "AG CELULA REMISION": {
       "fecha": "2026-09-15",
@@ -398,7 +482,11 @@
       "umbral_txt": "≤ 100s (80/100)",
       "aht_real": 1161.4,
       "meta_aht": 1111.0,
-      "asa_real": 43.0
+      "asa_real": 43.0,
+      "pct_fore": 0.0,
+      "pct_contestacion": 95.7,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     },
     "BO AGENCIAS TARGET": {
       "fecha": "2026-09-15",
@@ -416,7 +504,11 @@
       "umbral_txt": "SLA 24 Horas",
       "aht_real": 735,
       "meta_aht": 735.0,
-      "asa_real": 0
+      "asa_real": 0,
+      "pct_fore": -59.18,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.4
     },
     "BO_CORPORATE": {
       "fecha": "2026-09-15",
@@ -434,7 +526,11 @@
       "umbral_txt": "SLA 24 Horas",
       "aht_real": 735,
       "meta_aht": 735.0,
-      "asa_real": 0
+      "asa_real": 0,
+      "pct_fore": -66.36,
+      "pct_contestacion": 100.0,
+      "staff_req": 0.0,
+      "staff_real": 0.0
     }
   },
   "2026-09-16": {
