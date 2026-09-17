@@ -1264,11 +1264,329 @@ def render_tab_zendesk(email_usuario: str = ""):
             st.info("No hay registros diarios disponibles para los filtros seleccionados.")
 
     # -------------------------------------------------------------------------
-    # MÓDULO 3: DEMANDA & BALANCE (INFLOW VS OUTFLOW)
+    # MÓDULO 3: CALIDAD & SLAS (REOPEN, RWT <= 48H, FRT <= 24H)
+    # -------------------------------------------------------------------------
+    with tab_zd_slas:
+        st.subheader("⏱️ Acuerdos de Nivel de Servicio (SLAs) y Calidad Operativa")
+        st.caption("Monitoreo ejecutivo de tiempos de primera respuesta (FRT <= 24h), resolución de casos (RWT <= 48h) y tasa de reapertura (Reopen).")
+
+        # Base de datos de SLAs enriquecida
+        df_slas = df_slas_filtrado if df_slas_filtrado is not None else pd.DataFrame()
+        tot_t_slas = df_slas["Recuento_Tickets"].sum() if (not df_slas.empty and "Recuento_Tickets" in df_slas.columns) else 0
+
+        # RWT <= 48h (Resolution Wait Time)
+        if not df_slas.empty and "Mediana_RWT_hrs" in df_slas.columns:
+            df_rwt_valid = df_slas.dropna(subset=["Mediana_RWT_hrs"])
+            t_rwt_valid = df_rwt_valid["Recuento_Tickets"].sum()
+            t_rwt_48 = df_rwt_valid[df_rwt_valid["Mediana_RWT_hrs"] <= 48.0]["Recuento_Tickets"].sum()
+            pct_rwt = (t_rwt_48 / t_rwt_valid * 100.0) if t_rwt_valid > 0 else 0.0
+            med_rwt_val = df_rwt_valid["Mediana_RWT_hrs"].median()
+        else:
+            pct_rwt = 0.0
+            t_rwt_48 = 0
+            t_rwt_valid = 0
+            med_rwt_val = 0.0
+
+        # FRT <= 24h (First Response Time)
+        if not df_slas.empty and "Mediana_FRT_hrs" in df_slas.columns:
+            df_frt_valid = df_slas.dropna(subset=["Mediana_FRT_hrs"])
+            t_frt_valid = df_frt_valid["Recuento_Tickets"].sum()
+            t_frt_24 = df_frt_valid[df_frt_valid["Mediana_FRT_hrs"] <= 24.0]["Recuento_Tickets"].sum()
+            pct_frt = (t_frt_24 / t_frt_valid * 100.0) if t_frt_valid > 0 else 0.0
+            med_frt_val = df_frt_valid["Mediana_FRT_hrs"].median()
+        else:
+            pct_frt = 0.0
+            t_frt_24 = 0
+            t_frt_valid = 0
+            med_frt_val = 0.0
+
+        # Casos Reopen: tickets actualmente open que registran haber sido resueltos previamente
+        reopen_df = df_full_f[df_full_f["Es_Reopen"] == True] if (df_full_f is not None and not df_full_f.empty and "Es_Reopen" in df_full_f.columns) else pd.DataFrame()
+        tot_reopen = len(reopen_df)
+
+        # Base para tasa % Reopen: Total resueltos en periodo (o tickets auditados si no hay filtro de periodo)
+        total_resueltos_base = total_periodo if (df_diario_filtrado is not None and not df_diario_filtrado.empty and total_periodo > 0) else tot_t_slas
+        tasa_reopen = (tot_reopen / total_resueltos_base * 100.0) if total_resueltos_base > 0 else 0.0
+
+        # Tarjetas Ejecutivas de Calidad & SLA
+        c_sla1, c_sla2, c_sla3, c_sla4 = st.columns(4)
+        c_sla1.metric(
+            "⏱️ % RWT <= 48h (Resolución)",
+            f"{pct_rwt:.1f}%",
+            f"{pct_rwt - 85.0:+.1f}% vs Meta 85%",
+            delta_color="normal" if pct_rwt >= 85.0 else "inverse"
+        )
+        c_sla2.metric(
+            "⚡ % FRT <= 24h (1ra Respuesta)",
+            f"{pct_frt:.1f}%",
+            f"{pct_frt - 95.0:+.1f}% vs Meta 95%",
+            delta_color="normal" if pct_frt >= 95.0 else "inverse"
+        )
+        c_sla3.metric(
+            "🔄 % Reopen (Tasa Reapertura)",
+            f"{tasa_reopen:.2f}%",
+            f"{tot_reopen} reabiertos / {total_resueltos_base:,.0f} resueltos",
+            delta_color="normal" if tasa_reopen <= 5.0 else "inverse"
+        )
+        c_sla4.metric(
+            "📋 Total Tickets Auditados",
+            f"{tot_t_slas:,.0f}",
+            f"Mediana RWT: {med_rwt_val:.1f}h | FRT: {med_frt_val*60:.0f}m"
+        )
+
+        st.markdown("---")
+
+        # ---------------------------------------------------------------------
+        # SECCIÓN 1: AUDITORÍA DETALLADA DE REOPEN (CASOS REABIERTOS)
+        # ---------------------------------------------------------------------
+        st.subheader("🔄 Auditoría de Casos Reabiertos (Reopen Drilldown)")
+        st.caption(
+            "Casos que registraron fecha de resolución previa y cuyo estado actual regresó a **Open**. "
+            "Representa retrabajo operativo e insatisfacción potencial del pasajero."
+        )
+
+        if tot_reopen > 0:
+            c_r1, c_r2 = st.columns([1, 2])
+            with c_r1:
+                st.metric("Total Reabiertos en Cola", f"{tot_reopen:,}", f"{tasa_reopen:.2f}% de tasa")
+                if "Servicio" in reopen_df.columns:
+                    reopen_por_srv = reopen_df["Servicio"].value_counts().reset_index()
+                    reopen_por_srv.columns = ["Servicio", "Reabiertos"]
+                    st.dataframe(reopen_por_srv, use_container_width=True, hide_index=True)
+            with c_r2:
+                cols_reopen = ["id", "subject", "Servicio", "grupo", "Nombre_Asesor", "Fecha Creación (Hora Col)", "priority"]
+                cols_reopen_exist = [c for c in cols_reopen if c in reopen_df.columns]
+                st.dataframe(
+                    reopen_df[cols_reopen_exist].rename(columns={
+                        "id": "Ticket ID",
+                        "subject": "Asunto",
+                        "Servicio": "Servicio / Cola",
+                        "grupo": "Cola Zendesk",
+                        "Nombre_Asesor": "Asesor Asignado",
+                        "Fecha Creación (Hora Col)": "Fecha Creación",
+                        "priority": "Prioridad"
+                    }),
+                    use_container_width=True,
+                    height=260
+                )
+        else:
+            st.success("✅ ¡Excelente! No se detectan tickets reabiertos en estado Open para los filtros actuales.")
+
+        st.markdown("---")
+
+        # ---------------------------------------------------------------------
+        # SECCIÓN 2: MATRIZ DE DESEMPEÑO SLA POR ASESOR Y LIDERAZGO
+        # ---------------------------------------------------------------------
+        st.subheader("📊 Matriz de Cumplimiento de SLAs por Asesor y Liderazgo")
+        st.caption("Cumplimiento individualizado de RWT <= 48h y FRT <= 24h cruzado con Socio Maestro.")
+
+        if not df_slas.empty:
+            df_as_sla = df_slas.groupby(["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio"]).apply(
+                lambda g: pd.Series({
+                    "Tickets": g["Recuento_Tickets"].sum(),
+                    "Cumple_RWT_48h": g[g["Mediana_RWT_hrs"] <= 48.0]["Recuento_Tickets"].sum(),
+                    "Cumple_FRT_24h": g[g["Mediana_FRT_hrs"] <= 24.0]["Recuento_Tickets"].sum(),
+                    "Mediana_RWT_hrs": g["Mediana_RWT_hrs"].median(),
+                    "Mediana_FRT_hrs": g["Mediana_FRT_hrs"].median()
+                })
+            ).reset_index()
+
+            df_as_sla["% RWT <= 48h"] = (df_as_sla["Cumple_RWT_48h"] / df_as_sla["Tickets"] * 100.0).round(1)
+            df_as_sla["% FRT <= 24h"] = (df_as_sla["Cumple_FRT_24h"] / df_as_sla["Tickets"] * 100.0).round(1)
+            df_as_sla = df_as_sla.sort_values(by="Tickets", ascending=False).reset_index(drop=True)
+
+            def estilo_sla_val(val):
+                if isinstance(val, (int, float)):
+                    if val >= 90.0:
+                        return "background-color: #C6EFCE; color: #006100; font-weight: bold;"
+                    elif val >= 80.0:
+                        return "background-color: #FFEB9C; color: #9C6500; font-weight: bold;"
+                    else:
+                        return "background-color: #FFC7CE; color: #9C0006; font-weight: bold;"
+                return ""
+
+            cols_as_sla = ["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio", "Tickets", "% RWT <= 48h", "% FRT <= 24h", "Mediana_RWT_hrs", "Mediana_FRT_hrs"]
+            st.dataframe(
+                df_as_sla[cols_as_sla].rename(columns={
+                    "Nombre_Asesor": "Asesor",
+                    "Tickets": "Tickets Auditados",
+                    "Mediana_RWT_hrs": "Mediana RWT (hrs)",
+                    "Mediana_FRT_hrs": "Mediana FRT (hrs)"
+                }).style.applymap(estilo_sla_val, subset=["% RWT <= 48h", "% FRT <= 24h"]).format({
+                    "Tickets Auditados": "{:,.0f}",
+                    "% RWT <= 48h": "{:.1f}%",
+                    "% FRT <= 24h": "{:.1f}%",
+                    "Mediana RWT (hrs)": "{:.1f}h",
+                    "Mediana FRT (hrs)": "{:.1f}h"
+                }),
+                use_container_width=True,
+                height=350
+            )
+
+        # ---------------------------------------------------------------------
+        # SECCIÓN 3: TIEMPOS DE RESPUESTA Y RESOLUCIÓN POR COLA OFICIAL
+        # ---------------------------------------------------------------------
+        st.markdown("---")
+        st.subheader("⏱️ Tiempos de Respuesta y Resolución por Grupo Oficial (tiempos_respuesta_amc.csv)")
+        file_tiempos = DATA_DIR / "tiempos_respuesta_amc.csv"
+        if file_tiempos.exists():
+            df_t = pd.read_csv(file_tiempos)
+            col_t1, col_t2 = st.columns([3, 2])
+            with col_t1:
+                fig_quad = px.scatter(
+                    df_t,
+                    x="Mediana_FRT_min",
+                    y="Mediana_Resolucion_hrs",
+                    size="Tickets",
+                    color="TICKET_GROUP_NAME",
+                    hover_name="TICKET_GROUP_NAME",
+                    hover_data={"Tickets": ":,d", "Mediana_FRT_min": ":.1f min", "Mediana_Resolucion_hrs": ":.1f hrs"},
+                    log_x=True,
+                    log_y=True,
+                    title="Relación FRT (min) vs Tiempo de Resolución (hrs) - Escala Log"
+                )
+                fig_quad.update_layout(height=380, margin=dict(l=10, r=10))
+                st.plotly_chart(fig_quad, use_container_width=True)
+            with col_t2:
+                st.dataframe(
+                    df_t[["TICKET_GROUP_NAME", "Tickets", "Mediana_FRT_min", "Mediana_Resolucion_hrs"]]
+                    .rename(columns={
+                        "TICKET_GROUP_NAME": "Grupo Oficial",
+                        "Tickets": "Tickets",
+                        "Mediana_FRT_min": "FRT (min)",
+                        "Mediana_Resolucion_hrs": "Resolución (hrs)"
+                    })
+                    .style.format({"Tickets": "{:,.0f}", "FRT (min)": "{:.1f}m", "Resolución (hrs)": "{:.1f}h"}),
+                    use_container_width=True,
+                    height=380
+                )
+
+    # -------------------------------------------------------------------------
+    # MÓDULO 4: TIPOLOGÍA & DISTRIBUCIÓN
+    # -------------------------------------------------------------------------
+    with tab_zd_tipologia:
+        st.subheader("🏷️ Tipología de Gestión y Motivos de Contacto")
+        st.caption("Análisis de distribución de tipologías atendidas, diagrama de Pareto (80/20) y detección de casos sin tipificar.")
+
+        df_tip_src = df_diario_filtrado if (df_diario_filtrado is not None and not df_diario_filtrado.empty) else df_filtrado
+        if df_tip_src is not None and not df_tip_src.empty and "Tipo_de_Gestion" in df_tip_src.columns:
+            df_tip = df_tip_src.groupby("Tipo_de_Gestion").agg(
+                Tickets=("Recuento_Tickets", "sum"),
+                Asesores=("Nombre_Asesor", "nunique")
+            ).reset_index().sort_values(by="Tickets", ascending=False).reset_index(drop=True)
+
+            total_t_tip = df_tip["Tickets"].sum()
+            df_tip["Pct_Participacion"] = (df_tip["Tickets"] / total_t_tip * 100.0) if total_t_tip > 0 else 0.0
+            df_tip["Pct_Acumulado"] = df_tip["Pct_Participacion"].cumsum()
+
+            # Detección de casos sin tipificar
+            mask_sin_tip = df_tip["Tipo_de_Gestion"].astype(str).str.strip().str.lower().isin(["sin tipificar", "pendiente", "sin asignar", "", "none", "nan"])
+            casos_sin_tip = df_tip[mask_sin_tip]["Tickets"].sum() if mask_sin_tip.any() else 0
+            casos_tipificados = total_t_tip - casos_sin_tip
+            pct_apego = (casos_tipificados / total_t_tip * 100.0) if total_t_tip > 0 else 100.0
+
+            c_tp1, c_tp2, c_tp3, c_tp4 = st.columns(4)
+            c_tp1.metric("🏷️ Tipologías Únicas", f"{len(df_tip):,}")
+            c_tp2.metric("✅ Casos Tipificados", f"{casos_tipificados:,.0f}", f"{pct_apego:.1f}% de apego")
+            c_tp3.metric(
+                "⚠️ Sin Tipificar / Pendiente",
+                f"{casos_sin_tip:,.0f}",
+                f"{100.0 - pct_apego:.1f}% del total",
+                delta_color="inverse" if casos_sin_tip > 0 else "normal"
+            )
+            top1_nombre = df_tip.iloc[0]["Tipo_de_Gestion"] if not df_tip.empty else "-"
+            top1_pct = df_tip.iloc[0]["Pct_Participacion"] if not df_tip.empty else 0.0
+            c_tp4.metric(f"Top 1: {str(top1_nombre)[:18]}...", f"{top1_pct:.1f}%", "Mayor volumen")
+
+            st.markdown("---")
+
+            # Pareto (Curva 80/20) y Gráfico Donut
+            c_par1, c_par2 = st.columns([3, 2])
+            with c_par1:
+                st.subheader("📊 Diagrama de Pareto de Tipologías (Top 15)")
+                top_15_tip = df_tip.head(15).copy()
+                fig_pareto = go.Figure()
+                fig_pareto.add_trace(go.Bar(
+                    x=top_15_tip["Tipo_de_Gestion"],
+                    y=top_15_tip["Tickets"],
+                    name="Tickets Resueltos",
+                    marker_color="#1F4E79",
+                    text=top_15_tip["Tickets"],
+                    textposition="auto"
+                ))
+                fig_pareto.add_trace(go.Scatter(
+                    x=top_15_tip["Tipo_de_Gestion"],
+                    y=top_15_tip["Pct_Acumulado"],
+                    name="% Acumulado (Pareto)",
+                    yaxis="y2",
+                    mode="lines+markers",
+                    line=dict(color="#E53935", width=3)
+                ))
+                fig_pareto.add_hline(y=80, line_dash="dash", line_color="orange", yref="y2", annotation_text="Línea 80% Pareto")
+                fig_pareto.update_layout(
+                    height=430,
+                    margin=dict(l=10, r=10),
+                    yaxis=dict(title="Volumen Tickets"),
+                    yaxis2=dict(title="% Acumulado", overlaying="y", side="right", range=[0, 105]),
+                    xaxis=dict(tickangle=-45),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_pareto, use_container_width=True)
+
+            with c_par2:
+                st.subheader("🍰 Distribución Top 8 Tipologías")
+                fig_pie_tip = px.pie(
+                    df_tip.head(8),
+                    values="Tickets",
+                    names="Tipo_de_Gestion",
+                    hole=0.45,
+                    title="Participación de Top 8 Motivos"
+                )
+                fig_pie_tip.update_layout(height=430, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2))
+                st.plotly_chart(fig_pie_tip, use_container_width=True)
+
+            # Matriz Cruzada: Tipología vs Servicio
+            st.markdown("---")
+            st.subheader("📋 Matriz Cruzada: Tipología vs Servicio")
+            if "Servicio" in df_tip_src.columns:
+                pivot_tip = df_tip_src.pivot_table(
+                    index="Tipo_de_Gestion",
+                    columns="Servicio",
+                    values="Recuento_Tickets",
+                    aggfunc="sum",
+                    fill_value=0
+                )
+                pivot_tip["Total"] = pivot_tip.sum(axis=1)
+                pivot_tip = pivot_tip.sort_values(by="Total", ascending=False).head(20)
+                st.dataframe(pivot_tip.style.format("{:,.0f}"), use_container_width=True)
+
+            # Tabla completa
+            st.subheader("📑 Catálogo Completo de Tipologías Atendidas")
+            st.dataframe(
+                df_tip.rename(columns={
+                    "Tipo_de_Gestion": "Tipología",
+                    "Tickets": "Tickets Resueltos",
+                    "Asesores": "Asesores Involucrados",
+                    "Pct_Participacion": "% Participación",
+                    "Pct_Acumulado": "% Acumulado"
+                }).style.format({
+                    "Tickets Resueltos": "{:,.0f}",
+                    "Asesores Involucrados": "{:,.0f}",
+                    "% Participación": "{:.2f}%",
+                    "% Acumulado": "{:.2f}%"
+                }),
+                use_container_width=True,
+                height=350
+            )
+        else:
+            st.info("No hay datos de tipología disponibles para los filtros seleccionados.")
+
+    # -------------------------------------------------------------------------
+    # MÓDULO 5: DEMANDA & BALANCE (INFLOW VS OUTFLOW) Y AUTORIZACIONES
     # -------------------------------------------------------------------------
     with tab_zd_demanda:
-        st.subheader("⚖️ Demanda Diaria, Capacidad Resuelta y Tipologías de Contacto")
-        st.caption("Monitorea la cantidad de casos nuevos que ingresan día a día (Inflow) contra la capacidad de resolución (Outflow), el balance neto del backlog y los principales motivos de atención.")
+        st.subheader("⚖️ Demanda Diaria, Capacidad Resuelta y Control de Autorizaciones")
+        st.caption("Monitorea la cantidad de casos nuevos que ingresan día a día (Inflow) contra la capacidad de resolución (Outflow), el balance neto del backlog y el control de códigos de involuntario.")
 
         df_dem = bundle.get("df_demanda")
         if df_dem is not None and not df_dem.empty:
@@ -1353,43 +1671,6 @@ def render_tab_zendesk(email_usuario: str = ""):
                 fig_pie.update_layout(height=420, margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=-0.2))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-            # Sección de Tipologías y Motivos de Contacto
-            st.markdown("---")
-            st.subheader("🏷️ Distribución de Tipologías de Gestión Atendidas")
-            df_tip_src = df_diario_filtrado if (df_diario_filtrado is not None and not df_diario_filtrado.empty) else df_filtrado
-            if df_tip_src is not None and not df_tip_src.empty and "Tipo_de_Gestion" in df_tip_src.columns:
-                df_tip = df_tip_src.groupby("Tipo_de_Gestion").agg(
-                    Tickets=("Recuento_Tickets", "sum"),
-                    Asesores=("Nombre_Asesor", "nunique")
-                ).reset_index().sort_values(by="Tickets", ascending=False).reset_index(drop=True)
-                total_t_tip = df_tip["Tickets"].sum()
-                df_tip["Pct_Participacion"] = (df_tip["Tickets"] / total_t_tip * 100) if total_t_tip > 0 else 0
-
-                c_tip1, c_tip2 = st.columns([3, 2])
-                with c_tip1:
-                    fig_t = px.bar(
-                        df_tip.head(12).sort_values(by="Tickets", ascending=True),
-                        x="Tickets",
-                        y="Tipo_de_Gestion",
-                        orientation="h",
-                        color="Tickets",
-                        color_continuous_scale="Blues",
-                        text=df_tip.head(12).sort_values(by="Tickets", ascending=True)["Tickets"].apply(lambda x: f"{x:,.0f}")
-                    )
-                    fig_t.update_layout(height=400, yaxis=dict(title=""), coloraxis_showscale=False, title="Top 12 Tipologías con Mayor Demanda")
-                    st.plotly_chart(fig_t, use_container_width=True)
-
-                with c_tip2:
-                    fig_pie_tip = px.pie(
-                        df_tip.head(8),
-                        values="Tickets",
-                        names="Tipo_de_Gestion",
-                        hole=0.4,
-                        title="Participación de Top 8 Tipologías"
-                    )
-                    fig_pie_tip.update_layout(height=400, margin=dict(l=10, r=10, t=30, b=10))
-                    st.plotly_chart(fig_pie_tip, use_container_width=True)
-
             # Registro detallado de demanda por cola
             st.subheader("📋 Registro Diario Detallado de Demanda y Capacidad por Cola")
             st.dataframe(
@@ -1406,134 +1687,93 @@ def render_tab_zendesk(email_usuario: str = ""):
         else:
             st.info("No hay datos de demanda disponibles en el periodo seleccionado.")
 
-    # -------------------------------------------------------------------------
-    # MÓDULO 4: AUTORIZACIONES & SLAS
-    # -------------------------------------------------------------------------
-    with tab_zd_auth:
-        st.subheader("🛡️ Monitor de Autorizaciones de Supervisor y Acuerdos de Nivel de Servicio (SLAs)")
-        st.caption("Segregación y control de autorizaciones de códigos de involuntario gestionadas por supervisores junto con la matriz de tiempos de atención (FRT y Resolución).")
-
-        # Base de autorizaciones segregada exclusivamente para este módulo
-        df_auth_hist = bundle.get("df_auth_hist")
-        if df_auth_hist is not None and not df_auth_hist.empty:
-            if fecha_ini and fecha_fin:
-                f_ini_s = fecha_ini.strftime("%Y-%m-%d")
-                f_fin_s = fecha_fin.strftime("%Y-%m-%d")
-                df_auth_hist = df_auth_hist[(df_auth_hist["Fecha"] >= f_ini_s) & (df_auth_hist["Fecha"] <= f_fin_s)]
-
-        df_b_auth = bundle.get("df_b_auth")
-
-        tot_auth_resueltas = df_auth_hist["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
-        tot_amc = df_auth_hist[df_auth_hist["grupo"].str.contains("AMC", case=False, na=False) & ~df_auth_hist["grupo"].str.contains("HVC", case=False, na=False)]["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
-        tot_hvc = df_auth_hist[df_auth_hist["grupo"].str.contains("HVC", case=False, na=False)]["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
-        tot_bl_auth = len(df_b_auth) if df_b_auth is not None and not df_b_auth.empty else 0
-
-        # KPIs Autorizaciones
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Autorizaciones Resueltas", f"{tot_auth_resueltas:,.0f}", f"Periodo seleccionado")
-        k2.metric("Supervisor AMC (Regular)", f"{tot_amc:,.0f}", f"{(tot_amc/tot_auth_resueltas*100):.1f}%" if tot_auth_resueltas > 0 else "0%")
-        k3.metric("Supervisor HVC AMC ES (VIP)", f"{tot_hvc:,.0f}", f"{(tot_hvc/tot_auth_resueltas*100):.1f}%" if tot_auth_resueltas > 0 else "0%")
-        k4.metric("🚨 Pendientes en Cola Ahora", f"{tot_bl_auth:,}", "En vivo", delta_color="inverse" if tot_bl_auth > 0 else "normal")
-
+        # ---------------------------------------------------------------------
+        # SECCIÓN INTEGRADA: MONITOR DE AUTORIZACIONES DE SUPERVISOR
+        # ---------------------------------------------------------------------
         st.markdown("---")
+        with st.expander("🛡️ Monitor de Autorizaciones de Supervisor (Códigos de Involuntario)", expanded=True):
+            st.caption("Segregación y control de autorizaciones de códigos de involuntario gestionadas por supervisores.")
 
-        if df_auth_hist is not None and not df_auth_hist.empty:
-            c1, c2 = st.columns([3, 2])
-            with c1:
-                st.subheader("📈 Evolución Diaria de Autorizaciones")
-                df_auth_dia = df_auth_hist[df_auth_hist["Fecha"] != "Sin Fecha"].groupby(["Fecha", "grupo"])["Recuento_Tickets"].sum().reset_index()
-                fig_auth_dia = px.bar(
-                    df_auth_dia,
-                    x="Fecha",
-                    y="Recuento_Tickets",
-                    color="grupo",
-                    barmode="stack",
-                    text="Recuento_Tickets",
-                    title="Autorizaciones Diarias de Supervisores",
-                    color_discrete_map={
-                        "Autorización Supervisor AMC": "#1E88E5",
-                        "Autorización Supervisor HVC AMC ES": "#D81B60"
-                    }
-                )
-                fig_auth_dia.update_layout(height=400, margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig_auth_dia, use_container_width=True)
+            df_auth_hist = bundle.get("df_auth_hist")
+            if df_auth_hist is not None and not df_auth_hist.empty:
+                if fecha_ini and fecha_fin:
+                    f_ini_s = fecha_ini.strftime("%Y-%m-%d")
+                    f_fin_s = fecha_fin.strftime("%Y-%m-%d")
+                    df_auth_hist = df_auth_hist[(df_auth_hist["Fecha"] >= f_ini_s) & (df_auth_hist["Fecha"] <= f_fin_s)]
 
-            with c2:
-                st.subheader("🧑‍💼 Supervisores con Más Aprobaciones")
-                df_sup_top = df_auth_hist.groupby(["Nombre_Asesor", "grupo"])["Recuento_Tickets"].sum().reset_index().sort_values(by="Recuento_Tickets", ascending=False).head(10)
-                fig_sup_top = px.bar(
-                    df_sup_top.sort_values(by="Recuento_Tickets", ascending=True),
-                    x="Recuento_Tickets",
-                    y="Nombre_Asesor",
-                    orientation="h",
-                    color="grupo",
-                    text="Recuento_Tickets",
-                    title="Top Gestores de Códigos de Involuntario",
-                    color_discrete_map={
-                        "Autorización Supervisor AMC": "#1E88E5",
-                        "Autorización Supervisor HVC AMC ES": "#D81B60"
-                    }
-                )
-                fig_sup_top.update_layout(height=400, yaxis=dict(title=""), margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig_sup_top, use_container_width=True)
+            df_b_auth = bundle.get("df_b_auth")
 
-        # Backlog de autorizaciones en vivo
-        if df_b_auth is not None and not df_b_auth.empty:
-            st.subheader("🚨 Backlog en Cola de Autorizaciones en Vivo")
-            if "created_at" in df_b_auth.columns:
-                df_b_auth["Fecha Ingreso (Hora Col)"] = df_b_auth["created_at"].apply(formatear_colombia_dt)
-            cols_show = [c for c in ["id", "grupo", "status", "priority", "Fecha Ingreso (Hora Col)", "Nombre_Asesor", "subject"] if c in df_b_auth.columns]
-            st.dataframe(
-                df_b_auth[cols_show].rename(columns={
-                    "id": "ID Ticket",
-                    "grupo": "Cola",
-                    "status": "Estado",
-                    "priority": "Prioridad",
-                    "Nombre_Asesor": "Asignado",
-                    "subject": "Asunto / Solicitud"
-                }),
-                use_container_width=True
-            )
-        else:
-            st.success("✅ ¡Excelente! No hay tickets pendientes en las colas de autorización de supervisor.")
+            tot_auth_resueltas = df_auth_hist["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
+            tot_amc = df_auth_hist[df_auth_hist["grupo"].str.contains("AMC", case=False, na=False) & ~df_auth_hist["grupo"].str.contains("HVC", case=False, na=False)]["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
+            tot_hvc = df_auth_hist[df_auth_hist["grupo"].str.contains("HVC", case=False, na=False)]["Recuento_Tickets"].sum() if df_auth_hist is not None and not df_auth_hist.empty else 0
+            tot_bl_auth = len(df_b_auth) if df_b_auth is not None and not df_b_auth.empty else 0
 
-        # Sección B: Acuerdos de Nivel de Servicio (SLAs y Tiempos)
-        st.markdown("---")
-        st.subheader("⏱️ Acuerdos de Nivel de Servicio (SLAs y Tiempos de Respuesta)")
-        st.caption("Métricas de First Response Time (FRT) y tiempo total de resolución por cola.")
+            # KPIs Autorizaciones
+            ka1, ka2, ka3, ka4 = st.columns(4)
+            ka1.metric("Autorizaciones Resueltas", f"{tot_auth_resueltas:,.0f}", "Periodo seleccionado")
+            ka2.metric("Supervisor AMC (Regular)", f"{tot_amc:,.0f}", f"{(tot_amc/tot_auth_resueltas*100):.1f}%" if tot_auth_resueltas > 0 else "0%")
+            ka3.metric("Supervisor HVC AMC ES (VIP)", f"{tot_hvc:,.0f}", f"{(tot_hvc/tot_auth_resueltas*100):.1f}%" if tot_auth_resueltas > 0 else "0%")
+            ka4.metric("🚨 Pendientes en Cola Ahora", f"{tot_bl_auth:,}", "En vivo", delta_color="inverse" if tot_bl_auth > 0 else "normal")
 
-        file_tiempos = DATA_DIR / "tiempos_respuesta_amc.csv"
-        if file_tiempos.exists():
-            df_t = pd.read_csv(file_tiempos)
+            if df_auth_hist is not None and not df_auth_hist.empty:
+                ca1, ca2 = st.columns([3, 2])
+                with ca1:
+                    st.subheader("📈 Evolución Diaria de Autorizaciones")
+                    df_auth_dia = df_auth_hist[df_auth_hist["Fecha"] != "Sin Fecha"].groupby(["Fecha", "grupo"])["Recuento_Tickets"].sum().reset_index()
+                    fig_auth_dia = px.bar(
+                        df_auth_dia,
+                        x="Fecha",
+                        y="Recuento_Tickets",
+                        color="grupo",
+                        barmode="stack",
+                        text="Recuento_Tickets",
+                        title="Autorizaciones Diarias de Supervisores",
+                        color_discrete_map={
+                            "Autorización Supervisor AMC": "#1E88E5",
+                            "Autorización Supervisor HVC AMC ES": "#D81B60"
+                        }
+                    )
+                    fig_auth_dia.update_layout(height=380, margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    st.plotly_chart(fig_auth_dia, use_container_width=True)
 
-            kt1, kt2, kt3, kt4 = st.columns(4)
-            kt1.metric("⚡ 1ra Respuesta LUA AMC", "2.0 min", "Líder en rapidez")
-            kt2.metric("⚡ 1ra Respuesta WhatsApp", "3.0 min", "Atención inmediata")
-            kt3.metric("⚠️ Cuello Botella Equipajes", "SSC", "117.2 hrs (~4.9 días)")
-            kt4.metric("⚠️ Cuello Botella DT FFP", "FFP AMC", "75.3 hrs (~3.1 días)")
+                with ca2:
+                    st.subheader("🧑‍💼 Supervisores con Más Aprobaciones")
+                    df_sup_top = df_auth_hist.groupby(["Nombre_Asesor", "grupo"])["Recuento_Tickets"].sum().reset_index().sort_values(by="Recuento_Tickets", ascending=False).head(10)
+                    fig_sup_top = px.bar(
+                        df_sup_top.sort_values(by="Recuento_Tickets", ascending=True),
+                        x="Recuento_Tickets",
+                        y="Nombre_Asesor",
+                        orientation="h",
+                        color="grupo",
+                        text="Recuento_Tickets",
+                        title="Top Gestores de Códigos de Involuntario",
+                        color_discrete_map={
+                            "Autorización Supervisor AMC": "#1E88E5",
+                            "Autorización Supervisor HVC AMC ES": "#D81B60"
+                        }
+                    )
+                    fig_sup_top.update_layout(height=380, yaxis=dict(title=""), margin=dict(l=10, r=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    st.plotly_chart(fig_sup_top, use_container_width=True)
 
-            fig_quad = px.scatter(
-                df_t,
-                x="Mediana_FRT_min",
-                y="Mediana_Resolucion_hrs",
-                size="Tickets",
-                color="TICKET_GROUP_NAME",
-                hover_name="TICKET_GROUP_NAME",
-                hover_data={"Tickets": ":,d", "Mediana_FRT_min": ":.1f min", "Mediana_Resolucion_hrs": ":.1f hrs"},
-                log_x=True,
-                log_y=True,
-                title="Relación entre Primera Respuesta y Tiempo Total de Cierre (Escala Log)"
-            )
-            fig_quad.update_layout(height=450)
-            st.plotly_chart(fig_quad, use_container_width=True)
-
-            with st.expander("📋 Ver Tabla Completa de Tiempos y SLAs por Grupo", expanded=False):
+            # Backlog de autorizaciones en vivo
+            if df_b_auth is not None and not df_b_auth.empty:
+                st.subheader("🚨 Backlog en Cola de Autorizaciones en Vivo")
+                if "created_at" in df_b_auth.columns:
+                    df_b_auth["Fecha Ingreso (Hora Col)"] = df_b_auth["created_at"].apply(formatear_colombia_dt)
+                cols_show = [c for c in ["id", "grupo", "status", "priority", "Fecha Ingreso (Hora Col)", "Nombre_Asesor", "subject"] if c in df_b_auth.columns]
                 st.dataframe(
-                    df_t[["TICKET_GROUP_NAME", "Tickets", "Mediana_FRT_min", "Mediana_Resolucion_hrs", "Mediana_Resolucion_dias"]]
-                    .rename(columns={"TICKET_GROUP_NAME": "Grupo", "Mediana_FRT_min": "1ra Respuesta (min)", "Mediana_Resolucion_hrs": "Resolución (hrs)", "Mediana_Resolucion_dias": "Resolución (días)"})
-                    .style.format({"Tickets": "{:,.0f}", "1ra Respuesta (min)": "{:.1f}", "Resolución (hrs)": "{:.1f}", "Resolución (días)": "{:.2f}"}),
+                    df_b_auth[cols_show].rename(columns={
+                        "id": "ID Ticket",
+                        "grupo": "Cola",
+                        "status": "Estado",
+                        "priority": "Prioridad",
+                        "Nombre_Asesor": "Asignado",
+                        "subject": "Asunto / Solicitud"
+                    }),
                     use_container_width=True
                 )
+            else:
+                st.success("✅ ¡Excelente! No hay tickets pendientes en las colas de autorización de supervisor.")
 
     # -------------------------------------------------------------------------
     # PIE DE PÁGINA: GLOSARIO Y GUÍA OPERATIVA (EXPANDIBLE E INFORMATIVO)
@@ -1569,17 +1809,27 @@ def render_tab_zendesk(email_usuario: str = ""):
   - **Balance Neutro (0)**: Operación en equilibrio perfecto.
             """)
 
-        with st.expander("⏱️ 3. Métricas de Tiempo, Velocidad y SLAs", expanded=True):
-            st.markdown("""
+        with st.expander("⏱️ 3. Métricas de Tiempo, Calidad y Acuerdos de Nivel de Servicio (SLAs)", expanded=True):
+            st.markdown(r"""
+- **% FRT <= 24h (First Response Time SLA)**:
+  - Porcentaje de casos en los cuales la operación brindó la **primera respuesta pública del asesor** al usuario dentro de las **primeras 24 horas** calendario desde la creación del ticket.
+  - Meta estándar Almacontact: **>= 95.0%**.
+  - Excluye respuestas automáticas del sistema o mensajes iniciales del pasajero.
+- **% RWT <= 48h (Resolution Wait Time SLA)**:
+  - Porcentaje de casos resueltos de forma definitiva dentro de las **primeras 48 horas** calendario.
+  - Meta estándar Almacontact: **>= 85.0%**.
+  - Mide la eficiencia y velocidad de cierre del servicio en primera instancia.
+- **% Reopen (Tasa de Reapertura de Casos)**:
+  - Casos que habiendo sido marcados previamente con fecha de resolución (`Solved`), regresan a estado activo `Open` debido a que el cliente envió una nueva comunicación o reapertura.
+  - Fórmula:
+    $$\% \\text{Reopen} = \\frac{\\text{Casos Reabiertos en Estado Open}}{\\text{Total Casos Resueltos}} \\times 100$$
+  - Meta estándar Almacontact: **<= 5.0%**.
+  - Mide el retrabajo operativo, la efectividad de la primera resolución y la calidad de la respuesta entregada al pasajero.
 - **FRT (First Response Time / Tiempo de Primera Respuesta)**:
-  - Tiempo transcurrido (en minutos) desde que el ticket se crea hasta que el primer asesor envía una respuesta pública al cliente.
-  - Mide la agilidad de la cola y la inmediatez del primer contacto.
+  - Tiempo transcurrido (en minutos u horas) desde que el ticket se crea hasta que el primer asesor envía una respuesta pública al cliente.
 - **RWT (Requester Wait Time / Tiempo de Espera del Usuario)**:
   - Tiempo acumulado (en horas) que el pasajero pasa esperando una respuesta de Almacontact mientras el caso está en estados activos (`New` u `Open`).
-  - Excluye los tiempos en que el caso está esperando al pasajero (`Pending`).
-- **Tiempo de Resolución Total**:
-  - Duración total (en horas o días) desde la creación del ticket hasta su resolución definitiva.
-- **Mediana vs Promedio**: En este panel se reporta principalmente la **Mediana** de tiempos en lugar del promedio simple, ya que la mediana es inmune a valores atípicos (tickets excepcionales olvidados durante meses que distorsionarían la realidad operativa).
+- **Mediana vs Promedio**: En este panel se reporta la **Mediana** de tiempos en lugar del promedio simple, garantizando inmunidad ante valores atípicos y distorsiones estadísticas.
             """)
 
         with st.expander("⏳ 4. Matriz de Antigüedad del Backlog Operativo", expanded=True):
