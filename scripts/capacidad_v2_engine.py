@@ -833,7 +833,7 @@ def render_tab_capacidad_v2(agentes_map: dict):
                 ),
                 hovermode="x unified"
             )
-            st.plotly_chart(fig_tri, use_container_width=True)
+            st.plotly_chart(fig_tri, use_container_width=True, key="lab_fig_curva_tri")
 
             st.caption("💡 **Lectura Operativa del Gráfico:**")
             st.caption("• **Distancia entre Morado (Malla) y Azul (Requerido):** ¿WFM programó suficientes personas para la demanda?")
@@ -858,7 +858,7 @@ def render_tab_capacidad_v2(agentes_map: dict):
             sub_srv_sel = df_v2[df_v2["Servicio"] == srv_grafica]
             if not sub_srv_sel.empty:
                 fig_wat = generar_waterfall_capacidad_v2(sub_srv_sel.iloc[0], unidad=unidad_wat)
-                st.plotly_chart(fig_wat, use_container_width=True)
+                st.plotly_chart(fig_wat, use_container_width=True, key="lab_fig_wat_sub1")
 
     # ── PESTAÑA 2: COMPARADOR LADO A LADO (1.0 vs 2.0) ───────────────────────
     with subtab2:
@@ -948,4 +948,4 @@ def render_tab_capacidad_v2(agentes_map: dict):
             )
 
         fig_wat_comp = generar_waterfall_capacidad_v2(row_sel, unidad=unidad_wat2)
-        st.plotly_chart(fig_wat_comp, use_container_width=True)
+        st.plotly_chart(fig_wat_comp, use_container_width=True, key="lab_fig_wat_sub2")
