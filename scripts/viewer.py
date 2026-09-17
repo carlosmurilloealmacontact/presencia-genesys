@@ -1115,11 +1115,11 @@ if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
 with st.sidebar:
     b64_alma_sb, b64_latam_sb = cargar_logos_base64()
     if b64_alma_sb or b64_latam_sb:
-        img_alma_sb = f'<img src="data:image/png;base64,{b64_alma_sb}" height="26" style="vertical-align: middle; max-width: 130px; object-fit: contain;" alt="Almaexperience">' if b64_alma_sb else ''
-        img_latam_sb = f'<img src="data:image/svg+xml;base64,{b64_latam_sb}" height="18" style="vertical-align: middle; max-width: 85px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam_sb else ''
-        sep_sb = '<span style="color:#cbd5e1; font-size:16px;">|</span>' if (b64_alma_sb and b64_latam_sb) else ''
+        img_alma_sb = f'<img src="data:image/png;base64,{b64_alma_sb}" height="22" style="vertical-align: middle; max-width: 115px; object-fit: contain;" alt="Almaexperience">' if b64_alma_sb else ''
+        img_latam_sb = f'<img src="data:image/svg+xml;base64,{b64_latam_sb}" height="16" style="vertical-align: middle; max-width: 70px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam_sb else ''
+        sep_sb = '<span style="color:#cbd5e1; font-size:15px;">|</span>' if (b64_alma_sb and b64_latam_sb) else ''
         st.markdown(
-            f'<div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:15px; padding-bottom:12px; border-bottom:1px solid #e2e8f0;">{img_alma_sb}{sep_sb}{img_latam_sb}</div>',
+            f'<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:15px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">{img_alma_sb}{sep_sb}{img_latam_sb}</div>',
             unsafe_allow_html=True
         )
     st.markdown(
@@ -1136,20 +1136,20 @@ with st.sidebar:
         if st.button("🚪 Cerrar Sesión", key="btn_logout_sidebar", use_container_width=True, type="secondary"):
             st.logout()
 
-# ── BARRA SUPERIOR (HEADER Y LOGOS PRINCIPALES) ──────────────────────────────
+# ── BARRA SUPERIOR (BANNER UNIFICADO & LOGOTIPOS) ─────────────────────────────
 b64_alma, b64_latam = cargar_logos_base64()
-img_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="22" style="vertical-align: middle; max-width: 130px; object-fit: contain;" alt="Almaexperience">' if b64_alma else '<span style="font-weight:700; color:#054780; font-size:13px;">Almaexperience</span>'
-img_latam_html = f'<img src="data:image/svg+xml;base64,{b64_latam}" height="16" style="vertical-align: middle; max-width: 80px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam else '<span style="font-weight:700; color:#2a0088; font-size:13px;">LATAM</span>'
+img_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="20" style="vertical-align: middle; max-width: 120px; object-fit: contain;" alt="Almaexperience">' if b64_alma else '<span style="font-weight:700; color:#054780; font-size:13px;">Almaexperience</span>'
+img_latam_html = f'<img src="data:image/svg+xml;base64,{b64_latam}" height="15" style="vertical-align: middle; max-width: 75px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam else '<span style="font-weight:700; color:#2a0088; font-size:13px;">LATAM</span>'
 
 st.markdown(
     f"""
-    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 4px 0 10px 0; border-bottom: 1px solid #f1f5f9; margin-bottom: 10px;">
+    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 18px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
         <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 19px; font-weight: 800; color: #0f172a; letter-spacing: -0.4px;">🛰️ Radar Operacional</span>
+            <span style="font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;">🛰️ Radar Operacional</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
             {img_alma_html}
-            <span style="color: #cbd5e1; font-size: 14px; font-weight: 300;">|</span>
+            <span style="color: #cbd5e1; font-size: 15px; font-weight: 300;">|</span>
             {img_latam_html}
         </div>
     </div>
