@@ -1014,7 +1014,6 @@ def es_usuario_salesforce_autorizado(email: str) -> bool:
 
 if es_usuario_salesforce_autorizado(current_email) or not auth_configurado:
     SECCIONES_APP.append("🏢 Agencias B2B")
-    SECCIONES_APP.append("☁️ Salesforce B2B")
 
 # Pestaña de Zendesk:
 # Acceso exclusivo para Carlos Murillo (en producción solo visible para él)
@@ -1882,11 +1881,8 @@ elif seccion_activa == "Control de Estados (en Vivo)":
 elif seccion_activa == "Niveles de Servicio":
     render_tab_gtr(cargar_agentes_map_base())
 
-elif seccion_activa == "🏢 Agencias B2B":
+elif seccion_activa in ("🏢 Agencias B2B", "☁️ Salesforce B2B"):
     render_tab_agencias_b2b(cargar_agentes_map_base(), current_email, render_tab_asesores_historico)
-
-elif seccion_activa == "☁️ Salesforce B2B":
-    render_tab_salesforce_b2b(current_email)
 
 elif seccion_activa == "🎫 Zendesk":
     render_tab_zendesk(current_email)

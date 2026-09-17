@@ -677,6 +677,27 @@ def render_subtab_niveles_servicio_unificado():
         }
     )
 
+    if not df_disp.empty:
+        st.write("")
+        st.markdown("##### 📊 Comparativo Gráfico de Cumplimiento Multicanal")
+        fig_bar = px.bar(
+            df_disp,
+            x="Servicio",
+            y="NS Real",
+            color="Canal",
+            barmode="group",
+            text="NS Real",
+            color_discrete_map={"VOZ": "#3b82f6", "CHAT": "#10b981", "CASOS": "#ef4444", "BO": "#f59e0b"}
+        )
+        fig_bar.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        fig_bar.update_layout(
+            yaxis=dict(range=[0, 115], title="% Cumplimiento"),
+            height=320,
+            margin=dict(l=10, r=10, t=25, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
     st.write("")
     with st.expander("🔍 Ver Detalle de Chats Reales Atendidos (Certificación de Canal & Meta 80/100)", expanded=False):
         st.caption("Garantiza el arrastre del número de chat (Session ID / Transcript) y certifica que es un chat en vivo y no un caso de Backoffice.")

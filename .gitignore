@@ -39,3 +39,14 @@ scripts/generate_storage_state.py
 scripts/authenticate_and_save_session.py
 scripts/extract_salesforce_users_map.py
 scripts/preview_*.py
+scripts/run_*.py
+scripts/deep_*.py
+scripts/click_*.py
+scripts/find_*.py
+scripts/list_*.py
+scripts/track_*.py
+
+# Perfiles de navegador y archivos binarios pesados locales
+*.xlsb
+data/salesforce_browser_profile/
+data/salesforce_config.json

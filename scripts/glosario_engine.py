@@ -288,8 +288,79 @@ TERMINOS_GLOSARIO = [
         ),
         "formula": r"\text{Productivo si } \text{Servicio} \in \{\text{Back Office, Células BO}\}",
         "ejemplo": "Un asesor de Voz en 'Casos Backoffice' genera alerta roja; un asesor de BO en el mismo estado está cumpliendo su labor."
+    },
+
+    # ── Zendesk & Soporte Digital ─────────────────────────────────────────────
+    {
+        "termino": "Backlog Operativo de Fábrica (Zendesk)",
+        "categoria": "Zendesk & Soporte",
+        "badge": "Volumen Fábrica",
+        "color": "#0284c7",
+        "resumen": "Inventario total de tickets activos (New, Open, Pending, Hold, Solved) excluyendo autorizaciones supervisor.",
+        "definicion": (
+            "Representa la carga de trabajo real que debe procesar la fábrica operativa en las colas activas de Zendesk. "
+            "Para evitar distorsiones en las métricas de atención, los tickets especiales de <i>Autorización Supervisor</i> "
+            "se aíslan de este conteo y se gestionan en su propio módulo."
+        ),
+        "formula": r"\text{Backlog Fábrica} = \sum \text{Tickets Activos} - \text{Autorizaciones Supervisor}",
+        "ejemplo": "Si el total del sistema reporta 4,979 tickets y 78 son autorizaciones, el backlog real de fábrica es de 4,901 tickets."
+    },
+    {
+        "termino": "Aging y Segmentación de Tickets (<48h, 2-15d, 15-30d, >30d)",
+        "categoria": "Zendesk & Soporte",
+        "badge": "Antigüedad",
+        "color": "#f59e0b",
+        "resumen": "Estratificación de los tickets según el tiempo transcurrido desde su creación.",
+        "definicion": (
+            "Permite identificar la salud y el envejecimiento de las colas de soporte:<br>"
+            "• 🟢 <b>< 48 Horas:</b> Demanda fresca dentro de ventana operativa.<br>"
+            "• 🟡 <b>2 a 15 Días:</b> Casos en curso que requieren agilización.<br>"
+            "• 🟠 <b>15 a 30 Días:</b> Casos demorados con riesgo de insatisfacción.<br>"
+            "• 🔴 <b>> 30 Días:</b> Casos hiper-envejecidos que requieren plan de choque."
+        ),
+        "formula": r"\text{Aging} = \text{Fecha Actual} - \text{Fecha de Creación del Ticket}",
+        "ejemplo": "Un servicio con 80% de sus tickets en <48h opera con alta fluidez y bajo inventario residual."
+    },
+    {
+        "termino": "Productividad Diaria por Agente (Zendesk)",
+        "categoria": "Zendesk & Soporte",
+        "badge": "Rendimiento",
+        "color": "#10b981",
+        "resumen": "Volumen de tickets gestionados y resueltos por cada asesor durante el día en curso.",
+        "definicion": (
+            "Cuantifica la entrega diaria de los agentes cruzando su identificador de Zendesk con el "
+            "maestro sociodemográfico para reflejar su nombre completo y supervisor."
+        ),
+        "formula": r"\text{Productividad} = \sum \text{Tickets con Resolución / Comentario Público en el día}",
+        "ejemplo": "Un asesor que resuelve 42 tickets en el día supera el promedio del equipo de 30 tickets/día."
+    },
+    {
+        "termino": "Autorizaciones Supervisor (Tickets Especiales)",
+        "categoria": "Zendesk & Soporte",
+        "badge": "Gobernanza",
+        "color": "#6366f1",
+        "resumen": "Solicitudes que requieren validación y firma de liderazgo antes de proceder con el cliente.",
+        "definicion": (
+            "Tickets asignados a las colas de jefatura que por su naturaleza de excepción o monto económico "
+            "no deben computarse dentro de la productividad estándar de los asesores de fábrica."
+        ),
+        "formula": r"\text{Tickets en Colas: } \{\text{Autorización Supervisor AMC, Autorización Supervisor HVC AMC ES}\}",
+        "ejemplo": "Permite a los supervisores auditar sus 78 aprobaciones pendientes sin inflar las colas operativas."
     }
 ]
+
+# Incorporar automáticamente términos del glosario B2B
+try:
+    try:
+        from glosario_b2b_engine import CATALOGO_B2B
+    except ImportError:
+        from scripts.glosario_b2b_engine import CATALOGO_B2B
+    for _b2b_item in CATALOGO_B2B:
+        _copy = dict(_b2b_item)
+        _copy["categoria"] = "B2B & Salesforce"
+        TERMINOS_GLOSARIO.append(_copy)
+except Exception:
+    pass
 
 CATEGORIAS = [
     "Todas las Categorías",
@@ -297,6 +368,8 @@ CATEGORIAS = [
     "Monitoreo en Vivo",
     "GTR & Telefonía",
     "Ausentismo & Adherencia",
+    "B2B & Salesforce",
+    "Zendesk & Soporte",
 ]
 
 
