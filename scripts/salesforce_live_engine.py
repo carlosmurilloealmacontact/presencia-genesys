@@ -46,9 +46,11 @@ BOT_QUEUES_AMC = [
     "BOT AMC NDC SSC NIVEL 1",
     "BOT AMC NDC SSC NIVEL 2",
     "BOT AMC NDC SSC NIVEL 3",
-    # Corporativo & Grupos (2 colas)
+    # Corporativo & Grupos
     "BOT CORP SOPORTE OPERACIONAL SSC",
-    "BOT AMC GRUPOS CORP SSC"
+    "BOT GRUPOS SSC",
+    "BOT AMC GRUPOS CORP SSC",
+    "BOT FALLBACK QUEUE"
 ]
 
 # 6 Colas de Casos / BackOffice (Work Queues SLA 24h)

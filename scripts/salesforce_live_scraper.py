@@ -82,34 +82,37 @@ def extract_live_data(page):
                     row_text = row.inner_text().strip()
                     if not row_text:
                         continue
-                    for q_name in sle.BOT_QUEUES_AMC:
-                        if q_name.upper() in row_text.upper():
-                            parts = [p.strip() for p in row_text.split("\t") if p.strip()]
-                            if len(parts) < 3:
-                                parts = [p.strip() for p in row_text.split("\n") if p.strip()]
+                    parts = [p.strip() for p in row_text.split("\t") if p.strip()]
+                    if len(parts) < 3:
+                        parts = [p.strip() for p in row_text.split("\n") if p.strip()]
 
-                            count = 0
-                            longest_sec = 0
+                    if not parts:
+                        continue
 
-                            # En la tabla de Salesforce:
-                            # parts[0] = Cola
-                            # parts[1] = Prioridad
-                            # parts[2] = Tamaño (ej: '5 unidades')
-                            # parts[3] = Tipo (ej: 'Sesión de Mensajería')
-                            # parts[4] = Espera Total (ej: '0' o '4')
-                            # parts[5] = Tiempo de espera más largo (ej: '--' o '47 min 50 s')
-                            for idx, p in enumerate(parts):
-                                if p.isdigit() and idx >= 2:
-                                    count = int(p)
-                                    for next_p in parts[idx + 1:]:
-                                        t_sec = parse_salesforce_time_str(next_p)
-                                        if t_sec > 0:
-                                            longest_sec = t_sec
-                                            break
+                    q_name = parts[0].strip()
+                    # Aceptar dinámicamente cualquier cola BOT o AMC de la operación
+                    if not ("BOT " in q_name.upper() or "AMC " in q_name.upper()):
+                        continue
+
+                    count = 0
+                    longest_sec = 0
+
+                    for idx, p in enumerate(parts):
+                        if p.isdigit() and idx >= 2:
+                            count = int(p)
+                            for next_p in parts[idx + 1:]:
+                                t_sec = parse_salesforce_time_str(next_p)
+                                if t_sec > 0:
+                                    longest_sec = t_sec
                                     break
+                            break
 
-                            queues_map[q_name]["chats_in_queue"] = count
-                            queues_map[q_name]["longest_wait_sec"] = longest_sec
+                    queues_map[q_name] = {
+                        "queue_name": q_name,
+                        "chats_in_queue": count,
+                        "longest_wait_sec": longest_sec,
+                        "agents_online": 4
+                    }
                 except Exception:
                     continue
 
