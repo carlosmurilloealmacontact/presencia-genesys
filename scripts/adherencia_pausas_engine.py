@@ -1,14 +1,12 @@
 """
 Motor Analítico Unificado de Cumplimiento de Horas Laboradas y Adherencia Intradía de Pausas Programadas.
-Aplica tanto para:
-- ✈️ LATAM Pasajeros (todas las campañas de voz, chat, soporte y coordinaciones de pasajeros,
-  excluyendo estrictamente Cargo Booking y todo el personal de Agencias B2B).
-- 🏢 Agencias B2B (Marelyn Cardona, Andrés Rodríguez y líneas B2B).
-
-Cruza:
-1. Malla de Turnos Detallada (horas programadas, turno_ini/fin, des_1, des_2, lunch, dialogo, training).
-2. Tramos reales de presencia de Genesys Cloud (tabla segments en data/presencia.db).
-3. Salesforce Omni-Channel / Live Agent cuando aplica.
+Unifica en una SOLA PANTALLA:
+1. Cumplimiento de horas de turno (jornada completa contratada vs horas de conexión real).
+2. Adherencia y puntualidad franja a franja de pausas programadas (Descansos 1 y 2, Lunch, Diálogo 4DX, Capacitación).
+3. Jerarquía completa: Coordinador y Supervisor (Jefe Inmediato).
+4. Ámbitos operativos aislados:
+   - ✈️ LATAM Pasajeros (excluyendo Cargo Booking y todo el personal de Agencias B2B).
+   - 🏢 Agencias B2B (Marelyn Cardona, Andrés Rodríguez y líneas B2B).
 """
 
 import os
@@ -74,21 +72,23 @@ def obtener_fechas_disponibles_turnos() -> list[str]:
 
 
 @st.cache_data(ttl=3600)
-def obtener_mapa_bp_coordinador() -> dict[str, str]:
-    """Mapea cada BP a su coordinador histórico a partir de los segmentos de Genesys."""
+def obtener_mapa_bp_jerarquia() -> tuple[dict[str, str], dict[str, str]]:
+    """Mapea cada BP a su coordinador y supervisor (jefe_inmediato) a partir de segments."""
     try:
         with _get_db() as conn:
             df = pd.read_sql_query(
-                "SELECT distinct agente, coordinador FROM segments WHERE coordinador IS NOT NULL AND trim(coordinador) != ''",
+                "SELECT distinct agente, coordinador, jefe_inmediato FROM segments WHERE (coordinador IS NOT NULL OR jefe_inmediato IS NOT NULL)",
                 conn
             )
             if df.empty:
-                return {}
+                return {}, {}
             df["bp"] = df["agente"].astype(str).str.split(" - ").str[0].str.strip()
             df = df.drop_duplicates("bp", keep="last")
-            return dict(zip(df["bp"], df["coordinador"]))
+            bp_to_coord = dict(zip(df["bp"], df["coordinador"].fillna("")))
+            bp_to_superv = dict(zip(df["bp"], df["jefe_inmediato"].fillna("")))
+            return bp_to_coord, bp_to_superv
     except Exception:
-        return {}
+        return {}, {}
 
 
 @st.cache_data(ttl=3600)
@@ -163,9 +163,38 @@ def obtener_coordinadores_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     if filtro_tipo == "B2B":
         return [c for c in todos if any(k in c.upper() for k in b2b_keywords) and not es_persona_excluida(c)]
     elif filtro_tipo == "PASAJEROS":
-        # Excluye B2B y personas restringidas
         return [c for c in todos if not any(k in c.upper() for k in b2b_keywords) and not es_persona_excluida(c)]
     return [c for c in todos if not es_persona_excluida(c)]
+
+
+@st.cache_data(ttl=3600)
+def obtener_supervisores_disponibles(coordinador: str = None, ambito: str = "TODOS") -> list[str]:
+    """Retorna la lista ordenada de supervisores (jefe_inmediato), filtrada opcionalmente por coordinador y ámbito."""
+    try:
+        with _get_db() as conn:
+            query = """
+                SELECT distinct jefe_inmediato, coordinador
+                FROM segments
+                WHERE jefe_inmediato IS NOT NULL AND trim(jefe_inmediato) != ''
+            """
+            df = pd.read_sql_query(query, conn)
+    except Exception:
+        return []
+
+    if df.empty:
+        return []
+
+    b2b_coords = ["CARDONA", "RODRIGUEZ URIBE"]
+    if ambito == "B2B":
+        df = df[df["coordinador"].astype(str).apply(lambda c: any(k in c.upper() for k in b2b_coords))]
+    elif ambito == "PASAJEROS":
+        df = df[~df["coordinador"].astype(str).apply(lambda c: any(k in c.upper() for k in b2b_coords))]
+
+    if coordinador and coordinador != "Todos los Coordinadores":
+        df = df[df["coordinador"].astype(str).str.contains(coordinador, case=False, na=False)]
+
+    supervisores = [s for s in sorted(list(df["jefe_inmediato"].dropna().unique())) if not es_persona_excluida(s)]
+    return supervisores
 
 
 @st.cache_data(ttl=3600)
@@ -183,19 +212,17 @@ def obtener_servicios_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     if filtro_tipo == "B2B":
         return [s for s in todos if any(k in s.upper() for k in b2b_keywords)]
     elif filtro_tipo == "PASAJEROS":
-        # En Pasajeros: EXCLUIR terminantemente Cargo Booking y todos los servicios de Agencias B2B
         return [s for s in todos if not any(k in s.upper() for k in b2b_keywords) and "CARGO" not in s.upper()]
     return todos
 
 
-def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servicio: str = None, ambito: str = "TODOS") -> pd.DataFrame:
+def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, ambito: str = "TODOS") -> pd.DataFrame:
     """
     Evalúa el cumplimiento de horas de la jornada laboral:
     Horas Programadas vs Horas Reales Conectado (productivo + pausas de ley).
     Calcula: % Cumplimiento, Horas Faltantes/Sobrantes, y clasifica en semáforo.
-    Aplica exclusión estricta de Cargo Booking y Agencias B2B cuando ambito == 'PASAJEROS'.
     """
-    bp_to_coord = obtener_mapa_bp_coordinador()
+    bp_to_coord, bp_to_superv = obtener_mapa_bp_jerarquia()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
     bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
@@ -217,7 +244,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servi
             return pd.DataFrame()
 
         query_seg = """
-            SELECT agente, presence_label, system_presence, inicio, fin, duracion_min, servicio, coordinador
+            SELECT agente, presence_label, system_presence, inicio, fin, duracion_min, servicio, coordinador, jefe_inmediato
             FROM segments
             WHERE fecha = ?
         """
@@ -243,28 +270,28 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servi
 
         sub_seg = seg_by_bp.get(bp)
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
+        superv_real = (sub_seg["jefe_inmediato"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["jefe_inmediato"].iloc[0]) else None) or bp_to_superv.get(bp, "")
 
-        # ── EXCLUSIONES ESPECÍFICAS POR ÁMBITO ────────────────────────────────
+        # Exclusiones de ámbito
         if ambito == "PASAJEROS":
-            # 1. Excluir Cargo Booking
             if bp in bps_cargo or "CARGO" in srv.upper():
                 continue
-            # 2. Excluir todos los asesores y servicios que ya están en Agencias B2B
             if bp in bps_b2b or (coord_real and coord_real in coords_b2b):
                 continue
-            # 3. Excluir personal no operativo
-            if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)):
+            if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)) or (superv_real and es_persona_excluida(superv_real)):
                 continue
-
         elif ambito == "B2B":
             if coord_real and coord_real not in coords_b2b and coord_real in coords_pasajeros:
                 continue
             if es_persona_excluida(nom):
                 continue
 
-        # Filtro de coordinador específico
+        # Filtros de jerarquía
         if coordinador and coordinador != "Todos los Coordinadores":
             if not coord_real or coordinador.upper() not in coord_real.upper():
+                continue
+        if supervisor and supervisor != "Todos los Supervisores":
+            if not superv_real or supervisor.upper() not in superv_real.upper():
                 continue
 
         if sub_seg is not None and not sub_seg.empty:
@@ -305,6 +332,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servi
             "BP": bp,
             "Asesor": nom,
             "Coordinador": coord_real or "No Asignado",
+            "Supervisor": superv_real or "No Asignado",
             "Servicio": srv,
             "Turno Programado": f"{t_ini[:5]} - {t_fin[:5]}",
             "Horas Prog": round(h_prog, 2),
@@ -314,7 +342,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servi
             "Horas Pausas": h_pau,
             "% Cumplimiento": pct_cumpl,
             "Brecha Horas": brecha_h,
-            "Estado": estado
+            "Estado Turno": estado
         })
 
     df_res = pd.DataFrame(res_list)
@@ -323,14 +351,13 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servi
     return df_res
 
 
-def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, servicio: str = None, tolerancia_min: int = 10, ambito: str = "TODOS") -> pd.DataFrame:
+def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, tolerancia_min: int = 10, ambito: str = "TODOS") -> pd.DataFrame:
     """
     Audita franja a franja la puntualidad y duración de cada pausa programada:
     Descanso 1, Descanso 2, Almuerzo, Diálogo 4DX y Capacitaciones.
     Cruza el horario programado contra los eventos de presence_label en segments.
-    Aplica exclusión estricta de Cargo Booking y Agencias B2B cuando ambito == 'PASAJEROS'.
     """
-    bp_to_coord = obtener_mapa_bp_coordinador()
+    bp_to_coord, bp_to_superv = obtener_mapa_bp_jerarquia()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
     bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
@@ -354,7 +381,7 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, ser
             return pd.DataFrame()
 
         query_seg = """
-            SELECT agente, presence_label, inicio, fin, duracion_min, servicio, coordinador
+            SELECT agente, presence_label, inicio, fin, duracion_min, servicio, coordinador, jefe_inmediato
             FROM segments
             WHERE fecha = ?
         """
@@ -387,16 +414,15 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, ser
 
         sub_seg = seg_by_bp.get(bp)
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
+        superv_real = (sub_seg["jefe_inmediato"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["jefe_inmediato"].iloc[0]) else None) or bp_to_superv.get(bp, "")
 
-        # ── EXCLUSIONES ESPECÍFICAS POR ÁMBITO ────────────────────────────────
         if ambito == "PASAJEROS":
             if bp in bps_cargo or "CARGO" in srv.upper():
                 continue
             if bp in bps_b2b or (coord_real and coord_real in coords_b2b):
                 continue
-            if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)):
+            if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)) or (superv_real and es_persona_excluida(superv_real)):
                 continue
-
         elif ambito == "B2B":
             if coord_real and coord_real not in coords_b2b and coord_real in coords_pasajeros:
                 continue
@@ -405,6 +431,9 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, ser
 
         if coordinador and coordinador != "Todos los Coordinadores":
             if not coord_real or coordinador.upper() not in coord_real.upper():
+                continue
+        if supervisor and supervisor != "Todos los Supervisores":
+            if not superv_real or supervisor.upper() not in superv_real.upper():
                 continue
 
         for label_pausa, col_ini, col_fin, labels_presencia in tipos_pausas:
@@ -456,6 +485,7 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, ser
                 "BP": bp,
                 "Asesor": nom,
                 "Coordinador": coord_real or "No Asignado",
+                "Supervisor": superv_real or "No Asignado",
                 "Servicio": srv,
                 "Tipo Pausa": label_pausa,
                 "Horario Programado": f"{str(h_ini_str)[:5]} - {str(h_fin_str)[:5]}",
@@ -471,82 +501,214 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, ser
     return df_p
 
 
-# ── RENDERERS STREAMLIT REUTILIZABLES ─────────────────────────────────────────
+def calcular_auditoria_integral_unificada(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, ambito: str = "TODOS") -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Combina en un solo DataFrame por asesor:
+    - Cumplimiento de horas de turno (jornada programada, conexión real, horas productivas, horas pausas, brecha y estado).
+    - Resumen consolidado de adherencia y puntualidad a pausas (total pausas, puntuales, excesos, % adherencia, minutos de exceso y detalle).
+    Retorna (df_unificado, df_pausas_detalle).
+    """
+    df_horas = calcular_cumplimiento_horas_turno(fecha, coordinador=coordinador, supervisor=supervisor, servicio=servicio, ambito=ambito)
+    df_pausas = calcular_adherencia_pausas_intradia(fecha, coordinador=coordinador, supervisor=supervisor, servicio=servicio, tolerancia_min=10, ambito=ambito)
 
-def render_ui_cumplimiento_horas(ambito: str = "PASAJEROS", key_prefix: str = "pas_turno_"):
-    """Renderiza la visual interactiva de cumplimiento de horas de turno."""
+    if df_horas.empty:
+        return pd.DataFrame(), df_pausas
+
+    # Agrupar métricas de pausas por BP
+    pausas_resumen = []
+    if not df_pausas.empty:
+        for bp, grp in df_pausas.groupby("BP"):
+            tot_p = len(grp)
+            puntuales = int(grp["Estado"].str.startswith("🟢").sum())
+            desfasadas = int(grp["Estado"].str.startswith("🟡").sum())
+            excesos = int(grp["Estado"].str.startswith("🔴").sum())
+            no_tomadas = int(grp["Estado"].str.startswith("❌").sum())
+
+            excesos_mins = 0
+            for exc_str in grp["Exceso"]:
+                if exc_str and exc_str != "--" and "+" in str(exc_str):
+                    try:
+                        excesos_mins += int(str(exc_str).replace("+", "").replace("min", "").strip())
+                    except Exception:
+                        pass
+
+            pct_adh = round(puntuales / max(1, tot_p) * 100, 1)
+
+            partes = []
+            if puntuales > 0:
+                partes.append(f"🟢 {puntuales} Puntual{'es' if puntuales > 1 else ''}")
+            if desfasadas > 0:
+                partes.append(f"🟡 {desfasadas} Desfasada{'s' if desfasadas > 1 else ''}")
+            if excesos > 0:
+                partes.append(f"🔴 {excesos} Exceso (+{excesos_mins}m)")
+            if no_tomadas > 0:
+                partes.append(f"❌ {no_tomadas} No tomada{'s' if no_tomadas > 1 else ''}")
+
+            res_str = " | ".join(partes) if partes else "Sin Pausas"
+
+            pausas_resumen.append({
+                "BP": bp,
+                "Pausas Prog": tot_p,
+                "Pausas Puntuales": puntuales,
+                "Pausas con Exceso": excesos,
+                "Pausas Desfasadas": desfasadas,
+                "Pausas No Tomadas": no_tomadas,
+                "% Adh Pausas": pct_adh,
+                "Minutos Exceso": f"+{excesos_mins} min" if excesos_mins > 0 else "0 min",
+                "Exceso Mins Int": excesos_mins,
+                "Resumen Pausas": res_str
+            })
+
+    df_resumen_p = pd.DataFrame(pausas_resumen)
+
+    if not df_resumen_p.empty:
+        df_unif = pd.merge(df_horas, df_resumen_p, on="BP", how="left")
+    else:
+        df_unif = df_horas.copy()
+        df_unif["Pausas Prog"] = 0
+        df_unif["Pausas Puntuales"] = 0
+        df_unif["Pausas con Exceso"] = 0
+        df_unif["Pausas Desfasadas"] = 0
+        df_unif["Pausas No Tomadas"] = 0
+        df_unif["% Adh Pausas"] = 0.0
+        df_unif["Minutos Exceso"] = "0 min"
+        df_unif["Exceso Mins Int"] = 0
+        df_unif["Resumen Pausas"] = "Sin Pausas Programadas"
+
+    df_unif["Pausas Prog"] = df_unif["Pausas Prog"].fillna(0).astype(int)
+    df_unif["Pausas Puntuales"] = df_unif["Pausas Puntuales"].fillna(0).astype(int)
+    df_unif["Pausas con Exceso"] = df_unif["Pausas con Exceso"].fillna(0).astype(int)
+    df_unif["Pausas Desfasadas"] = df_unif["Pausas Desfasadas"].fillna(0).astype(int)
+    df_unif["Pausas No Tomadas"] = df_unif["Pausas No Tomadas"].fillna(0).astype(int)
+    df_unif["% Adh Pausas"] = df_unif["% Adh Pausas"].fillna(0.0)
+    df_unif["Minutos Exceso"] = df_unif["Minutos Exceso"].fillna("0 min")
+    df_unif["Exceso Mins Int"] = df_unif["Exceso Mins Int"].fillna(0).astype(int)
+    df_unif["Resumen Pausas"] = df_unif["Resumen Pausas"].fillna("Sin Pausas Programadas")
+
+    return df_unif, df_pausas
+
+
+# ── RENDERER UNIFICADO: TURNOS Y PAUSAS EN UNA SOLA PANTALLA ────────────────
+
+def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "pas_audit_"):
+    """
+    Renderiza la vista unificada de Cumplimiento de Horas de Turno y Adherencia a Pausas
+    en una sola pantalla integral con filtro por Coordinador y Supervisor.
+    """
     fechas_disp = obtener_fechas_disponibles_turnos()
     if not fechas_disp:
         st.warning("⚠️ No se encontraron turnos detallados en la base de datos.")
         return
 
+    # Fila de Filtros
     coords_disp = ["Todos los Coordinadores"] + obtener_coordinadores_disponibles(ambito)
     servs_disp = ["Todos los Servicios"] + obtener_servicios_disponibles(ambito)
 
-    c_f1, c_f2, c_f3, c_f4, c_f5 = st.columns([1.1, 1.4, 1.3, 1.4, 1.4])
+    c_f1, c_f2, c_f3, c_f4, c_f5, c_f6 = st.columns([1.1, 1.4, 1.4, 1.3, 1.4, 1.4])
     with c_f1:
-        fecha_sel = st.selectbox("📅 Fecha a Auditar", options=fechas_disp, index=0, key=f"{key_prefix}fecha")
+        fecha_sel = st.selectbox("📅 Fecha", options=fechas_disp, index=0, key=f"{key_prefix}fecha")
     with c_f2:
         coord_sel = st.selectbox("👤 Coordinación", options=coords_disp, index=0, key=f"{key_prefix}coord")
+
+    # Supervisores filtrados dinámicamente según la coordinación
+    sups_disp = ["Todos los Supervisores"] + obtener_supervisores_disponibles(coordinador=coord_sel, ambito=ambito)
     with c_f3:
-        serv_sel = st.selectbox("🏢 Servicio / Cola", options=servs_disp, index=0, key=f"{key_prefix}serv")
+        superv_sel = st.selectbox("🎖️ Supervisor", options=sups_disp, index=0, key=f"{key_prefix}superv")
     with c_f4:
+        serv_sel = st.selectbox("🏢 Servicio / Cola", options=servs_disp, index=0, key=f"{key_prefix}serv")
+    with c_f5:
         estado_sel = st.selectbox(
             "🚦 Filtro Estado",
-            options=["Todos los Estados", "🟢 Cumple Jornada Completa", "🟡 Déficit Leve (< 1h)", "🔴 Déficit Severo (> 1h faltante)", "❌ Ausente / Sin Conexión"],
+            options=[
+                "Todos los Estados",
+                "🟢 Cumple Jornada Completa",
+                "🟡 Déficit Leve (< 1h)",
+                "🔴 Déficit Severo (> 1h faltante)",
+                "❌ Ausente / Sin Conexión",
+                "🚨 Con Exceso en Pausas",
+                "⚠️ Con Pausas Desfasadas",
+            ],
             index=0,
             key=f"{key_prefix}est"
         )
-    with c_f5:
+    with c_f6:
         search_asesor = st.text_input("🔍 Buscar Asesor / BP", key=f"{key_prefix}search").strip().lower()
 
-    # Ejecución
-    df_horas = calcular_cumplimiento_horas_turno(fecha_sel, coordinador=coord_sel, servicio=serv_sel, ambito=ambito)
-    if df_horas.empty:
+    # Ejecución unificada
+    df_unif, df_pausas = calcular_auditoria_integral_unificada(
+        fecha_sel,
+        coordinador=coord_sel,
+        supervisor=superv_sel,
+        servicio=serv_sel,
+        ambito=ambito
+    )
+
+    if df_unif.empty:
         st.info(f"No hay registros de turnos o conexión para la fecha **{fecha_sel}** con los filtros aplicados.")
         return
 
-    if estado_sel != "Todos los Estados":
-        df_horas = df_horas[df_horas["Estado"] == estado_sel]
+    # Aplicar filtros de estado y búsqueda
+    if estado_sel == "🟢 Cumple Jornada Completa":
+        df_unif = df_unif[df_unif["Estado Turno"] == "🟢 Cumple Jornada Completa"]
+    elif estado_sel == "🟡 Déficit Leve (< 1h)":
+        df_unif = df_unif[df_unif["Estado Turno"] == "🟡 Déficit Leve (< 1h)"]
+    elif estado_sel == "🔴 Déficit Severo (> 1h faltante)":
+        df_unif = df_unif[df_unif["Estado Turno"] == "🔴 Déficit Severo (> 1h faltante)"]
+    elif estado_sel == "❌ Ausente / Sin Conexión":
+        df_unif = df_unif[df_unif["Estado Turno"] == "❌ Ausente / Sin Conexión"]
+    elif estado_sel == "🚨 Con Exceso en Pausas":
+        df_unif = df_unif[df_unif["Pausas con Exceso"] > 0]
+    elif estado_sel == "⚠️ Con Pausas Desfasadas":
+        df_unif = df_unif[df_unif["Pausas Desfasadas"] > 0]
+
     if search_asesor:
-        df_horas = df_horas[
-            df_horas["Asesor"].astype(str).str.lower().str.contains(search_asesor) |
-            df_horas["BP"].astype(str).str.lower().str.contains(search_asesor)
+        df_unif = df_unif[
+            df_unif["Asesor"].astype(str).str.lower().str.contains(search_asesor) |
+            df_unif["BP"].astype(str).str.lower().str.contains(search_asesor) |
+            df_unif["Supervisor"].astype(str).str.lower().str.contains(search_asesor)
         ]
 
-    if df_horas.empty:
+    if df_unif.empty:
         st.warning("No hay registros que coincidan con los filtros o búsqueda.")
         return
 
-    # Métricas superiores
-    total_asesores = len(df_horas)
-    pct_prom_cumpl = round(df_horas["% Cumplimiento"].mean(), 1)
-    cumplen_tot = int((df_horas["Estado"] == "🟢 Cumple Jornada Completa").sum())
-    deficit_tot = int(df_horas["Estado"].isin(["🟡 Déficit Leve (< 1h)", "🔴 Déficit Severo (> 1h faltante)"]).sum())
-    ausentes_tot = int((df_horas["Estado"] == "❌ Ausente / Sin Conexión").sum())
-    horas_deficit = round(abs(df_horas[df_horas["Brecha Horas"] < 0]["Brecha Horas"].sum()), 1)
+    # ── TARJETAS DE KPIS UNIFICADAS ──────────────────────────────────────────
+    tot_asesores = len(df_unif)
+    pct_cumpl_jornada = round(df_unif["% Cumplimiento"].mean(), 1)
+    tot_pausas_prog = int(df_unif["Pausas Prog"].sum())
+    tot_pausas_punt = int(df_unif["Pausas Puntuales"].sum())
+    pct_adh_pausas = round(tot_pausas_punt / max(1, tot_pausas_prog) * 100, 1)
 
-    kp1, kp2, kp3, kp4, kp5 = st.columns(5)
-    with kp1:
-        st.metric("Asesores Programados", total_asesores)
-    with kp2:
-        st.metric("% Cumplimiento Promedio", f"{pct_prom_cumpl}%", delta=f"{round(pct_prom_cumpl - 100, 1)}% vs 100%")
-    with kp3:
-        st.metric("🟢 Cumplen Jornada", cumplen_tot, delta=f"{round(cumplen_tot/max(1,total_asesores)*100, 1)}%")
-    with kp4:
-        st.metric("⚠️ En Déficit de Horas", deficit_tot, delta=f"-{horas_deficit} h faltantes", delta_color="inverse")
-    with kp5:
+    asesores_deficit = int(df_unif["Estado Turno"].isin(["🟡 Déficit Leve (< 1h)", "🔴 Déficit Severo (> 1h faltante)"]).sum())
+    horas_deficit_tot = round(abs(df_unif[df_unif["Brecha Horas"] < 0]["Brecha Horas"].sum()), 1)
+    asesores_exceso_pausa = int((df_unif["Pausas con Exceso"] > 0).sum())
+    minutos_exceso_tot = int(df_unif["Exceso Mins Int"].sum())
+    ausentes_tot = int((df_unif["Estado Turno"] == "❌ Ausente / Sin Conexión").sum())
+
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    with k1:
+        st.metric("Asesores Programados", tot_asesores)
+    with k2:
+        st.metric("% Cumplimiento Turno", f"{pct_cumpl_jornada}%", delta=f"{round(pct_cumpl_jornada - 100, 1)}% vs 100%")
+    with k3:
+        st.metric("% Adherencia Pausas", f"{pct_adh_pausas}%", delta=f"{round(pct_adh_pausas - 85.0, 1)}% vs Meta 85%")
+    with k4:
+        st.metric("⚠️ En Déficit de Turno", asesores_deficit, delta=f"-{horas_deficit_tot} h faltantes", delta_color="inverse")
+    with k5:
+        st.metric("🔴 Con Exceso en Pausas", asesores_exceso_pausa, delta=f"+{minutos_exceso_tot} min exceso", delta_color="inverse")
+    with k6:
         st.metric("❌ Sin Conexión", ausentes_tot)
 
     st.write("")
 
+    # ── GRÁFICOS INTEGRADOS (2 COLUMNAS) ─────────────────────────────────────
     col_g1, col_g2 = st.columns([1, 1.4])
     with col_g1:
-        st.markdown("##### 🎯 Distribución de Cumplimiento")
-        dist_estados = df_horas["Estado"].value_counts().reset_index()
-        dist_estados.columns = ["Estado", "Cantidad"]
+        st.markdown("##### 🎯 Distribución Cumplimiento de Jornada")
+        dist_turnos = df_unif["Estado Turno"].value_counts().reset_index()
+        dist_turnos.columns = ["Estado", "Cantidad"]
         fig_pie = px.pie(
-            dist_estados,
+            dist_turnos,
             names="Estado",
             values="Cantidad",
             hole=0.45,
@@ -562,170 +724,120 @@ def render_ui_cumplimiento_horas(ambito: str = "PASAJEROS", key_prefix: str = "p
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with col_g2:
-        st.markdown("##### 🚨 Top 10 Asesores con Mayor Déficit de Horas")
-        df_deficit = df_horas[df_horas["Brecha Horas"] < 0].sort_values("Brecha Horas").head(10).copy()
-        if not df_deficit.empty:
-            df_deficit["Horas Faltantes"] = df_deficit["Brecha Horas"].abs()
-            fig_bar_def = px.bar(
-                df_deficit,
-                x="Horas Faltantes",
-                y="Asesor",
-                orientation="h",
-                text="Horas Faltantes",
-                color="Horas Faltantes",
-                color_continuous_scale="Reds"
-            )
-            fig_bar_def.update_traces(texttemplate="%{text:.2f} h", textposition="outside")
-            fig_bar_def.update_layout(
-                height=280,
-                margin=dict(l=10, r=10, t=10, b=10),
-                yaxis=dict(autorange="reversed"),
-                coloraxis_showscale=False
-            )
-            st.plotly_chart(fig_bar_def, use_container_width=True)
+        st.markdown("##### ☕ Disciplina de Pausas por Tipo de Descanso")
+        if not df_pausas.empty:
+            df_p_filt = df_pausas[df_pausas["BP"].isin(df_unif["BP"])].copy()
+            if not df_p_filt.empty:
+                df_p_grp = df_p_filt.groupby(["Tipo Pausa", "Estado"]).size().reset_index(name="Cantidad")
+                fig_bar_p = px.bar(
+                    df_p_grp,
+                    x="Tipo Pausa",
+                    y="Cantidad",
+                    color="Estado",
+                    barmode="stack",
+                    color_discrete_map={
+                        "🟢 Puntual y en tiempo": "#10b981",
+                        "🟡 Desfasada en horario": "#f59e0b",
+                        "🔴 Exceso de Tiempo": "#ef4444",
+                        "❌ Pausa No Tomada en Ventana": "#64748b"
+                    }
+                )
+                fig_bar_p.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=1.12))
+                st.plotly_chart(fig_bar_p, use_container_width=True)
+            else:
+                st.info("Sin descansos registrados para los asesores seleccionados.")
         else:
-            st.success("🎉 ¡Excelente! Ningún asesor presenta déficit de horas en esta selección.")
+            st.info("Sin pausas programadas para auditar.")
 
     st.write("")
-    st.markdown("##### 📋 Auditoría Detallada Asesor por Asesor")
-    st.caption("Muestra la jornada oficial programada contra el tiempo real de presencia segundo a segundo extraído de Genesys.")
 
-    column_cfg_horas = {
+    # ── TABLA MAESTRA UNIFICADA (TURNO + PAUSAS EN UNA SOLA VISTA) ───────────
+    st.markdown("##### 📋 Matriz Unificada de Asesores: Jornada Laboral & Control de Pausas")
+    st.caption("Consolida el cumplimiento del turno completo contratado y la puntualidad y excesos en pausas programadas (Descanso 1 y 2, Lunch, Diálogo 4DX y Training).")
+
+    cols_unif_show = [
+        "BP", "Asesor", "Coordinador", "Supervisor", "Servicio",
+        "Turno Programado", "Horas Prog", "Conexión Real", "Horas Conectado",
+        "Horas Productivas", "Horas Pausas", "% Cumplimiento", "Brecha Horas",
+        "Estado Turno", "Pausas Prog", "Pausas Puntuales", "% Adh Pausas",
+        "Minutos Exceso", "Resumen Pausas"
+    ]
+    df_show = df_unif[[c for c in cols_unif_show if c in df_unif.columns]].copy()
+
+    column_cfg_unif = {
         "% Cumplimiento": st.column_config.ProgressColumn(
-            "% Cumplimiento",
-            help="Porcentaje de horas de conexión logradas vs horas de turno programadas",
+            "% Turno",
+            help="Horas reales conectado vs horas programadas de turno",
             format="%.1f%%",
             min_value=0,
             max_value=120
         ),
-        "Horas Prog": st.column_config.NumberColumn("Horas Prog", format="%.2f h"),
-        "Horas Conectado": st.column_config.NumberColumn("Horas Conectado", format="%.2f h"),
-        "Horas Productivas": st.column_config.NumberColumn("Horas Prod", format="%.2f h"),
-        "Horas Pausas": st.column_config.NumberColumn("Horas Pausas", format="%.2f h"),
+        "% Adh Pausas": st.column_config.ProgressColumn(
+            "% Adh Pausas",
+            help="% de pausas tomadas en horario y duración reglamentaria",
+            format="%.1f%%",
+            min_value=0,
+            max_value=100
+        ),
+        "Horas Prog": st.column_config.NumberColumn("H. Prog", format="%.2f h"),
+        "Horas Conectado": st.column_config.NumberColumn("H. Conectado", format="%.2f h"),
+        "Horas Productivas": st.column_config.NumberColumn("H. Prod", format="%.2f h"),
+        "Horas Pausas": st.column_config.NumberColumn("H. Pausas", format="%.2f h"),
         "Brecha Horas": st.column_config.NumberColumn("Brecha", format="%.2f h"),
     }
-    st.dataframe(df_horas, column_config=column_cfg_horas, use_container_width=True, hide_index=True)
+    st.dataframe(df_show, column_config=column_cfg_unif, use_container_width=True, hide_index=True)
 
-    csv_h = df_horas.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        label=f"📥 Descargar Reporte de Cumplimiento de Horas ({ambito}) (CSV)",
-        data=csv_h,
-        file_name=f"cumplimiento_horas_{ambito.lower()}_{fecha_sel}.csv",
-        mime="text/csv",
-        key=f"{key_prefix}btn_dl"
-    )
-
-
-def render_ui_adherencia_pausas(ambito: str = "PASAJEROS", key_prefix: str = "pas_pausa_"):
-    """Renderiza la visual interactiva de adherencia intradía de pausas programadas."""
-    fechas_disp = obtener_fechas_disponibles_turnos()
-    if not fechas_disp:
-        st.warning("⚠️ No se encontraron turnos detallados en la base de datos.")
-        return
-
-    coords_disp = ["Todos los Coordinadores"] + obtener_coordinadores_disponibles(ambito)
-    servs_disp = ["Todos los Servicios"] + obtener_servicios_disponibles(ambito)
-
-    c_p1, c_p2, c_p3, c_p4, c_p5 = st.columns([1.1, 1.4, 1.3, 1.4, 1.4])
-    with c_p1:
-        fecha_sel = st.selectbox("📅 Fecha a Auditar", options=fechas_disp, index=0, key=f"{key_prefix}fecha")
-    with c_p2:
-        coord_sel = st.selectbox("👤 Coordinación", options=coords_disp, index=0, key=f"{key_prefix}coord")
-    with c_p3:
-        serv_sel = st.selectbox("🏢 Servicio / Cola", options=servs_disp, index=0, key=f"{key_prefix}serv")
-    with c_p4:
-        tipo_p_sel = st.selectbox(
-            "☕ Tipo de Pausa",
-            options=["Todas las Pausas", "Descanso 1 (Break)", "Descanso 2 (Break)", "Almuerzo (Lunch)", "Diálogo Diario (4DX)", "Capacitación (Training)"],
-            index=0,
-            key=f"{key_prefix}tipo"
+    # Botones de descarga y detalle franja a franja
+    c_dl1, c_dl2 = st.columns([1, 1])
+    with c_dl1:
+        csv_u = df_show.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label=f"📥 Descargar Matriz Unificada de Asesores ({ambito}) (CSV)",
+            data=csv_u,
+            file_name=f"auditoria_turnos_pausas_{ambito.lower()}_{fecha_sel}.csv",
+            mime="text/csv",
+            key=f"{key_prefix}btn_dl_unif"
         )
-    with c_p5:
-        search_asesor_p = st.text_input("🔍 Buscar Asesor / BP", key=f"{key_prefix}search").strip().lower()
 
-    df_pausas = calcular_adherencia_pausas_intradia(fecha_sel, coordinador=coord_sel, servicio=serv_sel, ambito=ambito)
-    if df_pausas.empty:
-        st.info(f"No hay registros de pausas programadas para la fecha **{fecha_sel}** con los filtros aplicados.")
-        return
-
-    if tipo_p_sel != "Todas las Pausas":
-        df_pausas = df_pausas[df_pausas["Tipo Pausa"] == tipo_p_sel]
-    if search_asesor_p:
-        df_pausas = df_pausas[
-            df_pausas["Asesor"].astype(str).str.lower().str.contains(search_asesor_p) |
-            df_pausas["BP"].astype(str).str.lower().str.contains(search_asesor_p)
-        ]
-
-    if df_pausas.empty:
-        st.warning("No hay pausas que coincidan con los filtros seleccionados.")
-        return
-
-    # Métricas de puntualidad
-    tot_p = len(df_pausas)
-    puntuales_p = int(df_pausas["Estado"].str.startswith("🟢").sum())
-    desfasadas_p = int(df_pausas["Estado"].str.startswith("🟡").sum())
-    excesos_p = int(df_pausas["Estado"].str.startswith("🔴").sum())
-    no_tomadas_p = int(df_pausas["Estado"].str.startswith("❌").sum())
-    pct_puntual = round(puntuales_p / max(1, tot_p) * 100, 1)
-
-    kp1, kp2, kp3, kp4, kp5 = st.columns(5)
-    with kp1:
-        st.metric("Pausas Programadas", tot_p)
-    with kp2:
-        st.metric("% Puntualidad & Adherencia", f"{pct_puntual}%", delta=f"{round(pct_puntual - 85.0, 1)}% vs Meta 85%")
-    with kp3:
-        st.metric("🟢 Puntuales en Tiempo", puntuales_p, delta=f"{round(puntuales_p/max(1,tot_p)*100, 1)}%")
-    with kp4:
-        st.metric("🟡 Desfasadas de Horario", desfasadas_p, delta="Salida anticipada / tardía", delta_color="inverse")
-    with kp5:
-        st.metric("🔴 Con Exceso de Tiempo", excesos_p, delta=f"{no_tomadas_p} no tomadas", delta_color="inverse")
-
+    # ── DESPLEGABLE CON EL DETALLE FRANJA A FRANJA ───────────────────────────
     st.write("")
+    with st.expander("🔍 Ver Auditoría Detallada Franja a Franja de Descansos (Descanso 1, 2, Lunch, Diálogo 4DX)", expanded=False):
+        st.caption("Detalle cronológico segundo a segundo de cada descanso: horario oficial vs hora real en que se levantó, desvío de salida y minutos de exceso.")
+        if not df_pausas.empty:
+            df_p_view = df_pausas[df_pausas["BP"].isin(df_unif["BP"])].copy()
+            if not df_p_view.empty:
+                cols_p_order = [
+                    "BP", "Asesor", "Coordinador", "Supervisor", "Servicio",
+                    "Tipo Pausa", "Horario Programado", "Duración Prog",
+                    "Horario Real", "Duración Real", "Desvío Salida", "Exceso", "Estado"
+                ]
+                df_p_view = df_p_view[[c for c in cols_p_order if c in df_p_view.columns]]
+                st.dataframe(df_p_view, use_container_width=True, hide_index=True)
 
-    st.markdown("##### 📊 Adherencia por Tipo de Pausa")
-    df_p_grp = df_pausas.groupby(["Tipo Pausa", "Estado"]).size().reset_index(name="Cantidad")
-    fig_bar_p = px.bar(
-        df_p_grp,
-        x="Tipo Pausa",
-        y="Cantidad",
-        color="Estado",
-        barmode="stack",
-        color_discrete_map={
-            "🟢 Puntual y en tiempo": "#10b981",
-            "🟡 Desfasada en horario": "#f59e0b",
-            "🔴 Exceso de Tiempo": "#ef4444",
-            "❌ Pausa No Tomada en Ventana": "#64748b"
-        }
-    )
-    fig_bar_p.update_layout(height=290, margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig_bar_p, use_container_width=True)
-
-    st.write("")
-    st.markdown("##### 📋 Detalle Intradía de Pausas Programadas vs Reales")
-    st.caption("Tolerancia permitida de inicio: ±10 minutos. Evalúa si la persona salió a su franja y si excedió el tiempo reglamentario.")
-    st.dataframe(df_pausas, use_container_width=True, hide_index=True)
-
-    csv_p = df_pausas.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        label=f"📥 Descargar Reporte de Adherencia a Pausas ({ambito}) (CSV)",
-        data=csv_p,
-        file_name=f"adherencia_pausas_{ambito.lower()}_{fecha_sel}.csv",
-        mime="text/csv",
-        key=f"{key_prefix}btn_dl"
-    )
+                csv_p = df_p_view.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label=f"📥 Descargar Detalle Intradía de Pausas ({ambito}) (CSV)",
+                    data=csv_p,
+                    file_name=f"detalle_pausas_intradia_{ambito.lower()}_{fecha_sel}.csv",
+                    mime="text/csv",
+                    key=f"{key_prefix}btn_dl_p_det"
+                )
+            else:
+                st.info("Sin registros de pausas para los asesores filtrados.")
+        else:
+            st.info("Sin datos de pausas disponibles.")
 
 
 def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
     """
     Submódulo integral de Pausas, Adherencia y Horas de Turno para LATAM Pasajeros.
-    Excluye estrictamente Cargo Booking y todo asesor perteneciente a Agencias B2B.
+    Unifica en una sola vista el cumplimiento de turno y la disciplina de pausas.
     """
     st.markdown("### ⏸️ Pausas, Adherencia y Cumplimiento de Turno — LATAM Pasajeros")
-    st.caption("Auditoría de cumplimiento de jornada laboral y puntualidad de descansos intradía (Descansos 1 y 2, Lunch, Diálogo 4DX y Capacitaciones).")
+    st.caption("Auditoría unificada de jornada laboral y disciplina de descansos intradía (Descansos 1 y 2, Lunch, Diálogo 4DX y Capacitaciones) con filtro por Coordinador y Supervisor.")
 
     SUB_PAUSAS_PASAJEROS = [
-        "⏱️ Cumplimiento de Horas de Turno",
-        "☕ Adherencia a Pausas Programadas (Intradía)",
+        "⚡ Auditoría Integral: Turnos & Pausas Unificadas",
         "📊 Histórico y Fuga de Estados Genesys"
     ]
     sel_sub = st.segmented_control(
@@ -740,10 +852,8 @@ def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
 
     st.write("")
 
-    if sel_sub == "⏱️ Cumplimiento de Horas de Turno":
-        render_ui_cumplimiento_horas(ambito="PASAJEROS", key_prefix="pasajeros_turno_")
-    elif sel_sub == "☕ Adherencia a Pausas Programadas (Intradía)":
-        render_ui_adherencia_pausas(ambito="PASAJEROS", key_prefix="pasajeros_pausa_")
+    if sel_sub == "⚡ Auditoría Integral: Turnos & Pausas Unificadas":
+        render_ui_auditoria_integral(ambito="PASAJEROS", key_prefix="pasajeros_audit_")
     elif sel_sub == "📊 Histórico y Fuga de Estados Genesys":
         if render_tab_historico_fn:
             render_tab_historico_fn(key_prefix="pasajeros_pausas_hist_", excluir_b2b_y_cargo=True)

@@ -36,11 +36,27 @@ def sync_maestro_asesores():
         mapeo = {}
         for _, row in df.iterrows():
             alias = str(row.get("Etiquetas_Especiales_2", "")).strip()
+            nombre = str(row.get("nombre_completo", "")).strip()
+            bp = str(row.get("usuario_gestor_1", "")).strip()
+            coordinador = str(row.get("coordinador", "")).strip()
+            servicio = str(row.get("Servicio", "")).strip()
+            cargo = str(row.get("cargo", "")).strip()
+            supervisor = str(row.get("jefe_inmediato", "")).strip()
+
+            es_marelyn = "CARDONA" in coordinador.upper() or "MARELYN" in coordinador.upper()
+            es_b2b = "B2B" in str(row.get("area", "")).upper() or "CORP" in servicio.upper() or "AGENCIA" in servicio.upper()
+
             if not alias or alias == "-":
+                if es_marelyn or es_b2b:
+                    # Asignar alias derivado de BP o nombre para no perder asesores operativos
+                    alias = str(row.get("usuario_gestor_3", "")).strip() or (f"BP_{bp}" if bp else nombre.split()[0] if nombre else "")
+                else:
+                    continue
+
+            if not alias:
                 continue
 
             nivel_raw = str(row.get("Etiquetas_Especiales_3", "")).strip()
-            # Normalizar nivel N1, N2, N3
             nivel = "N/A"
             if "N1" in nivel_raw and "N2" in nivel_raw:
                 nivel = "N1-N2"
@@ -52,13 +68,6 @@ def sync_maestro_asesores():
                 nivel = "N3"
             elif nivel_raw:
                 nivel = nivel_raw
-
-            nombre = str(row.get("nombre_completo", "")).strip()
-            bp = str(row.get("usuario_gestor_1", "")).strip()
-            servicio = str(row.get("Servicio", "")).strip()
-            cargo = str(row.get("cargo", "")).strip()
-            supervisor = str(row.get("jefe_inmediato", "")).strip()
-            coordinador = str(row.get("coordinador", "")).strip()
 
             info = {
                 "alias": alias,
@@ -74,11 +83,15 @@ def sync_maestro_asesores():
 
             # Guardar con clave en mayúsculas para cruces case-insensitive
             mapeo[alias.upper()] = info
+            if bp:
+                mapeo[bp] = info
+            if nombre:
+                mapeo[nombre.upper()] = info
 
         with open(CACHE_MAPEO_PATH, "w", encoding="utf-8") as f:
             json.dump(mapeo, f, indent=4, ensure_ascii=False)
 
-        print(f"[OK] Mapeo de {len(mapeo)} asesores guardado en {CACHE_MAPEO_PATH}")
+        print(f"[OK] Mapeo de {len(mapeo)} registros guardado en {CACHE_MAPEO_PATH}")
         return mapeo
     except Exception as e:
         print(f"[!] Error al sincronizar con Google Sheets: {e}")

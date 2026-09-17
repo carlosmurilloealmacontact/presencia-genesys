@@ -195,20 +195,27 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                     elif "Corp" in cat_filtro:
                         df_q_plot = df_q_plot[df_q_plot["queue_name"].str.contains("CORP|GRUPOS", case=False, na=False)]
 
-                plot_height = max(260, len(df_q_plot) * 26)
-                fig_q = px.bar(
-                    df_q_plot,
-                    x="chats_in_queue",
-                    y="queue_name",
-                    orientation="h",
-                    text="chats_in_queue",
-                    color="chats_in_queue",
-                    color_continuous_scale="Reds",
-                    labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola BOT"}
-                )
-                fig_q.update_traces(textposition="outside")
-                fig_q.update_layout(template="plotly_dark", height=plot_height, margin=dict(l=10, r=10, t=10, b=10), showlegend=False, yaxis={'categoryorder':'total ascending'})
-                st.plotly_chart(fig_q, use_container_width=True)
+                # Filtrar estrictamente solo colas que tengan chats en espera (> 0)
+                if not df_q_plot.empty and "chats_in_queue" in df_q_plot.columns:
+                    df_q_plot = df_q_plot[df_q_plot["chats_in_queue"] > 0]
+
+                if not df_q_plot.empty:
+                    plot_height = max(180, len(df_q_plot) * 32)
+                    fig_q = px.bar(
+                        df_q_plot,
+                        x="chats_in_queue",
+                        y="queue_name",
+                        orientation="h",
+                        text="chats_in_queue",
+                        color="chats_in_queue",
+                        color_continuous_scale="Reds",
+                        labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola BOT"}
+                    )
+                    fig_q.update_traces(textposition="outside")
+                    fig_q.update_layout(template="plotly_dark", height=plot_height, margin=dict(l=10, r=10, t=10, b=10), showlegend=False, yaxis={'categoryorder':'total ascending'})
+                    st.plotly_chart(fig_q, use_container_width=True)
+                else:
+                    st.markdown("<div style='background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:12px 14px; color:#475569; font-size:12.5px; text-align:center;'>🟢 <b>Sin colas represadas</b> en este filtro. Todos los chats entrantes han sido asignados inmediatamente a ejecutivos.</div>", unsafe_allow_html=True)
 
                 # Detalle de chats en espera con sus identificadores ms- y SLA
                 df_waiting_sf = sle.get_live_waiting_chats(latest_ts)
