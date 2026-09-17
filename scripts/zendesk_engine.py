@@ -375,7 +375,7 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
         "closed": "Cerrado"
     }
     df["Estado"] = df["status"].map(map_estados).fillna(df["status"].str.title())
-    df["Servicio"] = df["grupo"].fillna("Sin Grupo")
+    df["Servicio"] = df["grupo"].map(MAPA_GRUPO_A_SERVICIO).fillna(df["grupo"]).fillna("Sin Grupo")
 
     # Tabla 1: Matriz de Porcentajes
     ct_counts = pd.crosstab(df["Servicio"], df["Rango_Antiguedad"])
@@ -825,31 +825,41 @@ def render_tab_zendesk(email_usuario: str = ""):
         d_desglose = bundle.get("d_desglose")
 
         if df_full is not None and not df_full.empty:
-            tot_bl = len(df_full)
-            c_48 = (df_full["Rango_Antiguedad"] == "<48H").sum()
-            c_15 = (df_full["Rango_Antiguedad"] == ">48H<=15DIAS").sum()
-            c_30 = (df_full["Rango_Antiguedad"] == ">15Y<=30DIAS").sum()
-            c_mas30 = (df_full["Rango_Antiguedad"] == ">30DIAS").sum()
+            df_full_f = df_full.copy()
 
-            nuevos_bv = len(df_full[df_full["status"] == "new"]) if "status" in df_full.columns else 0
-            abiertos_bv = len(df_full[df_full["status"] == "open"]) if "status" in df_full.columns else 0
-            espera_bv = len(df_full[df_full["status"].isin(["hold", "pending"])]) if "status" in df_full.columns else 0
+            # 1. Aplicar filtros generales superiores
+            if solo_alma:
+                is_alma = df_full_f["TICKET_ASSIGNEE_PRIMARY_EMAIL"].astype(str).str.contains(
+                    r"almacontact|\.alma@|@almacontact|@outsourcing-account\.com", case=False, na=False
+                ) | (df_full_f["Nombre_Asesor"] != "Sin Asignar")
+                df_full_f = df_full_f[is_alma]
 
-            # KPIs Ejecutivos
-            k1, k2, k3, k4, k5 = st.columns(5)
-            k1.metric("🚨 Total Fábrica", f"{tot_bl:,}", f"{nuevos_bv} Nuevos / {abiertos_bv} Abiertos")
-            k2.metric("🟢 Fresco (<48H)", f"{c_48:,}", f"{(c_48/tot_bl)*100:.1f}%")
-            k3.metric("🟡 Operativo (2 a 15 D)", f"{c_15:,}", f"{(c_15/tot_bl)*100:.1f}%")
-            k4.metric("🟠 En Riesgo (15 a 30 D)", f"{c_30:,}", f"{(c_30/tot_bl)*100:.1f}%", delta_color="inverse")
-            k5.metric("🔴 Crítico (>30 Días)", f"{c_mas30:,}", f"{(c_mas30/tot_bl)*100:.1f}%", delta_color="inverse")
+            if sel_servicio != "Todos":
+                df_full_f = df_full_f[(df_full_f["Servicio"] == sel_servicio) | (df_full_f["grupo"] == sel_servicio)]
 
-            st.markdown("---")
+            if sel_coord != "Todos":
+                df_full_f = df_full_f[df_full_f["Coordinador"] == sel_coord]
 
-            # Filtros interactivos del módulo
+            if sel_sup != "Todos":
+                df_full_f = df_full_f[df_full_f["Supervisor"] == sel_sup]
+
+            if sel_asesor != "Todos":
+                norm_sel = normalizar(sel_asesor)
+                toks_sel = set(norm_sel.split())
+                def match_asesor(val):
+                    n_val = normalizar(str(val))
+                    if n_val == norm_sel:
+                        return True
+                    t_val = set(n_val.split())
+                    return len(toks_sel.intersection(t_val)) >= 2
+                df_full_f = df_full_f[df_full_f["Nombre_Asesor"].apply(match_asesor)]
+
+            # 2. Filtros interactivos específicos del módulo
             col_fb1, col_fb2 = st.columns([2, 1])
             with col_fb1:
-                grupos_b = ["Todos los Servicios"] + sorted(list(df_full["Servicio"].dropna().unique()))
-                sel_b_grp = st.selectbox("Filtrar Backlog por Servicio:", grupos_b, key="zd_sel_b_grp_v2")
+                servicios_b_disp = sorted([s for s in df_full_f["Servicio"].dropna().unique() if str(s).strip()])
+                grupos_b = ["Todos los Servicios"] + servicios_b_disp
+                sel_b_grp = st.selectbox("Filtrar Backlog por Cola / Servicio:", grupos_b, key="zd_sel_b_grp_v2")
             with col_fb2:
                 map_estados = {
                     "new": "Nuevo",
@@ -859,16 +869,38 @@ def render_tab_zendesk(email_usuario: str = ""):
                     "solved": "Resuelto",
                     "closed": "Cerrado"
                 }
-                if "Estado_Legible" not in df_full.columns:
-                    df_full["Estado_Legible"] = df_full["status"].map(map_estados).fillna(df_full["status"].astype(str).str.title())
-                estados_b = ["Todos los Estados"] + sorted(list(df_full["Estado_Legible"].dropna().unique()))
+                if "Estado_Legible" not in df_full_f.columns:
+                    df_full_f["Estado_Legible"] = df_full_f["status"].map(map_estados).fillna(df_full_f["status"].astype(str).str.title())
+                estados_b_disp = sorted([e for e in df_full_f["Estado_Legible"].dropna().unique() if str(e).strip()])
+                estados_b = ["Todos los Estados"] + estados_b_disp
                 sel_b_est = st.selectbox("Filtrar por Estado Operativo:", estados_b, key="zd_sel_b_est_v2")
 
-            df_full_f = df_full.copy()
             if sel_b_grp != "Todos los Servicios":
                 df_full_f = df_full_f[df_full_f["Servicio"] == sel_b_grp]
             if sel_b_est != "Todos los Estados":
                 df_full_f = df_full_f[df_full_f["Estado_Legible"] == sel_b_est]
+
+            # 3. Métricas Ejecutivas Reactivas (calculadas sobre df_full_f filtrado)
+            tot_bl = len(df_full_f)
+            c_48 = (df_full_f["Rango_Antiguedad"] == "<48H").sum() if tot_bl > 0 else 0
+            c_15 = (df_full_f["Rango_Antiguedad"] == ">48H<=15DIAS").sum() if tot_bl > 0 else 0
+            c_30 = (df_full_f["Rango_Antiguedad"] == ">15Y<=30DIAS").sum() if tot_bl > 0 else 0
+            c_mas30 = (df_full_f["Rango_Antiguedad"] == ">30DIAS").sum() if tot_bl > 0 else 0
+
+            nuevos_bv = len(df_full_f[df_full_f["status"] == "new"]) if "status" in df_full_f.columns else 0
+            abiertos_bv = len(df_full_f[df_full_f["status"] == "open"]) if "status" in df_full_f.columns else 0
+
+            hay_filtro_b = (sel_servicio != "Todos" or sel_coord != "Todos" or sel_sup != "Todos" or sel_asesor != "Todos" or sel_b_grp != "Todos los Servicios" or sel_b_est != "Todos los Estados")
+            titulo_total = "🎯 Backlog Filtrado" if hay_filtro_b else "🚨 Total Fábrica"
+
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric(titulo_total, f"{tot_bl:,}", f"{nuevos_bv} Nuevos / {abiertos_bv} Abiertos")
+            k2.metric("🟢 Fresco (<48H)", f"{c_48:,}", f"{(c_48/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%")
+            k3.metric("🟡 Operativo (2 a 15 D)", f"{c_15:,}", f"{(c_15/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%")
+            k4.metric("🟠 En Riesgo (15 a 30 D)", f"{c_30:,}", f"{(c_30/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%", delta_color="inverse")
+            k5.metric("🔴 Crítico (>30 Días)", f"{c_mas30:,}", f"{(c_mas30/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%", delta_color="inverse")
+
+            st.markdown("---")
 
             # Gráficos ejecutivos
             col_g1, col_g2 = st.columns([3, 2])
