@@ -74,11 +74,40 @@ def run_continuous_worker():
 
             # Verificar si la sesión expiró y fue redirigido a login
             if "login" in page.url.lower():
-                print(f"[{now_str}] [!] ATENCIÓN: La sesión de Salesforce expiró (URL: {page.url}).")
-                print(f"[{now_str}] [*] Por favor ejecuta 'iniciar_login_salesforce.bat' para renovar el inicio de sesión.")
-                sle.advance_live_state_smoothly()
-                time.sleep(30)
-                continue
+                print(f"[{now_str}] [!] Sesión expirada detectada. Ejecutando reautenticación automática...")
+                try:
+                    with open(CREDS_PATH, "r", encoding="utf-8") as f_cr:
+                        creds_auto = json.load(f_cr)
+                    u_auto = creds_auto.get("username", "")
+                    p_auto = creds_auto.get("password", "")
+
+                    # Paso 1: Usuario
+                    if page.locator("#username").is_visible(timeout=5000):
+                        page.fill("#username", u_auto)
+                        page.click("#Login")
+                        time.sleep(3)
+
+                    # Paso 2: Contraseña
+                    if page.locator("#password").is_visible(timeout=6000):
+                        page.fill("#password", p_auto)
+                        page.click("#Login")
+                        time.sleep(6)
+
+                    # Verificar si entró exitosamente
+                    if ("lightning" in page.url.lower() or "one.app" in page.url.lower()) and "login" not in page.url.lower():
+                        context.storage_state(path=STATE_PATH)
+                        print(f"[{now_str}] [+] ¡Reautenticación automática exitosa! Sesión renovada en {STATE_PATH}")
+                        page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
+                        time.sleep(5)
+                    elif "verification" in page.url.lower() or "identity" in page.url.lower():
+                        print(f"[{now_str}] [!] Salesforce solicitó código 2FA/MFA por correo electrónico.")
+                        print(f"[{now_str}] [*] Ejecuta 'iniciar_login_salesforce.bat' una sola vez con 'No volver a preguntar' para confiar en este equipo.")
+                except Exception as auto_err:
+                    print(f"[{now_str}] [!] Error en reautenticación automática: {auto_err}")
+
+                if "login" in page.url.lower() or "verification" in page.url.lower():
+                    time.sleep(30)
+                    continue
 
             try:
                 # Asegurar que estamos en la pestaña "Resumen de retraso de colas" si aplica
