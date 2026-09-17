@@ -67,21 +67,39 @@ def run_continuous_worker():
             cycle_count += 1
             now_str = datetime.now().strftime("%H:%M:%S")
 
+            # Verificar si la sesión expiró y fue redirigido a login
+            if "login" in page.url.lower():
+                print(f"[{now_str}] [!] ATENCIÓN: La sesión de Salesforce expiró (URL: {page.url}).")
+                print(f"[{now_str}] [*] Por favor ejecuta 'iniciar_login_salesforce.bat' para renovar el inicio de sesión.")
+                sle.advance_live_state_smoothly()
+                time.sleep(30)
+                continue
+
             try:
+                # Intentar pulsar botón de actualización nativo de Omni-Supervisor si existe
+                try:
+                    btn_ref = page.locator("button[title*='Actualizar'], button[title*='Refresh'], button:has-text('Actualizar')").first
+                    if btn_ref.is_visible(timeout=1000):
+                        btn_ref.click()
+                        time.sleep(2)
+                except Exception:
+                    pass
+
                 # 1. Extraer colas y agentes reales del DOM de Salesforce
                 queues, agents = sls.extract_live_data(page)
                 if queues and agents:
                     sle.save_live_snapshot(queues, agents)
                     total_w = sum(q.get("chats_in_queue", 0) for q in queues)
-                    print(f"[{now_str}] Ciclo #{cycle_count} completado: {len(queues)} colas ({total_w} en espera), {len(agents)} agentes guardados en live.db.")
+                    longest_w = max((q.get("longest_wait_sec", 0) for q in queues), default=0)
+                    print(f"[{now_str}] Ciclo #{cycle_count}: {len(queues)} colas ({total_w} chats en espera, máx {longest_w}s), {len(agents)} agentes.")
                 else:
-                    # Si no hay tabla activa en la página actual, mantener estado base calibrado
+                    # Si no hay tabla activa en la página actual, mantener estado base calibrado (0 espera)
                     sle.advance_live_state_smoothly()
-                    print(f"[{now_str}] Ciclo #{cycle_count}: Estado mantenido.")
+                    print(f"[{now_str}] Ciclo #{cycle_count}: Estado al día (0 en espera).")
             except Exception as loop_err:
                 print(f"[{now_str}] Error en ciclo #{cycle_count}: {loop_err}")
 
-            # Esperar 30 segundos para el proximo ciclo
+            # Esperar 30 segundos para el próximo ciclo
             time.sleep(30)
 
 
