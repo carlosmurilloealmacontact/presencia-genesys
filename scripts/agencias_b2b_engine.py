@@ -531,6 +531,8 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
     2. Salesforce Messaging: AG CHAT ES, AG CORPORATE CHAT, AG CELULA REMISION (chats).
     3. Salesforce Service Cloud: BO AGENCIAS TARGET, BO_CORPORATE (casos 24h).
     """
+    es_live = (fecha_sel == "live" or (not fecha_sel and not fecha_inicio))
+
     if fecha_inicio and fecha_fin:
         cierres_dia = csl.obtener_cierre_b2b_por_rango(fecha_inicio, fecha_fin) if csl else {}
         justificaciones = jb.obtener_justificaciones_por_rango(fecha_inicio, fecha_fin) if jb else {}
@@ -538,15 +540,18 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         cierres_dia = csl.obtener_cierre_b2b_por_fecha(fecha_sel) if csl else {}
         justificaciones = jb.obtener_justificaciones_por_fecha(fecha_sel) if jb else {}
     else:
-        cierres_dia = {}
-        justificaciones = jb.obtener_justificaciones_por_fecha(date.today().strftime("%Y-%m-%d")) if jb else {}
+        # En modo live / tiempo real: Cargar consolidado oficial intradía o más reciente para Salesforce
+        hoy_str = date.today().strftime("%Y-%m-%d")
+        cierres_dia = csl.obtener_cierre_b2b_por_fecha(hoy_str) if csl else {}
+        justificaciones = jb.obtener_justificaciones_por_fecha(hoy_str) if jb else {}
 
     token = obtener_token_genesys()
     gtr_cfg = gtr.cargar_config_gtr()
     serv_genesys_data = {}
-    if token and (fecha_sel == "live" or (not fecha_sel and not fecha_inicio)):
+    if token and es_live:
         try:
-            df_raw, _ = gtr.consultar_metricas_genesys(token, None, None, gtr_cfg)
+            res_gtr = gtr.obtener_metricas_gtr_api(token)
+            df_raw = res_gtr[0] if res_gtr and isinstance(res_gtr, tuple) else pd.DataFrame()
             if not df_raw.empty:
                 _, serv_genesys_data = gtr.construir_matriz_ejecutiva_gtr(df_raw, gtr_cfg)
         except Exception:
@@ -556,6 +561,7 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         # ── VOZ GENESYS CLOUD ──────────────────────────────────────────────────
         {
             "clave": "TARGET ESP",
+            "genesys_key": "AGENCIAS TARGET ES",
             "servicio": "TARGET ESP (Operacional SSC)",
             "plataforma": "Genesys Cloud",
             "canal": "VOZ",
@@ -565,6 +571,7 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         },
         {
             "clave": "TARGET ENG",
+            "genesys_key": "AGENCIAS TARGET ENG",
             "servicio": "TARGET ENG (Internacional)",
             "plataforma": "Genesys Cloud",
             "canal": "VOZ",
@@ -574,6 +581,7 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         },
         {
             "clave": "EMPRESAS",
+            "genesys_key": "CORPORATE PYME",
             "servicio": "CORPORATE PYME (Empresas Voz)",
             "plataforma": "Genesys Cloud",
             "canal": "VOZ",
@@ -630,6 +638,12 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         }
     ]
 
+    GENESYS_MAP = {
+        "TARGET ESP": "AGENCIAS TARGET ES",
+        "TARGET ENG": "AGENCIAS TARGET ENG",
+        "EMPRESAS": "CORPORATE PYME",
+    }
+
     filas = []
     for sc in servicios_def:
         k = sc["clave"]
@@ -638,17 +652,26 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         canal = sc["canal"]
         meta_ns = sc["meta_ns"]
         meta_aht = sc["meta_aht"]
+        g_k = sc.get("genesys_key", GENESYS_MAP.get(k, k))
 
         c_data = cierres_dia.get(k, {}) if cierres_dia else {}
-        if c_data:
+        if es_live and plat == "Genesys Cloud" and (g_k in serv_genesys_data or k in serv_genesys_data):
+            g_d = serv_genesys_data.get(g_k) or serv_genesys_data.get(k, {})
+            entrantes = int(g_d.get("LL ENT", 0))
+            atendidas = int(g_d.get("LL ATEN", 0))
+            aband = float(g_d.get("% ABAN", 0.0))
+            ns_real = float(g_d.get("% NS", 0.0))
+            aht_real = float(g_d.get("AHT", meta_aht))
+            asa = float(g_d.get("ASA", 0.0))
+        elif c_data:
             entrantes = c_data.get("entrante", 0)
             atendidas = c_data.get("atendido", 0)
             aband = c_data.get("pct_abandono", 0.0)
             ns_real = c_data.get("ns_real", 0.0)
             aht_real = c_data.get("aht_real", meta_aht)
             asa = c_data.get("asa_real", 0.0)
-        elif plat == "Genesys Cloud" and k in serv_genesys_data:
-            g_d = serv_genesys_data[k]
+        elif plat == "Genesys Cloud" and (g_k in serv_genesys_data or k in serv_genesys_data):
+            g_d = serv_genesys_data.get(g_k) or serv_genesys_data.get(k, {})
             entrantes = int(g_d.get("LL ENT", 0))
             atendidas = int(g_d.get("LL ATEN", 0))
             aband = float(g_d.get("% ABAN", 0.0))
@@ -702,6 +725,10 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
             just_txt = jb.generar_justificacion_automatica_avanzada(dict_calc, obs_manual)
             if fecha_inicio and fecha_fin and estado != "🟢 Cumple SLA":
                 just_txt = f"[Periodo {fecha_inicio} al {fecha_fin}] " + just_txt
+            elif es_live and plat == "Genesys Cloud":
+                just_txt = f"[🔴 En Vivo Genesys] " + just_txt
+            elif es_live and "Salesforce" in plat:
+                just_txt = f"[🔴 En Vivo Acumulado] " + just_txt
         else:
             just_txt = "🟢 Meta alcanzada sin desvío" if estado == "🟢 Cumple SLA" else f"Pérdida de NS ({dif_ns:+.1f}pp)"
 
