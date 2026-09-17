@@ -893,8 +893,25 @@ def render_tab_agencias_b2b(agentes_map: dict, current_email: str = "", render_t
     Renderiza la pestaña unificada '🏢 Agencias B2B' para Marelyn Cardona y Andrés Rodríguez.
     Estructurada en sus 4 pilares fundamentales SIN DUPLICACIÓN DE VISTAS.
     """
-    st.markdown("## 🏢 Operación Agencias B2B")
-    st.caption("Consolidado Integral Multicanal: **Genesys Cloud** (Piso, Voz, Chats & Pausas) + **Salesforce Service Cloud** (Omni-Channel & Casos) • Coordinación Marelyn Cardona & Andrés Rodríguez")
+    st.markdown(
+        """
+        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid #3b82f6;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">🏢 Agencias B2B • Centro de Mando Multicanal</h3>
+                    <p style="color: #94a3b8; margin: 0; font-size: 13px;">
+                        Integración operativa en tiempo real entre Genesys Cloud y Salesforce Omni-Channel • Productividad de Casos y Backlog SLA 24h
+                    </p>
+                </div>
+                <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
+                    <span style="color: #60a5fa; font-size: 11px; font-weight: 700; text-transform: uppercase;">Alianza B2B</span><br>
+                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Genesys + Salesforce</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     SUBTABS_AGENCIAS = [
         "🔴 Control de Estados & Monitoreo en Vivo",

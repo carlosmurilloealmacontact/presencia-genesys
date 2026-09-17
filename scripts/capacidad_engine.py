@@ -1208,10 +1208,24 @@ def render_tab_capacidad(agentes_map: dict):
     """
     Renderiza la Matriz Ejecutiva Panorámica de Capacidad y el Desglose Intradía.
     """
-    st.markdown("### 🧭 Matriz Ejecutiva de Capacidad y Diagnóstico Operativo")
-    st.caption(
-        "Herramienta gerencial de contraste: Compara la base del requerido del mes "
-        "frente a la ejecución real de presencia en Genesys, identificando la causa raíz de las brechas de servicio."
+    st.markdown(
+        """
+        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid #8b5cf6;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">🧭 Capacidad y Diagnóstico Operativo (WFM)</h3>
+                    <p style="color: #94a3b8; margin: 0; font-size: 13px;">
+                        Contraste del Requerido SORE vs Presencia Real Genesys • Dimensionamiento de FTEs, desviación de llamadas y horas efectivas
+                    </p>
+                </div>
+                <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
+                    <span style="color: #c084fc; font-size: 11px; font-weight: 700; text-transform: uppercase;">Planeación WFM</span><br>
+                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">SORE Forecast vs Real</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     df_fore_all = cargar_forecast_sore_completo()

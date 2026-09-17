@@ -373,59 +373,137 @@ CATEGORIAS = [
 ]
 
 
-def render_tab_glosario():
-    """Renderiza el módulo interactivo de Glosario y Guía de Usuario."""
-    st.markdown("### 📚 Glosario Operativo & Guía de Usuario")
-    st.caption(
-        "Manual de referencia y consulta gerencial para toda la operación: Supervisores, Coordinadores, WFM y Gerencia. "
-        "Encuentra aquí el significado, las fórmulas y la interpretación de cada indicador, estado y módulo del tablero."
+MAPA_SECCIONES_CATEGORIAS = {
+    "✈️ LATAM Pasajeros": ["GTR & Telefonía", "Monitoreo en Vivo", "Ausentismo & Adherencia"],
+    "Analisis de Pausas y Adherencia": ["Ausentismo & Adherencia"],
+    "Control de Estados (en Vivo)": ["Monitoreo en Vivo"],
+    "Niveles de Servicio": ["GTR & Telefonía"],
+    "🏢 Agencias B2B": ["B2B & Salesforce"],
+    "☁️ Salesforce B2B": ["B2B & Salesforce"],
+    "🎫 Zendesk": ["Zendesk & Soporte"],
+    "🧭 Capacidad y Diagnóstico": ["Capacidad & WFM"],
+    "🚨 Control de Ausentismo": ["Ausentismo & Adherencia"],
+}
+
+
+def render_tab_glosario(secciones_disponibles: list | None = None):
+    """Renderiza el módulo interactivo de Glosario y Guía de Usuario adaptado a los permisos del usuario."""
+    # Filtrar categorías permitidas según las secciones activas para el usuario
+    if secciones_disponibles:
+        cats_permitidas = set()
+        for sec in secciones_disponibles:
+            if sec in MAPA_SECCIONES_CATEGORIAS:
+                cats_permitidas.update(MAPA_SECCIONES_CATEGORIAS[sec])
+        if not cats_permitidas:
+            cats_permitidas = set(c for c in CATEGORIAS if c != "Todas las Categorías")
+    else:
+        cats_permitidas = set(c for c in CATEGORIAS if c != "Todas las Categorías")
+
+    categorias_menu = ["Todas las Categorías"] + [c for c in CATEGORIAS[1:] if c in cats_permitidas]
+    catalogo_usuario = [t for t in TERMINOS_GLOSARIO if t["categoria"] in cats_permitidas]
+
+    st.markdown(
+        f"""
+        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid #f59e0b;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">📚 Glosario Operativo & Guía Metodológica</h3>
+                    <p style="color: #94a3b8; margin: 0; font-size: 13px;">
+                        Manual de referencia oficial: fórmulas 4DX, métricas de servicio, estados Genesys Cloud, Salesforce B2B y estándares de contact center
+                    </p>
+                </div>
+                <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
+                    <span style="color: #fbbf24; font-size: 11px; font-weight: 700; text-transform: uppercase;">Biblioteca Operativa</span><br>
+                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">{len(catalogo_usuario)} Conceptos Disponibles</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     # ── 1. Guía Rápida: Estructura del Dashboard ──────────────────────────────
+    secciones_set = set(secciones_disponibles or [])
+    mostrar_todos = not bool(secciones_disponibles)
+
     with st.expander("🗺️ ¿Cómo usar y navegar este Dashboard? (Guía por Vistas)", expanded=True):
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.markdown(
+        tarjetas_guia = []
+
+        if mostrar_todos or any(s in secciones_set for s in ["✈️ LATAM Pasajeros", "Control de Estados (en Vivo)", "Analisis de Pausas y Adherencia", "Niveles de Servicio"]):
+            tarjetas_guia.append(
                 """
-                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #2563eb; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
-                    <b style="color:#1e40af; font-size:14px;">1. 🔴 Control de Estados (en Vivo)</b><br>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #0284c7; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+                    <b style="color:#0369a1; font-size:14px;">✈️ LATAM Pasajeros (Telefonía Genesys Cloud)</b><br>
                     <span style="font-size:12.5px; color:#334155; line-height:1.6;">
-                        • <b>Objetivo:</b> Control en tiempo real del piso operativo (se refresca cada 30 segundos).<br>
-                        • <b>Cómo usarlo:</b> Utiliza los filtros superiores de Coordinador, Servicio o Supervisor. Haz clic en las tarjetas KPI superiores (puedes activar varias al mismo tiempo) para aislar asesores en <i>Llamadas Largas</i> o <i>Excesos de Breaks</i>.<br>
-                        • <b>Cajas de alerta:</b> Monitorea las alertas vivas de piso con cronómetro en tiempo real.
+                        • <b>📡 Pausas y Adherencia:</b> Cumplimiento 4DX de descansos, almuerzos, baños y reuniones. Ranking de adherencia histórica.<br>
+                        • <b>🔴 Estados en Vivo:</b> Monitoreo en tiempo real del piso (refresco cada 30s) con detección de llamadas largas y alertas de tiempo.<br>
+                        • <b>📞 Niveles de Servicio (GTR):</b> Llamadas ofrecidas, atendidas, tasa de abandono y SLA 80/20 por servicio.
                     </span>
                 </div>
-                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #059669; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
-                    <b style="color:#065f46; font-size:14px;">2. 📊 Niveles de Servicio & GTR</b><br>
-                    <span style="font-size:12.5px; color:#334155; line-height:1.6;">
-                        • <b>Objetivo:</b> Desempeño ACD de llamadas entrantes por servicio y cola.<br>
-                        • <b>Cómo usarlo:</b> Revisa las llamadas ofrecidas, atendidas, abandonadas, % NS (meta 80/20) y AHT. Usa los filtros de Coordinador y Servicio para desglosar tu operación.
-                    </span>
-                </div>
-                """,
-                unsafe_allow_html=True
+                """
             )
-        with col_g2:
-            st.markdown(
+
+        if mostrar_todos or any(s in secciones_set for s in ["🏢 Agencias B2B", "☁️ Salesforce B2B"]):
+            tarjetas_guia.append(
+                """
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #3b82f6; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+                    <b style="color:#1d4ed8; font-size:14px;">🏢 Agencias B2B (Multicanal Genesys + Salesforce)</b><br>
+                    <span style="font-size:12.5px; color:#334155; line-height:1.6;">
+                        • <b>Monitoreo en Vivo:</b> Presencia dual telefónica (Genesys) y de casos escritos (Salesforce Omni-Channel).<br>
+                        • <b>Productividad de Casos:</b> Tipificaciones, cierres y tiempos efectivos de gestión por asesor.<br>
+                        • <b>Backlog & Aging SLA:</b> Casos pendientes con semaforización de cumplimiento de 24 horas.
+                    </span>
+                </div>
+                """
+            )
+
+        if mostrar_todos or "🎫 Zendesk" in secciones_set:
+            tarjetas_guia.append(
+                """
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #10b981; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+                    <b style="color:#047857; font-size:14px;">🎫 Mesa Digital Zendesk (Soporte Escrito)</b><br>
+                    <span style="font-size:12.5px; color:#334155; line-height:1.6;">
+                        • <b>Backlog Operativo:</b> Casos de pasajeros asignados a agentes o grupos de trabajo.<br>
+                        • <b>Autorizaciones Supervisor:</b> Cola segregada de excepciones que requieren aprobación de supervisión.<br>
+                        • <b>Desglose por Estado:</b> Monitoreo de tickets Abiertos, Pendientes, En Espera y Resueltos.
+                    </span>
+                </div>
+                """
+            )
+
+        if mostrar_todos or "🧭 Capacidad y Diagnóstico" in secciones_set:
+            tarjetas_guia.append(
                 """
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #8b5cf6; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
-                    <b style="color:#5b21b6; font-size:14px;">3. 🧭 Capacidad y Diagnóstico Operativo</b><br>
+                    <b style="color:#5b21b6; font-size:14px;">🧭 Capacidad y Diagnóstico Operativo (WFM)</b><br>
                     <span style="font-size:12.5px; color:#334155; line-height:1.6;">
-                        • <b>Objetivo:</b> Contraste gerencial del Requerido mensual (Forecast) vs presencia real ejecutada en Genesys.<br>
-                        • <b>Cómo usarlo:</b> Elige <i>Día Específico</i> o <i>Rango de Fechas</i> (última semana, quincena, MTD). Consulta el <b>Árbol Waterfall</b> para saber cuánto sumó la dotación y cuánto restaron las pausas.<br>
-                        • <b>Detalle:</b> Examina la curva intradía (48 intervalos de 30 min) o la evolución día a día.
+                        • <b>Forecast SORE vs Real:</b> Comparativo del personal requerido vs minutos disponibles entregados.<br>
+                        • <b>Árbol Waterfall:</b> Diagnóstico de pérdidas de capacidad por descansos, capacitaciones y fugas.<br>
+                        • <b>Curva Intradía:</b> Distribución de dotación y atención en 48 intervalos de 30 minutos.
                     </span>
                 </div>
-                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #dc2626; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
-                    <b style="color:#991b1b; font-size:14px;">4. 🚨 Control de Ausentismo & Adherencia</b><br>
-                    <span style="font-size:12.5px; color:#334155; line-height:1.6;">
-                        • <b>Objetivo:</b> Identificar ausencias cruzando la malla de turnos con los logins reales de Genesys.<br>
-                        • <b>Cómo usarlo:</b> Detecta asesores programados sin conexión, filtra por supervisor o coordinador y exporta reportes para seguimiento de novedades.
-                    </span>
-                </div>
-                """,
-                unsafe_allow_html=True
+                """
             )
+
+        if mostrar_todos or "🚨 Control de Ausentismo" in secciones_set:
+            tarjetas_guia.append(
+                """
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #ef4444; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+                    <b style="color:#b91c1c; font-size:14px;">🚨 Control de Ausentismo y Conexión</b><br>
+                    <span style="font-size:12.5px; color:#334155; line-height:1.6;">
+                        • <b>Alerta Temprana:</b> Detección de No-Logins y retrasos en los primeros 15-30 minutos de turno.<br>
+                        • <b>Auto-Servicio de Justificación:</b> Registro ágil de incapacidades, permisos y novedades médicas.<br>
+                        • <b>Matriz por Supervisor:</b> Control de la tasa de ausentismo frente a la meta corporativa del 8.0%.
+                    </span>
+                </div>
+                """
+            )
+
+        col_g1, col_g2 = st.columns(2)
+        for idx, tarjeta_html in enumerate(tarjetas_guia):
+            target_col = col_g1 if (idx % 2 == 0) else col_g2
+            with target_col:
+                st.markdown(tarjeta_html, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -443,14 +521,14 @@ def render_tab_glosario():
     with col_cat:
         cat_sel = st.selectbox(
             "Filtrar por Categoría:",
-            options=CATEGORIAS,
+            options=categorias_menu,
             index=0,
             key="glosario_cat_sel"
         )
 
     # Filtrar catálogo
     resultados = []
-    for item in TERMINOS_GLOSARIO:
+    for item in catalogo_usuario:
         # Filtro de categoría
         if cat_sel != "Todas las Categorías" and item["categoria"] != cat_sel:
             continue
@@ -467,7 +545,7 @@ def render_tab_glosario():
                 continue
         resultados.append(item)
 
-    st.caption(f"Mostrando **{len(resultados)}** términos de {len(TERMINOS_GLOSARIO)} disponibles en el catálogo.")
+    st.caption(f"Mostrando **{len(resultados)}** términos relevantes para tus módulos habilitados (de {len(TERMINOS_GLOSARIO)} totales).")
 
     if not resultados:
         st.info("No se encontraron términos que coincidan con tu búsqueda. Intenta con otra palabra clave o selecciona 'Todas las Categorías'.")

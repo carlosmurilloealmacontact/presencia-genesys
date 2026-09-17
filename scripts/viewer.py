@@ -2,6 +2,8 @@
 # Uso: streamlit run viewer.py
 import gc
 import numpy as np
+import re
+import unicodedata
 
 import sqlite3
 from io import BytesIO
@@ -159,6 +161,75 @@ else:
     # Modo local / sin secrets de OAuth configurados
     current_email = "carlosmurilloe.almacontact@outsourcing-account.com"
     current_name = "Carlos Murillo"
+
+# ── DETECCIÓN AUTOMÁTICA DE ROL LÍDER Y PRECARGA DE FILTROS ──────────────────
+def _normalizar_texto_lider(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("utf-8")
+    s = re.sub(r"[^a-zA-Z0-9\s]", " ", s)
+    return " ".join(s.upper().split())
+
+def _detectar_lider_autenticado(email: str, nombre: str, coords: list, sups: list) -> tuple[str | None, str | None]:
+    if not email and not nombre:
+        return None, None
+    norm_name = _normalizar_texto_lider(nombre)
+    tokens_name = set(w for w in norm_name.split() if len(w) > 2)
+    alias = email.split("@")[0] if "@" in email else email
+    alias_tokens = set(w for w in re.split(r"[._-]", _normalizar_texto_lider(alias)) if len(w) > 2)
+
+    def _buscar(lista: list) -> str | None:
+        mejor = None
+        max_score = 0
+        for item in lista:
+            norm_item = _normalizar_texto_lider(item)
+            if norm_item == norm_name:
+                return item
+            item_tokens = set(w for w in norm_item.split() if len(w) > 2)
+            score = max(len(alias_tokens.intersection(item_tokens)), len(tokens_name.intersection(item_tokens)))
+            if score >= 2 and score > max_score:
+                max_score = score
+                mejor = item
+        return mejor
+
+    return _buscar(coords), _buscar(sups)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _obtener_listas_lideres_db():
+    real_db_path = Path(__file__).parent / DB_PATH
+    if not os.path.exists(real_db_path):
+        return [], []
+    try:
+        conn = sqlite3.connect(real_db_path)
+        c = conn.cursor()
+        c.execute("SELECT DISTINCT coordinador FROM segments WHERE coordinador IS NOT NULL AND coordinador != '' ORDER BY coordinador")
+        coords = [r[0] for r in c.fetchall()]
+        c.execute("SELECT DISTINCT jefe_inmediato FROM segments WHERE jefe_inmediato IS NOT NULL AND jefe_inmediato != '' ORDER BY jefe_inmediato")
+        sups = [r[0] for r in c.fetchall()]
+        conn.close()
+        return coords, sups
+    except Exception:
+        return [], []
+
+if "filtros_lider_inicializados" not in st.session_state:
+    st.session_state["filtros_lider_inicializados"] = True
+    try:
+        coords_db, sups_db = _obtener_listas_lideres_db()
+        coord_match, sup_match = _detectar_lider_autenticado(current_email, current_name, coords_db, sups_db)
+        if coord_match:
+            st.session_state["coord_sel"] = [coord_match]
+            st.session_state["live_coord_sel"] = [coord_match]
+            st.session_state["aus_coord_sel"] = [coord_match]
+            st.toast(f"👋 Hola {current_name.split()[0]}! Filtramos tu coordinación ({coord_match}). Puedes cambiarlo o borrarlo cuando desees.", icon="🎯")
+        elif sup_match:
+            st.session_state["superv_sel"] = [sup_match]
+            st.session_state["live_superv_sel"] = [sup_match]
+            st.session_state["aus_sup_sel"] = [sup_match]
+            st.session_state["agb2b_live_live_superv_sel"] = [sup_match]
+            st.session_state["flt_sup"] = sup_match
+            st.toast(f"👋 Hola {current_name.split()[0]}! Filtramos tu equipo de supervisión ({sup_match}). Puedes cambiarlo o borrarlo cuando desees.", icon="🎯")
+    except Exception:
+        pass
 
 PALETA_ESTADOS = px.colors.qualitative.Alphabet + px.colors.qualitative.Dark24
 
@@ -1930,6 +2001,25 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
 
 
 if seccion_activa in ("✈️ LATAM Pasajeros", "Analisis de Pausas y Adherencia", "Control de Estados (en Vivo)", "Niveles de Servicio"):
+    st.markdown(
+        """
+        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid #0284c7;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">✈️ LATAM Pasajeros • Telefonía & Gestión Operativa</h3>
+                    <p style="color: #94a3b8; margin: 0; font-size: 13px;">
+                        Monitoreo integral de voz: Pausas y Adherencia de Turno, Control de Estados en Vivo (Genesys Cloud) y Niveles de Servicio GTR (SLA)
+                    </p>
+                </div>
+                <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
+                    <span style="color: #38bdf8; font-size: 11px; font-weight: 700; text-transform: uppercase;">Telefonía Omnicanal</span><br>
+                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Genesys Cloud CX</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     sub_secciones_pasajeros = [
         "📡 Pausas y Adherencia",
         "🔴 Control de Estados (en Vivo)",
@@ -1971,7 +2061,26 @@ elif seccion_activa == "🚨 Control de Ausentismo":
     render_tab_ausentismo(cargar_agentes_map_base())
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
+    st.markdown(
+        """
+        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid #64748b;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">📊 Auditoría de Usabilidad y Accesos</h3>
+                    <p style="color: #94a3b8; margin: 0; font-size: 13px;">
+                        Monitoreo de adopción de módulos, usuarios frecuentes y trazabilidad en tiempo real sobre Neon Postgres
+                    </p>
+                </div>
+                <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
+                    <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">Seguridad & Auditoría</span><br>
+                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Acceso Restringido</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     render_panel_auditoria()
 
 elif seccion_activa == "📚 Glosario & Guía":
-    render_tab_glosario()
+    render_tab_glosario(secciones_disponibles=SECCIONES_APP)

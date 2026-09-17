@@ -661,10 +661,10 @@ def render_tab_ausentismo(agentes_map: dict):
         c_f2, c_f_sede, c_f3, c_f4, c_f5 = st.columns([1.2, 1.0, 1.2, 1.1, 0.9])
         with c_f2:
             coords = sorted(df_radar["Coordinador"].dropna().unique())
-            coord_sel = st.multiselect("Filtrar Coordinador:", options=coords, default=[], key="aus_coord_sel")
+            coord_sel = st.multiselect("Filtrar Coordinador:", options=coords, placeholder="Todos", key="aus_coord_sel")
         with c_f_sede:
             sedes_disp = sorted(df_radar["Sede"].dropna().unique())
-            sede_sel = st.multiselect("Ciudad / Sede:", options=sedes_disp, default=[], key="aus_sede_sel")
+            sede_sel = st.multiselect("Ciudad / Sede:", options=sedes_disp, placeholder="Todos", key="aus_sede_sel")
         with c_f3:
             df_sup_filter = df_radar
             if coord_sel:
@@ -672,10 +672,10 @@ def render_tab_ausentismo(agentes_map: dict):
             if sede_sel:
                 df_sup_filter = df_sup_filter[df_sup_filter["Sede"].isin(sede_sel)]
             sups_disp = df_sup_filter["Supervisor"].dropna().unique()
-            sup_sel = st.multiselect("Filtrar Supervisor:", options=sorted(sups_disp), default=[], key="aus_sup_sel")
+            sup_sel = st.multiselect("Filtrar Supervisor:", options=sorted(sups_disp), placeholder="Todos", key="aus_sup_sel")
         with c_f4:
             servicios_disp = df_radar["Servicio"].dropna().unique()
-            srv_sel = st.multiselect("Filtrar Servicio:", options=sorted(servicios_disp), default=[], key="aus_srv_sel")
+            srv_sel = st.multiselect("Filtrar Servicio:", options=sorted(servicios_disp), placeholder="Todos", key="aus_srv_sel")
         with c_f5:
             st.write("")
             excluir_cargo = st.checkbox("Excluir Cargo", value=True, help="Oculta colaboradores de Cargo Booking / CC (no operan con Genesys)", key="aus_excluir_cargo")

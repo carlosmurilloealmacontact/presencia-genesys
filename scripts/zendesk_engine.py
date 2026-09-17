@@ -568,9 +568,25 @@ def procesar_cortes_intradia(df_prod: pd.DataFrame, cortes_hora: List[int] = Non
 # ── RENDERIZADOR PRINCIPAL DEL MÓDULO ZENDESK ─────────────────────────────────
 
 def render_tab_zendesk(email_usuario: str = ""):
-    """Renderiza el módulo integral de Zendesk dentro de Radar Genesys."""
-    st.markdown("### 🎫 Zendesk Support — Reportería y Control Operativo Almacontact")
-    st.caption("Extracción en vivo: Antigüedad de Backlog, Cortes Intradía, Productividad Diaria, Tipologías de Gestión y SLAs.")
+    st.markdown(
+        """
+        <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid #10b981;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">🎫 Mesa Digital Zendesk • Backlog y Casos Especiales</h3>
+                    <p style="color: #94a3b8; margin: 0; font-size: 13px;">
+                        Monitoreo del canal escrito, segregación de Autorizaciones Supervisor, productividad diaria y cumplimiento de SLA
+                    </p>
+                </div>
+                <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
+                    <span style="color: #34d399; font-size: 11px; font-weight: 700; text-transform: uppercase;">Soporte Digital</span><br>
+                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Zendesk Support</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     # Cargar bundle optimizado y pre-enriquecido en memoria (instantáneo < 1ms tras carga inicial)
     bundle = cargar_bundle_zendesk()
