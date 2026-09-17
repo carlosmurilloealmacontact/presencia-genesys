@@ -77,6 +77,13 @@ def obtener_logos_marca():
     return b64_alma, b64_latam
 
 from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, DOMINIOS_CORPORATIVOS, ADMINS_AUTORIZADOS
+try:
+    from feedback_engine import render_dialog_feedback, render_panel_gestion_feedback
+except Exception as _fb_err:
+    def render_dialog_feedback(*args, **kwargs):
+        st.error(f"Error cargando feedback engine: {_fb_err}")
+    def render_panel_gestion_feedback(*args, **kwargs):
+        st.error(f"Error cargando panel de feedback: {_fb_err}")
 
 # ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
 try:
@@ -1261,26 +1268,44 @@ with st.sidebar:
         if st.button("🚪 Cerrar Sesión", key="btn_logout_sidebar", use_container_width=True, type="secondary"):
             st.logout()
 
-# ── BARRA SUPERIOR (BANNER UNIFICADO & LOGOTIPOS) ─────────────────────────────
+# ── BARRA SUPERIOR (BANNER UNIFICADO & LOGOTIPOS + FEEDBACK) ──────────────────
 b64_alma, b64_latam = obtener_logos_marca()
 img_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="22" style="vertical-align: middle; max-width: 120px; object-fit: contain;" alt="Almaexperience">' if b64_alma else '<span style="font-weight:700; color:#054780; font-size:13px;">Almaexperience</span>'
 img_latam_html = f'<img src="data:image/png;base64,{b64_latam}" height="16" style="vertical-align: middle; max-width: 80px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam else '<span style="font-weight:700; color:#2a0088; font-size:13px;">LATAM</span>'
 
-st.markdown(
-    f"""
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 18px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;">🛰️ Radar Operacional</span>
+c_hdr_left, c_hdr_logos, c_hdr_fb = st.columns([2.6, 1.3, 0.9], vertical_alignment="center")
+
+with c_hdr_left:
+    st.markdown(
+        """
+        <div style="display: flex; align-items: center; gap: 10px; padding: 4px 0;">
+            <span style="font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;">🛰️ Radar Operacional</span>
+            <span style="background: #eff6ff; color: #1d4ed8; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; border: 1px solid #bfdbfe;">Centro de Mando</span>
         </div>
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+        """,
+        unsafe_allow_html=True
+    )
+
+with c_hdr_logos:
+    st.markdown(
+        f"""
+        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); width: 100%;">
             {img_alma_html}
-            <span style="color: #cbd5e1; font-size: 15px; font-weight: 300;">|</span>
+            <span style="color: #cbd5e1; font-size: 14px; font-weight: 300;">|</span>
             {img_latam_html}
         </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        """,
+        unsafe_allow_html=True
+    )
+
+with c_hdr_fb:
+    if st.button("💬 Feedback / Bug", key="btn_open_feedback_header", use_container_width=True, help="¿Detectaste un fallo, inconsistencia de datos o tienes una sugerencia? Haz clic aquí para reportarlo."):
+        render_dialog_feedback(
+            current_email=current_email,
+            current_name=current_name,
+            current_role=st.session_state.get("rol_usuario_display", ""),
+            seccion_actual=st.session_state.get("seccion_audit_actual", "General")
+        )
 
 # ── NAVEGACIÓN PRINCIPAL A ANCHO COMPLETO (SIN COLISIONES) ───────────────────
 default_tab = SECCIONES_APP[0]
@@ -2133,21 +2158,25 @@ elif seccion_activa == "📊 Estadísticas de Usabilidad":
         <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 15px; border-left: 5px solid #64748b;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                 <div>
-                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">📊 Auditoría de Usabilidad y Accesos</h3>
+                    <h3 style="color: #ffffff; margin: 0 0 4px 0; font-size: 20px;">📊 Auditoría & Centro de Feedback</h3>
                     <p style="color: #94a3b8; margin: 0; font-size: 13px;">
-                        Monitoreo de adopción de módulos, usuarios frecuentes y trazabilidad en tiempo real sobre Neon Postgres
+                        Monitoreo de adopción de módulos, usuarios frecuentes y buzón centralizado de incidencias / bugs reportados
                     </p>
                 </div>
                 <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
-                    <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">Seguridad & Auditoría</span><br>
-                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Acceso Restringido</span>
+                    <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">Seguridad & Soporte</span><br>
+                    <span style="color: #cbd5e1; font-size: 12px; font-weight: 600;">Administración</span>
                 </div>
             </div>
         </div>
         """,
         unsafe_allow_html=True
     )
-    render_panel_auditoria()
+    tab_audit, tab_feedback = st.tabs(["📊 Usabilidad & Accesos", "📬 Bandeja de Feedback & Incidencias"])
+    with tab_audit:
+        render_panel_auditoria()
+    with tab_feedback:
+        render_panel_gestion_feedback(current_email)
 
 elif seccion_activa == "📚 Glosario & Guía":
     render_tab_glosario(secciones_disponibles=SECCIONES_APP)

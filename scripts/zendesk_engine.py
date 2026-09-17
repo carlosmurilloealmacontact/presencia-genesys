@@ -481,6 +481,13 @@ def cargar_bundle_zendesk() -> dict:
         except Exception:
             pass
 
+    # Pre-calcular banderas de SLA en df_raw antes de enriquecer
+    if df_raw is not None and not df_raw.empty:
+        if "Mediana_RWT_hrs" in df_raw.columns:
+            df_raw["Cumple_RWT_48h"] = df_raw["Mediana_RWT_hrs"] <= 48.0
+        if "Mediana_FRT_hrs" in df_raw.columns:
+            df_raw["Cumple_FRT_24h"] = df_raw["Mediana_FRT_hrs"] <= 24.0
+
     # Pre-enriquecer con jerarquía Socio Maestro
     df_raw_enr_alma = enriquecer_con_socio(df_raw, solo_almacontact=True) if df_raw is not None else None
     df_raw_enr_todos = enriquecer_con_socio(df_raw, solo_almacontact=False) if df_raw is not None else None
@@ -508,6 +515,27 @@ def cargar_bundle_zendesk() -> dict:
 
     # La matriz y el backlog operativo SOLO reciben df_b_operativo (sin autorizaciones para no inflar la fábrica)
     df_b_full, m_resumen, d_desglose = procesar_antiguedad_backlog(df_b_operativo) if df_b_operativo is not None else (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+
+    # Detectar casos Reopen en df_b_full (casos actualmente open que registran fecha o registro previo de resuelto)
+    file_parquet = DATA_DIR / "productividad_historica_2026.parquet"
+    ids_resueltos = set()
+    if file_parquet.exists():
+        try:
+            df_pq = pd.read_parquet(file_parquet, columns=["id"])
+            ids_resueltos.update(df_pq["id"].dropna().astype(str).tolist())
+        except Exception:
+            pass
+    if file_prod_hoy.exists():
+        try:
+            df_h = pd.read_csv(file_prod_hoy, usecols=["id"])
+            ids_resueltos.update(df_h["id"].dropna().astype(str).tolist())
+        except Exception:
+            pass
+
+    if df_b_full is not None and not df_b_full.empty:
+        df_b_full["Es_Reopen"] = (df_b_full["status"] == "open") & (df_b_full["id"].astype(str).isin(ids_resueltos))
+    elif df_b_full is not None:
+        df_b_full["Es_Reopen"] = False
 
     # Pre-calcular rango de fechas globales disponibles
     fechas_disp = []
@@ -802,14 +830,30 @@ def render_tab_zendesk(email_usuario: str = ""):
     else:
         df_diario_filtrado = None
 
+    # Asignar df_slas_filtrado con la misma reactividad jerárquica
+    if df_enriquecido is not None and not df_enriquecido.empty:
+        d_s = df_enriquecido.copy()
+        if sel_servicio != "Todos":
+            d_s = d_s[d_s["Servicio"] == sel_servicio]
+        if sel_coord != "Todos":
+            d_s = d_s[d_s["Coordinador"] == sel_coord]
+        if sel_sup != "Todos":
+            d_s = d_s[d_s["Supervisor"] == sel_sup]
+        if sel_asesor != "Todos":
+            d_s = d_s[d_s["Nombre_Asesor"] == sel_asesor]
+        df_slas_filtrado = d_s
+    else:
+        df_slas_filtrado = None
+
     # =========================================================================
-    # MACRO-MÓDULOS EJECUTIVOS CONSOLIDADOS (4 PESTAÑAS ESTRATÉGICAS)
+    # MACRO-MÓDULOS EJECUTIVOS CONSOLIDADOS (5 PESTAÑAS ESTRATÉGICAS)
     # =========================================================================
-    tab_zd_backlog, tab_zd_prod, tab_zd_demanda, tab_zd_auth = st.tabs([
+    tab_zd_backlog, tab_zd_prod, tab_zd_slas, tab_zd_tipologia, tab_zd_demanda = st.tabs([
         "🚨 Backlog en Cola & Antigüedad",
-        "📈 Productividad & Desempeño",
-        "⚖️ Demanda & Balance (Inflow vs Outflow)",
-        "🛡️ Autorizaciones & SLAs"
+        "📈 Productividad & Desempeño Operativo",
+        "⏱️ Calidad & SLAs (Reopen, RWT, FRT)",
+        "🏷️ Tipología & Distribución",
+        "⚖️ Demanda & Balance (Inflow vs Outflow)"
     ])
 
     # -------------------------------------------------------------------------
@@ -864,13 +908,9 @@ def render_tab_zendesk(email_usuario: str = ""):
                     return len(toks_sel.intersection(t_val)) >= 2
                 df_full_f = df_full_f[df_full_f["Nombre_Asesor"].apply(match_asesor)]
 
-            # 2. Filtros interactivos específicos del módulo
-            col_fb1, col_fb2 = st.columns([2, 1])
+            # 2. Filtro interactivo específico del módulo: Estado Operativo
+            col_fb1, _ = st.columns([2, 2])
             with col_fb1:
-                servicios_b_disp = sorted([s for s in df_full_f["Servicio"].dropna().unique() if str(s).strip()])
-                grupos_b = ["Todos los Servicios"] + servicios_b_disp
-                sel_b_grp = st.selectbox("Filtrar Backlog por Cola / Servicio:", grupos_b, key="zd_sel_b_grp_v3")
-            with col_fb2:
                 map_estados = {
                     "new": "Nuevo",
                     "open": "Abierto",
@@ -885,12 +925,6 @@ def render_tab_zendesk(email_usuario: str = ""):
                 estados_b = ["Todos los Estados"] + estados_b_disp
                 sel_b_est = st.selectbox("Filtrar por Estado Operativo:", estados_b, key="zd_sel_b_est_v3")
 
-            if sel_b_grp != "Todos los Servicios":
-                df_full_f = df_full_f[
-                    (df_full_f["Servicio"] == sel_b_grp)
-                    | (df_full_f["grupo"] == sel_b_grp)
-                    | (df_full_f["grupo"].map(MAPA_GRUPO_A_SERVICIO) == sel_b_grp)
-                ]
             if sel_b_est != "Todos los Estados":
                 df_full_f = df_full_f[df_full_f["Estado_Legible"] == sel_b_est]
 
@@ -900,24 +934,26 @@ def render_tab_zendesk(email_usuario: str = ""):
             c_15 = (df_full_f["Rango_Antiguedad"] == ">48H<=15DIAS").sum() if tot_bl > 0 else 0
             c_30 = (df_full_f["Rango_Antiguedad"] == ">15Y<=30DIAS").sum() if tot_bl > 0 else 0
             c_mas30 = (df_full_f["Rango_Antiguedad"] == ">30DIAS").sum() if tot_bl > 0 else 0
+            c_reopen = (df_full_f["Es_Reopen"] == True).sum() if ("Es_Reopen" in df_full_f.columns and tot_bl > 0) else 0
 
             nuevos_bv = len(df_full_f[df_full_f["status"] == "new"]) if "status" in df_full_f.columns else 0
             abiertos_bv = len(df_full_f[df_full_f["status"] == "open"]) if "status" in df_full_f.columns else 0
 
-            hay_filtro_b = (sel_servicio != "Todos" or sel_coord != "Todos" or sel_sup != "Todos" or sel_asesor != "Todos" or sel_b_grp != "Todos los Servicios" or sel_b_est != "Todos los Estados")
+            hay_filtro_b = (sel_servicio != "Todos" or sel_coord != "Todos" or sel_sup != "Todos" or sel_asesor != "Todos" or sel_b_est != "Todos los Estados")
             titulo_total = "🎯 Backlog Filtrado" if hay_filtro_b else "🚨 Total Fábrica"
 
-            k1, k2, k3, k4, k5 = st.columns(5)
+            k1, k2, k3, k4, k5, k6 = st.columns(6)
             k1.metric(titulo_total, f"{tot_bl:,}", f"{nuevos_bv} Nuevos / {abiertos_bv} Abiertos")
             k2.metric("🟢 Fresco (<48H)", f"{c_48:,}", f"{(c_48/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%")
             k3.metric("🟡 Operativo (2 a 15 D)", f"{c_15:,}", f"{(c_15/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%")
             k4.metric("🟠 En Riesgo (15 a 30 D)", f"{c_30:,}", f"{(c_30/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%", delta_color="inverse")
             k5.metric("🔴 Crítico (>30 Días)", f"{c_mas30:,}", f"{(c_mas30/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%", delta_color="inverse")
+            k6.metric("🔄 Reabiertos", f"{c_reopen:,}", f"{(c_reopen/tot_bl)*100:.1f}% de cola" if tot_bl > 0 else "0.0%", delta_color="inverse" if c_reopen > 0 else "normal")
 
             st.markdown("---")
 
             if tot_bl == 0:
-                st.info("ℹ️ No se encontraron tickets en cola para la combinación de filtros seleccionada. Prueba seleccionando 'Todos los Servicios' o 'Todos los Estados'.")
+                st.info("ℹ️ No se encontraron tickets en cola para la combinación de filtros seleccionada. Prueba seleccionando 'Todos los Estados' o ajustando el servicio superior.")
 
             # Gráficos ejecutivos
             col_g1, col_g2 = st.columns([3, 2])
@@ -1063,7 +1099,12 @@ def render_tab_zendesk(email_usuario: str = ""):
             st.subheader("📋 Detalle de Tickets en Cola de Espera (Hora Colombia UTC-5)")
             if "created_at" in df_full_f.columns:
                 df_full_f["Fecha Creación (Hora Col)"] = df_full_f["created_at"].apply(formatear_colombia_dt)
-            cols_t = ["id", "subject", "Servicio", "Estado_Legible", "priority", campo_tip, "Nombre_Asesor", "Fecha Creación (Hora Col)", "Rango_Antiguedad"]
+            if "Es_Reopen" in df_full_f.columns:
+                df_full_f["Indicador_Reopen"] = df_full_f["Es_Reopen"].apply(lambda x: "🔄 Reabierto" if x else "Normal")
+            else:
+                df_full_f["Indicador_Reopen"] = "Normal"
+
+            cols_t = ["id", "subject", "Servicio", "Estado_Legible", "priority", "Indicador_Reopen", campo_tip, "Nombre_Asesor", "Fecha Creación (Hora Col)", "Rango_Antiguedad"]
             cols_exist = [c for c in cols_t if c in df_full_f.columns]
             st.dataframe(
                 df_full_f[cols_exist].rename(columns={
@@ -1072,6 +1113,7 @@ def render_tab_zendesk(email_usuario: str = ""):
                     "Servicio": "Servicio / Cola",
                     "Estado_Legible": "Estado",
                     "priority": "Prioridad",
+                    "Indicador_Reopen": "Reapertura",
                     campo_tip: "Tipología",
                     "Nombre_Asesor": "Asignado",
                     "Rango_Antiguedad": "Rango Antigüedad"
