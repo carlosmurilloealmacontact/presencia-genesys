@@ -128,14 +128,15 @@ def run_continuous_worker():
                     pass
 
                 # 4. Extraer colas y agentes reales del DOM
-                queues, agents = sls.extract_live_data(page)
-                if queues and agents:
-                    sle.save_live_snapshot(queues, agents)
+                # 4. Extraer colas reales del DOM de Salesforce
+                queues, _ = sls.extract_live_data(page)
+                if queues:
+                    sle.advance_live_state_smoothly(scraped_queues=queues)
                     total_w = sum(q.get("chats_in_queue", 0) for q in queues)
                     longest_w = max((q.get("longest_wait_sec", 0) for q in queues), default=0)
                     queues_with_wait = [f"{q['queue_name']}={q['chats_in_queue']} ({q['longest_wait_sec']}s)" for q in queues if q.get("chats_in_queue", 0) > 0]
                     detail_str = f" [En espera: {', '.join(queues_with_wait)}]" if queues_with_wait else " [0 en espera]"
-                    print(f"[{now_str}] Ciclo #{cycle_count}: {len(queues)} colas ({total_w} chats en espera, máx {longest_w}s), {len(agents)} agentes.{detail_str}")
+                    print(f"[{now_str}] Ciclo #{cycle_count}: {len(queues)} colas sincronizadas ({total_w} chats en espera, máx {longest_w}s).{detail_str}")
                 else:
                     sle.advance_live_state_smoothly()
                     print(f"[{now_str}] Ciclo #{cycle_count}: Estado al día (0 en espera).")

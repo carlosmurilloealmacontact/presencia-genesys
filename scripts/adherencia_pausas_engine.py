@@ -785,47 +785,146 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
         "Horas Pausas": st.column_config.NumberColumn("H. Pausas", format="%.2f h"),
         "Brecha Horas": st.column_config.NumberColumn("Brecha", format="%.2f h"),
     }
-    st.dataframe(df_show, column_config=column_cfg_unif, use_container_width=True, hide_index=True)
+    event_tabla = st.dataframe(
+        df_show,
+        column_config=column_cfg_unif,
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"{key_prefix}tbl_unif"
+    )
 
-    # Botones de descarga y detalle franja a franja
-    c_dl1, c_dl2 = st.columns([1, 1])
-    with c_dl1:
-        csv_u = df_show.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label=f"📥 Descargar Matriz Unificada de Asesores ({ambito}) (CSV)",
-            data=csv_u,
-            file_name=f"auditoria_turnos_pausas_{ambito.lower()}_{fecha_sel}.csv",
-            mime="text/csv",
-            key=f"{key_prefix}btn_dl_unif"
+    # Identificar si se seleccionó una fila por clic
+    bp_seleccionado = None
+    nom_seleccionado = None
+    row_seleccionada = None
+
+    if event_tabla and hasattr(event_tabla, "selection") and event_tabla.selection:
+        filas_sel = event_tabla.selection.get("rows", [])
+        if filas_sel and len(filas_sel) > 0 and filas_sel[0] < len(df_show):
+            row_seleccionada = df_show.iloc[filas_sel[0]]
+            bp_seleccionado = str(row_seleccionada["BP"]).strip()
+            nom_seleccionado = str(row_seleccionada["Asesor"]).strip()
+
+    # Botón de descarga de la matriz unificada
+    csv_u = df_show.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label=f"📥 Descargar Matriz Unificada de Asesores ({ambito}) (CSV)",
+        data=csv_u,
+        file_name=f"auditoria_turnos_pausas_{ambito.lower()}_{fecha_sel}.csv",
+        mime="text/csv",
+        key=f"{key_prefix}btn_dl_unif"
+    )
+
+    # ── SECCIÓN DINÁMICA DE AUDITORÍA INTRADÍA DE DESCANSOS ───────────────────
+    st.write("")
+    
+    # Encabezado dinámico con selector complementario
+    c_sub_t1, c_sub_t2 = st.columns([2.3, 1.7])
+    with c_sub_t1:
+        st.markdown("##### 🔍 Auditoría Intradía Franja a Franja de Descansos")
+    with c_sub_t2:
+        lista_opciones_as = ["-- Todos los Asesores --"] + [f"{r['Asesor']} (BP {r['BP']})" for _, r in df_show.iterrows()]
+        idx_default_dd = 0
+        if bp_seleccionado:
+            for i_opc, opc_text in enumerate(lista_opciones_as):
+                if f"(BP {bp_seleccionado})" in opc_text:
+                    idx_default_dd = i_opc
+                    break
+        asesor_dropdown = st.selectbox(
+            "Filtrar Asesor para Inspección",
+            options=lista_opciones_as,
+            index=idx_default_dd,
+            key=f"{key_prefix}dropdown_asesor_p",
+            label_visibility="collapsed"
+        )
+        if asesor_dropdown != "-- Todos los Asesores --":
+            bp_extraido = asesor_dropdown.split("(BP ")[-1].replace(")", "").strip()
+            bp_seleccionado = bp_extraido
+            sub_matches = df_show[df_show["BP"] == bp_seleccionado]
+            if not sub_matches.empty:
+                row_seleccionada = sub_matches.iloc[0]
+                nom_seleccionado = str(row_seleccionada["Asesor"]).strip()
+        elif not (event_tabla and hasattr(event_tabla, "selection") and event_tabla.selection and event_tabla.selection.get("rows")):
+            bp_seleccionado = None
+
+    if bp_seleccionado and row_seleccionada is not None:
+        t_prog = row_seleccionada.get("Turno Programado", "--")
+        h_con = row_seleccionada.get("Conexión Real", "--")
+        brecha_h = row_seleccionada.get("Brecha Horas", 0.0)
+        est_t = row_seleccionada.get("Estado Turno", "--")
+        p_prog = row_seleccionada.get("Pausas Prog", 0)
+        p_punt = row_seleccionada.get("Pausas Puntuales", 0)
+        pct_adh_p = row_seleccionada.get("% Adh Pausas", 0.0)
+        mins_exc = row_seleccionada.get("Minutos Exceso", "0 min")
+
+        st.markdown(
+            f"""
+            <div style="background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%); border-left: 5px solid #3b82f6; padding: 12px 18px; border-radius: 10px; margin: 5px 0 12px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <h4 style="color: #ffffff; margin: 0 0 4px 0; font-size: 16px;">👤 {nom_seleccionado} <span style="color: #94a3b8; font-size: 12px;">(BP {bp_seleccionado})</span></h4>
+                        <span style="color: #cbd5e1; font-size: 12px;">
+                            Turno: <b>{t_prog}</b> • Conexión Real: <b>{h_con}</b> • Brecha: <b>{brecha_h:+.2f} h</b> ({est_t})
+                        </span>
+                    </div>
+                    <div style="text-align: right; background: #334155; padding: 5px 12px; border-radius: 6px;">
+                        <span style="color: #38bdf8; font-size: 11px; font-weight: 700; text-transform: uppercase;">Adherencia Pausas: {pct_adh_p:.1f}%</span><br>
+                        <span style="color: #e2e8f0; font-size: 12px;">{p_punt}/{p_prog} puntuales • Exceso: <b>{mins_exc}</b></span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    # ── DESPLEGABLE CON EL DETALLE FRANJA A FRANJA ───────────────────────────
-    st.write("")
-    with st.expander("🔍 Ver Auditoría Detallada Franja a Franja de Descansos (Descanso 1, 2, Lunch, Diálogo 4DX)", expanded=False):
-        st.caption("Detalle cronológico segundo a segundo de cada descanso: horario oficial vs hora real en que se levantó, desvío de salida y minutos de exceso.")
-        if not df_pausas.empty:
-            df_p_view = df_pausas[df_pausas["BP"].isin(df_unif["BP"])].copy()
-            if not df_p_view.empty:
-                cols_p_order = [
-                    "BP", "Asesor", "Coordinador", "Supervisor", "Servicio",
-                    "Tipo Pausa", "Horario Programado", "Duración Prog",
-                    "Horario Real", "Duración Real", "Desvío Salida", "Exceso", "Estado"
-                ]
-                df_p_view = df_p_view[[c for c in cols_p_order if c in df_p_view.columns]]
-                st.dataframe(df_p_view, use_container_width=True, hide_index=True)
+        df_p_view = df_pausas[df_pausas["BP"] == bp_seleccionado].copy()
+        if not df_p_view.empty:
+            cols_p_individual = [
+                "Tipo Pausa", "Horario Programado", "Duración Prog",
+                "Horario Real", "Duración Real", "Desvío Salida", "Exceso", "Estado"
+            ]
+            df_p_view = df_p_view[[c for c in cols_p_individual if c in df_p_view.columns]]
+            st.dataframe(df_p_view, use_container_width=True, hide_index=True)
 
-                csv_p = df_p_view.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label=f"📥 Descargar Detalle Intradía de Pausas ({ambito}) (CSV)",
-                    data=csv_p,
-                    file_name=f"detalle_pausas_intradia_{ambito.lower()}_{fecha_sel}.csv",
-                    mime="text/csv",
-                    key=f"{key_prefix}btn_dl_p_det"
-                )
-            else:
-                st.info("Sin registros de pausas para los asesores filtrados.")
+            csv_indiv = df_p_view.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label=f"📥 Descargar Pausas de {nom_seleccionado} (CSV)",
+                data=csv_indiv,
+                file_name=f"pausas_{bp_seleccionado}_{fecha_sel}.csv",
+                mime="text/csv",
+                key=f"{key_prefix}btn_dl_indiv"
+            )
         else:
-            st.info("Sin datos de pausas disponibles.")
+            st.info(f"El asesor {nom_seleccionado} no registra pausas programadas para la fecha {fecha_sel}.")
+
+    else:
+        st.caption("💡 **Tip Operativo**: Haz clic en cualquier fila de la tabla superior (o selecciona en el buscador) para inspeccionar de forma individualizada y exclusiva los descansos de ese asesor.")
+        with st.expander("📂 Ver Listado Completo de Pausas de Todos los Asesores", expanded=False):
+            if not df_pausas.empty:
+                df_p_view = df_pausas[df_pausas["BP"].isin(df_unif["BP"])].copy()
+                if not df_p_view.empty:
+                    cols_p_order = [
+                        "BP", "Asesor", "Coordinador", "Supervisor", "Servicio",
+                        "Tipo Pausa", "Horario Programado", "Duración Prog",
+                        "Horario Real", "Duración Real", "Desvío Salida", "Exceso", "Estado"
+                    ]
+                    df_p_view = df_p_view[[c for c in cols_p_order if c in df_p_view.columns]]
+                    st.dataframe(df_p_view, use_container_width=True, hide_index=True)
+
+                    csv_p = df_p_view.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        label=f"📥 Descargar Detalle Intradía de Pausas ({ambito}) (CSV)",
+                        data=csv_p,
+                        file_name=f"detalle_pausas_intradia_{ambito.lower()}_{fecha_sel}.csv",
+                        mime="text/csv",
+                        key=f"{key_prefix}btn_dl_p_det"
+                    )
+                else:
+                    st.info("Sin registros de pausas para los asesores filtrados.")
+            else:
+                st.info("Sin datos de pausas disponibles.")
 
 
 def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):

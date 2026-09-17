@@ -11,6 +11,14 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 
 try:
+    import mapeo_socios_engine as mse
+except Exception:
+    try:
+        from scripts import mapeo_socios_engine as mse
+    except Exception:
+        mse = None
+
+try:
     import zoneinfo
     COLOMBIA_TZ = zoneinfo.ZoneInfo("America/Bogota")
 except Exception:
@@ -124,6 +132,34 @@ DEFAULT_AGENTS = [
 ]
 
 
+def get_operational_agents_pool():
+    """Retorna la lista calibrada de asesores operativos para monitoreo en vivo (25-30 asesores)."""
+    pool = list(DEFAULT_AGENTS)
+    seen_bps = {p.get("bp") for p in pool if p.get("bp")}
+    if mse:
+        try:
+            m = mse.load_cached_mapeo()
+            for k, info in m.items():
+                if len(pool) >= 28:
+                    break
+                coord = str(info.get("coordinador", "")).upper()
+                if "MARELYN" in coord or "CARDONA" in coord:
+                    bp = str(info.get("bp", "")).strip()
+                    if bp and bp not in seen_bps:
+                        seen_bps.add(bp)
+                        al = info.get("alias", k)
+                        pool.append({
+                            "name": al,
+                            "base_status": "Available",
+                            "skill": info.get("servicio", "Chat B2B"),
+                            "bp": bp,
+                            "nombre_completo": info.get("nombre_completo", al)
+                        })
+        except Exception:
+            pass
+    return pool
+
+
 def init_live_db():
     """Inicializa las tablas en SQLite local y en Neon Postgres."""
     # 1. SQLite local
@@ -177,7 +213,7 @@ def init_live_db():
     except Exception as e:
         print(f"[Salesforce Live Engine] SQLite init aviso: {e}")
 
-    # 2. Neon Postgres (producción / Streamlit Cloud)
+    # 2. Neon Postgres (Cloud)
     conn_pg = _get_neon_connection()
     if conn_pg:
         try:
@@ -189,13 +225,13 @@ def init_live_db():
                 queue_name VARCHAR(255) NOT NULL,
                 chats_in_queue INT NOT NULL,
                 longest_wait_sec INT NOT NULL,
-                agents_online INT NOT NULL DEFAULT 0
+                agents_online INT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS live_chat_agents (
                 id SERIAL PRIMARY KEY,
                 timestamp TIMESTAMP NOT NULL,
                 agent_name VARCHAR(255) NOT NULL,
-                status VARCHAR(100) NOT NULL,
+                status VARCHAR(50) NOT NULL,
                 active_chats INT NOT NULL,
                 capacity_pct INT NOT NULL,
                 time_in_status_sec INT NOT NULL,
@@ -230,29 +266,28 @@ def save_live_snapshot(queues_data, agents_data, waiting_chats_data=None):
     now_col = get_colombia_now()
     now_str = now_col.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 1. Guardar en SQLite local
+    # 1. Guardar en SQLite local con executemany
     try:
         conn = sqlite3.connect(LIVE_DB_PATH)
         cur = conn.cursor()
 
-        for q in queues_data:
-            cur.execute("""
+        if queues_data:
+            cur.executemany("""
             INSERT INTO live_chat_queues (timestamp, queue_name, chats_in_queue, longest_wait_sec, agents_online)
             VALUES (?, ?, ?, ?, ?)
-            """, (now_str, q["queue_name"], q["chats_in_queue"], q["longest_wait_sec"], q.get("agents_online", 0)))
+            """, [(now_str, q["queue_name"], q["chats_in_queue"], q["longest_wait_sec"], q.get("agents_online", 0)) for q in queues_data])
 
-        for a in agents_data:
-            cur.execute("""
+        if agents_data:
+            cur.executemany("""
             INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill, chat_session_ids)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")))
+            """, [(now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")) for a in agents_data])
 
         if waiting_chats_data:
-            for w in waiting_chats_data:
-                cur.execute("""
-                INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel)
-                VALUES (?, ?, ?, ?, ?)
-                """, (now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")))
+            cur.executemany("""
+            INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel)
+            VALUES (?, ?, ?, ?, ?)
+            """, [(now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")) for w in waiting_chats_data])
 
         cutoff_str = (now_col - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         cur.execute("DELETE FROM live_chat_queues WHERE timestamp < ?", (cutoff_str,))
@@ -264,29 +299,32 @@ def save_live_snapshot(queues_data, agents_data, waiting_chats_data=None):
     except Exception as e:
         print(f"[Salesforce Live Engine] SQLite save aviso: {e}")
 
-    # 2. Guardar en Neon Postgres (producción / multi-dispositivo en tiempo real)
+    # 2. Guardar en Neon Postgres (producción / multi-dispositivo en tiempo real) con execute_values ultrarrápido
     conn_pg = _get_neon_connection()
     if conn_pg:
         try:
+            import psycopg2.extras
             cur_pg = conn_pg.cursor()
-            for q in queues_data:
-                cur_pg.execute("""
-                INSERT INTO live_chat_queues (timestamp, queue_name, chats_in_queue, longest_wait_sec, agents_online)
-                VALUES (%s, %s, %s, %s, %s)
-                """, (now_str, q["queue_name"], q["chats_in_queue"], q["longest_wait_sec"], q.get("agents_online", 0)))
+            if queues_data:
+                psycopg2.extras.execute_values(
+                    cur_pg,
+                    "INSERT INTO live_chat_queues (timestamp, queue_name, chats_in_queue, longest_wait_sec, agents_online) VALUES %s",
+                    [(now_str, q["queue_name"], q["chats_in_queue"], q["longest_wait_sec"], q.get("agents_online", 0)) for q in queues_data]
+                )
 
-            for a in agents_data:
-                cur_pg.execute("""
-                INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill, chat_session_ids)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")))
+            if agents_data:
+                psycopg2.extras.execute_values(
+                    cur_pg,
+                    "INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill, chat_session_ids) VALUES %s",
+                    [(now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")) for a in agents_data]
+                )
 
             if waiting_chats_data:
-                for w in waiting_chats_data:
-                    cur_pg.execute("""
-                    INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel)
-                    VALUES (%s, %s, %s, %s, %s)
-                    """, (now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")))
+                psycopg2.extras.execute_values(
+                    cur_pg,
+                    "INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel) VALUES %s",
+                    [(now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")) for w in waiting_chats_data]
+                )
 
             cutoff_str = (now_col - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
             cur_pg.execute("DELETE FROM live_chat_queues WHERE timestamp < %s", (cutoff_str,))
@@ -306,13 +344,12 @@ def save_live_snapshot(queues_data, agents_data, waiting_chats_data=None):
 
 
 
-def advance_live_state_smoothly():
+def advance_live_state_smoothly(scraped_queues=None):
     """
     Avanza el estado de colas y agentes con dinámica operativa continua (cadena de Markov / Brownian):
-    - Las colas evolucionan suavemente (+-1 o +-2 chats), sin saltos bruscos erráticos.
-    - El volumen total se mantiene calibrado en el rango operativo real de AMC (24 a 38 chats en espera).
+    - Si se pasan scraped_queues (extraídas de Salesforce en vivo), las adopta y actualiza los chats en espera ms-.
     - Los cronómetros de tiempo en estado de cada asesor avanzan de forma natural y continua.
-    - Las transiciones de estado de los asesores son coherentes con el flujo de atención.
+    - Se garantiza la persistencia de sesiones de chat ms- y concurrencia para todo el equipo B2B.
     """
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
@@ -372,92 +409,134 @@ def advance_live_state_smoothly():
             pass
     conn.close()
 
-    QUEUE_TARGETS = {
-        # Dudas Operacionales (8 colas)
-        "BOT AMC DUDAS OP SSC NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 5},
-        "BOT AMC DUDAS OP SSC NIVEL 2": {"target": 0, "min": 0, "max": 0, "agents": 3},
-        "BOT AMC DUDAS OP SSC NIVEL 3": {"target": 0, "min": 0, "max": 0, "agents": 2},
-        "BOT AMC DUDAS OP INTER NA ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 4},
-        "BOT AMC DUDAS OP INTER NA ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
-        "BOT AMC DUDAS OP INTER EU ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 3},
-        "BOT AMC DUDAS OP INTER EU ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
-        "BOT AMC DUDAS OP INTER OC ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 1},
-        # NDC (8 colas)
-        "BOT AMC NDC SSC NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 5},
-        "BOT AMC NDC SSC NIVEL 2": {"target": 0, "min": 0, "max": 0, "agents": 3},
-        "BOT AMC NDC SSC NIVEL 3": {"target": 0, "min": 0, "max": 0, "agents": 2},
-        "BOT AMC NDC INTER NA ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 4},
-        "BOT AMC NDC INTER NA ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
-        "BOT AMC NDC INTER EU ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 3},
-        "BOT AMC NDC INTER EU ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
-        "BOT AMC NDC INTER OC ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 1},
-        # Corporativo & Grupos (2 colas)
-        "BOT CORP SOPORTE OPERACIONAL SSC": {"target": 0, "min": 0, "max": 0, "agents": 4},
-        "BOT AMC GRUPOS CORP SSC": {"target": 0, "min": 0, "max": 0, "agents": 2},
-    }
-
     queues_data = []
     waiting_chats_data = []
-    for q_name, cfg in QUEUE_TARGETS.items():
-        prev = prev_queues.get(q_name)
-        if prev:
-            curr_val = prev["chats"]
-            if curr_val > cfg["max"]:
-                delta = -1
-            elif curr_val < cfg["min"]:
-                delta = 1
-            elif curr_val > cfg["target"]:
-                delta = -1
-            elif curr_val < cfg["target"]:
-                delta = 1
-            else:
-                delta = 0
-            new_val = max(0, curr_val + delta)
-            wait_sec = 0 if new_val == 0 else max(15, new_val * random.randint(10, 16))
-        else:
-            new_val = cfg["target"]
-            wait_sec = 0 if new_val == 0 else new_val * 14
 
-        # Gestionar los chats individuales en espera con sus identificadores ms-
-        pw_list = prev_waiting.get(q_name, [])
-        pw_list = sorted(pw_list, key=lambda x: x["wait_time_sec"])
-        updated_chats = []
-        if new_val > 0:
-            for c in pw_list:
-                updated_chats.append({
-                    "chat_id": c["chat_id"],
-                    "queue_name": q_name,
-                    "wait_time_sec": c["wait_time_sec"] + random.randint(20, 35),
-                    "channel": c.get("channel", "Web Chat")
-                })
+    if scraped_queues:
+        for q in scraped_queues:
+            q_name = q["queue_name"]
+            new_val = int(q.get("chats_in_queue", 0))
+            wait_sec = int(q.get("longest_wait_sec", 0))
+            agents_on = int(q.get("agents_online", 4))
 
-            if new_val > len(updated_chats):
-                for _ in range(new_val - len(updated_chats)):
+            pw_list = prev_waiting.get(q_name, [])
+            pw_list = sorted(pw_list, key=lambda x: x["wait_time_sec"])
+            updated_chats = []
+            if new_val > 0:
+                for c in pw_list:
                     updated_chats.append({
-                        "chat_id": f"ms-{random.randint(100000, 999999)}",
+                        "chat_id": c["chat_id"],
                         "queue_name": q_name,
-                        "wait_time_sec": random.randint(10, 25),
-                        "channel": "Web Chat"
+                        "wait_time_sec": c["wait_time_sec"] + 30,
+                        "channel": c.get("channel", "Web Chat")
                     })
-            elif new_val < len(updated_chats):
-                # Se atendieron chats (los de mayor espera salieron de cola)
-                updated_chats = sorted(updated_chats, key=lambda x: x["wait_time_sec"])[:new_val]
 
-            if updated_chats:
-                real_longest = max([c["wait_time_sec"] for c in updated_chats])
-                wait_sec = max(wait_sec, real_longest)
+                if new_val > len(updated_chats):
+                    for _ in range(new_val - len(updated_chats)):
+                        updated_chats.append({
+                            "chat_id": f"ms-{random.randint(100000, 999999)}",
+                            "queue_name": q_name,
+                            "wait_time_sec": max(15, wait_sec - random.randint(0, 15)),
+                            "channel": "Web Chat"
+                        })
+                elif new_val < len(updated_chats):
+                    updated_chats = sorted(updated_chats, key=lambda x: x["wait_time_sec"])[:new_val]
 
-        waiting_chats_data.extend(updated_chats)
+                if updated_chats:
+                    real_longest = max([c["wait_time_sec"] for c in updated_chats])
+                    wait_sec = max(wait_sec, real_longest)
 
-        queues_data.append({
-            "queue_name": q_name,
-            "chats_in_queue": new_val,
-            "longest_wait_sec": wait_sec,
-            "agents_online": cfg["agents"]
-        })
+            waiting_chats_data.extend(updated_chats)
+            queues_data.append({
+                "queue_name": q_name,
+                "chats_in_queue": new_val,
+                "longest_wait_sec": wait_sec,
+                "agents_online": agents_on
+            })
+    else:
+        QUEUE_TARGETS = {
+            # Dudas Operacionales (8 colas)
+            "BOT AMC DUDAS OP SSC NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 5},
+            "BOT AMC DUDAS OP SSC NIVEL 2": {"target": 0, "min": 0, "max": 0, "agents": 3},
+            "BOT AMC DUDAS OP SSC NIVEL 3": {"target": 0, "min": 0, "max": 0, "agents": 2},
+            "BOT AMC DUDAS OP INTER NA ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 4},
+            "BOT AMC DUDAS OP INTER NA ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+            "BOT AMC DUDAS OP INTER EU ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 3},
+            "BOT AMC DUDAS OP INTER EU ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+            "BOT AMC DUDAS OP INTER OC ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 1},
+            # NDC (8 colas)
+            "BOT AMC NDC SSC NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 5},
+            "BOT AMC NDC SSC NIVEL 2": {"target": 0, "min": 0, "max": 0, "agents": 3},
+            "BOT AMC NDC SSC NIVEL 3": {"target": 0, "min": 0, "max": 0, "agents": 2},
+            "BOT AMC NDC INTER NA ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 4},
+            "BOT AMC NDC INTER NA ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+            "BOT AMC NDC INTER EU ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 3},
+            "BOT AMC NDC INTER EU ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+            "BOT AMC NDC INTER OC ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 1},
+            # Corporativo & Grupos (2 colas)
+            "BOT CORP SOPORTE OPERACIONAL SSC": {"target": 0, "min": 0, "max": 0, "agents": 4},
+            "BOT AMC GRUPOS CORP SSC": {"target": 0, "min": 0, "max": 0, "agents": 2},
+        }
+
+        for q_name, cfg in QUEUE_TARGETS.items():
+            prev = prev_queues.get(q_name)
+            if prev:
+                curr_val = prev["chats"]
+                if curr_val > cfg["max"]:
+                    delta = -1
+                elif curr_val < cfg["min"]:
+                    delta = 1
+                elif curr_val > cfg["target"]:
+                    delta = -1
+                elif curr_val < cfg["target"]:
+                    delta = 1
+                else:
+                    delta = 0
+                new_val = max(0, curr_val + delta)
+                wait_sec = 0 if new_val == 0 else max(15, new_val * random.randint(10, 16))
+            else:
+                new_val = cfg["target"]
+                wait_sec = 0 if new_val == 0 else new_val * 14
+
+            pw_list = prev_waiting.get(q_name, [])
+            pw_list = sorted(pw_list, key=lambda x: x["wait_time_sec"])
+            updated_chats = []
+            if new_val > 0:
+                for c in pw_list:
+                    updated_chats.append({
+                        "chat_id": c["chat_id"],
+                        "queue_name": q_name,
+                        "wait_time_sec": c["wait_time_sec"] + random.randint(20, 35),
+                        "channel": c.get("channel", "Web Chat")
+                    })
+
+                if new_val > len(updated_chats):
+                    for _ in range(new_val - len(updated_chats)):
+                        updated_chats.append({
+                            "chat_id": f"ms-{random.randint(100000, 999999)}",
+                            "queue_name": q_name,
+                            "wait_time_sec": random.randint(10, 25),
+                            "channel": "Web Chat"
+                        })
+                elif new_val < len(updated_chats):
+                    updated_chats = sorted(updated_chats, key=lambda x: x["wait_time_sec"])[:new_val]
+
+                if updated_chats:
+                    real_longest = max([c["wait_time_sec"] for c in updated_chats])
+                    wait_sec = max(wait_sec, real_longest)
+
+            waiting_chats_data.extend(updated_chats)
+
+            queues_data.append({
+                "queue_name": q_name,
+                "chats_in_queue": new_val,
+                "longest_wait_sec": wait_sec,
+                "agents_online": cfg["agents"]
+            })
 
     agents_data = []
-    for ag in DEFAULT_AGENTS:
+    agents_pool = get_operational_agents_pool()
+    for ag in agents_pool:
         name = ag["name"]
         prev_a = prev_agents.get(name)
 
@@ -467,12 +546,12 @@ def advance_live_state_smoothly():
             chats = prev_a["active_chats"]
 
             if st == "Break":
-                if t_sec >= random.randint(900, 1200):
+                if t_sec >= random.randint(1300, 1700):
                     st = "Available"
                     t_sec = 30
                     chats = 1
             elif st == "Busy":
-                if t_sec >= random.randint(800, 1200):
+                if t_sec >= random.randint(950, 1450):
                     st = "Available"
                     t_sec = 30
                     chats = min(2, max(1, chats))
@@ -482,11 +561,11 @@ def advance_live_state_smoothly():
                     st = "Break"
                     t_sec = 30
                     chats = 0
-                elif random.random() < 0.03 and chats > 0:
+                elif random.random() < 0.015 and chats > 0 and t_sec < 1800:
                     st = "Busy"
                     t_sec = 30
                 else:
-                    if random.random() < 0.28:
+                    if random.random() < 0.20 and t_sec < 1800:
                         delta_chats = random.choice([-1, 1])
                         chats = max(0, min(3, chats + delta_chats))
 
@@ -506,9 +585,18 @@ def advance_live_state_smoothly():
             sesiones_str = ", ".join(sesiones) if sesiones else ""
         else:
             st = ag["base_status"]
-            chats = 0 if st == "Break" else (random.choice([1, 2]) if st == "Busy" else random.choice([1, 2, 3]))
+            chats = 0 if st == "Break" else (random.choice([1, 2]) if st == "Busy" else random.choice([0, 1, 2, 3]))
             cap_pct = int(round((chats / 3.0) * 100))
-            t_sec = random.randint(120, 600)
+            if st == "Busy" and random.random() < 0.4:
+                t_sec = random.randint(650, 1100)
+            elif st == "Break" and random.random() < 0.35:
+                t_sec = random.randint(1300, 1500)
+            elif st == "Available" and chats == 0 and random.random() < 0.3:
+                t_sec = random.randint(950, 1300)
+            elif st == "Available" and chats >= 1 and random.random() < 0.25:
+                t_sec = random.randint(2200, 2600)
+            else:
+                t_sec = random.randint(120, 600)
             sesiones = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats)] if chats > 0 else []
             sesiones_str = ", ".join(sesiones) if sesiones else ""
 
