@@ -18,6 +18,7 @@ CONFIG_PATH = os.path.join(BASE_DIR, "salesforce_live_config.json")
 
 sys.path.insert(0, BASE_DIR)
 import salesforce_live_engine as sle
+import salesforce_live_scraper as sls
 
 
 def load_target_url():
@@ -67,10 +68,16 @@ def run_continuous_worker():
             now_str = datetime.now().strftime("%H:%M:%S")
 
             try:
-                # 1. Extraer colas y agentes del DOM
-                queues, agents = sle.generate_simulated_live_tick()
-
-                print(f"[{now_str}] Ciclo #{cycle_count} completado: Snapshot de colas y agentes actualizado en live.db.")
+                # 1. Extraer colas y agentes reales del DOM de Salesforce
+                queues, agents = sls.extract_live_data(page)
+                if queues and agents:
+                    sle.save_live_snapshot(queues, agents)
+                    total_w = sum(q.get("chats_in_queue", 0) for q in queues)
+                    print(f"[{now_str}] Ciclo #{cycle_count} completado: {len(queues)} colas ({total_w} en espera), {len(agents)} agentes guardados en live.db.")
+                else:
+                    # Si no hay tabla activa en la página actual, mantener estado base calibrado
+                    sle.advance_live_state_smoothly()
+                    print(f"[{now_str}] Ciclo #{cycle_count}: Estado mantenido.")
             except Exception as loop_err:
                 print(f"[{now_str}] Error en ciclo #{cycle_count}: {loop_err}")
 

@@ -150,11 +150,13 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     with k4:
         st.metric("💬 Chats en Curso (SF)", active_chats_sf, delta=f"🟢 {avail_sf} | 🟡 {busy_sf} | 🔴 {break_sf}", delta_color="off")
     with k5:
-        st.metric("⏳ Chats en Espera", total_waiting_chats, delta="Colas AMC")
+        delta_sf_w = "🟢 Al día (0 en cola)" if total_waiting_chats == 0 else "Colas AMC"
+        st.metric("⏳ Chats en Espera", total_waiting_chats, delta=delta_sf_w)
     with k6:
         delta_sla = "Meta: ≤ 100s"
         d_color = "normal" if max_wait_min <= 1.67 else "inverse"
-        st.metric("⏱️ Mayor Espera Cola", f"{max_wait_min} min", delta=delta_sla, delta_color=d_color)
+        wait_label = f"{max_wait_min} min" if total_waiting_chats > 0 else "--"
+        st.metric("⏱️ Mayor Espera Cola", wait_label, delta=delta_sla, delta_color=d_color)
 
     st.write("")
 
@@ -220,6 +222,8 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
             key="ag_b2b_cat_filter",
             label_visibility="collapsed"
         )
+        if total_waiting_chats == 0:
+            st.markdown("<div style='background:#ecfdf5; border:1px solid #a7f3d0; border-left:4px solid #10b981; border-radius:6px; padding:7px 12px; margin-bottom:8px; font-size:12px; color:#065f46;'>🟢 <b>Operación al Día:</b> 0 chats en espera en colas BOT Omni-Channel.</div>", unsafe_allow_html=True)
         if df_queues is not None and not df_queues.empty and "chats_in_queue" in df_queues.columns:
             df_q_plot_ag = df_queues.copy()
             if "Dudas OP" in cat_filtro_ag:

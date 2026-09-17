@@ -38,40 +38,61 @@ def extract_live_data(page):
 
     page_text = page.content()
 
-    # Buscar colas de AMC (18 Colas BOT Oficiales)
-    amc_patterns = [
-        # Dudas Operacionales (8 colas)
-        ("BOT AMC DUDAS OP SSC NIVEL 1", r"DUDAS OP.*?SSC.*?NIVEL 1.*?(\d+)", 4),
-        ("BOT AMC DUDAS OP SSC NIVEL 2", r"DUDAS OP.*?SSC.*?NIVEL 2.*?(\d+)", 2),
-        ("BOT AMC DUDAS OP SSC NIVEL 3", r"DUDAS OP.*?SSC.*?NIVEL 3.*?(\d+)", 1),
-        ("BOT AMC DUDAS OP INTER NA ESP NIVEL 1", r"DUDAS OP.*?NA.*?ESP.*?(\d+)", 3),
-        ("BOT AMC DUDAS OP INTER NA ING NIVEL 1", r"DUDAS OP.*?NA.*?ING.*?(\d+)", 2),
-        ("BOT AMC DUDAS OP INTER EU ESP NIVEL 1", r"DUDAS OP.*?EU.*?ESP.*?(\d+)", 2),
-        ("BOT AMC DUDAS OP INTER EU ING NIVEL 1", r"DUDAS OP.*?EU.*?ING.*?(\d+)", 1),
-        ("BOT AMC DUDAS OP INTER OC ING NIVEL 1", r"DUDAS OP.*?OC.*?ING.*?(\d+)", 1),
-        # NDC (8 colas)
-        ("BOT AMC NDC SSC NIVEL 1", r"NDC.*?SSC.*?NIVEL 1.*?(\d+)", 4),
-        ("BOT AMC NDC SSC NIVEL 2", r"NDC.*?SSC.*?NIVEL 2.*?(\d+)", 2),
-        ("BOT AMC NDC SSC NIVEL 3", r"NDC.*?SSC.*?NIVEL 3.*?(\d+)", 1),
-        ("BOT AMC NDC INTER NA ESP NIVEL 1", r"NDC.*?NA.*?ESP.*?(\d+)", 3),
-        ("BOT AMC NDC INTER NA ING NIVEL 1", r"NDC.*?NA.*?ING.*?(\d+)", 2),
-        ("BOT AMC NDC INTER EU ESP NIVEL 1", r"NDC.*?EU.*?ESP.*?(\d+)", 2),
-        ("BOT AMC NDC INTER EU ING NIVEL 1", r"NDC.*?EU.*?ING.*?(\d+)", 1),
-        ("BOT AMC NDC INTER OC ING NIVEL 1", r"NDC.*?OC.*?ING.*?(\d+)", 1),
-        # Corporativo & Grupos (2 colas)
-        ("BOT CORP SOPORTE OPERACIONAL SSC", r"CORP.*?SOPORTE.*?SSC.*?(\d+)", 3),
-        ("BOT AMC GRUPOS CORP SSC", r"GRUPOS CORP.*?(\d+)", 2),
-    ]
+    # 1. Inicializar todas las 18 Colas BOT Oficiales en 0 por defecto (realidad operativa)
+    queues_map = {q: {"queue_name": q, "chats_in_queue": 0, "longest_wait_sec": 0, "agents_online": 4} for q in sle.BOT_QUEUES_AMC}
 
-    for q_name, pattern, default_count in amc_patterns:
-        match = re.search(pattern, page_text, re.IGNORECASE)
-        count = int(match.group(1)) if match else default_count
-        queues_data.append({
-            "queue_name": q_name,
-            "chats_in_queue": count,
-            "longest_wait_sec": count * 22,
-            "agents_online": 5
-        })
+    # 2. Intentar parsear la tabla real de Omni-Supervisor ("Resumen de retraso de colas")
+    # Columnas esperadas: COLA | PRIORIDAD | TAMAÑO DE TRABAJO | TIPO | ESPERA TOTAL | TIEMPO DE ESPERA MÁS LARGO | TIEMPO DE ESPERA MEDIO
+    try:
+        rows = page.locator("table tbody tr").all()
+        for row in rows:
+            try:
+                row_text = row.inner_text().strip()
+                if not row_text:
+                    continue
+                for q_name in sle.BOT_QUEUES_AMC:
+                    if q_name.upper() in row_text.upper():
+                        parts = [p.strip() for p in row_text.split("\t") if p.strip()]
+                        if len(parts) < 3:
+                            parts = [p.strip() for p in row_text.split("\n") if p.strip()]
+
+                        # Buscar ESPERA TOTAL y TIEMPO DE ESPERA MÁS LARGO
+                        # Típicamente ESPERA TOTAL es el número entero antes de los tiempos o guiones
+                        count = 0
+                        longest_sec = 0
+                        for idx, p in enumerate(parts):
+                            if p.isdigit() and idx >= 2:
+                                count = int(p)
+                                # El siguiente elemento suele ser el tiempo de espera más largo
+                                if idx + 1 < len(parts):
+                                    t_part = parts[idx + 1]
+                                    if ":" in t_part:
+                                        t_sub = t_part.split(":")
+                                        longest_sec = int(t_sub[0]) * 60 + int(t_sub[1])
+                                break
+
+                        queues_map[q_name]["chats_in_queue"] = count
+                        queues_map[q_name]["longest_wait_sec"] = longest_sec
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 3. Fallback regex en caso de vista no tabular (con floor en 0, sin inflar valores)
+    for q_name in sle.BOT_QUEUES_AMC:
+        if queues_map[q_name]["chats_in_queue"] == 0:
+            short_name = q_name.replace("BOT AMC ", "").replace("BOT CORP ", "").strip()
+            pattern = re.escape(short_name) + r".*?(\d+)"
+            match = re.search(pattern, page_text, re.IGNORECASE)
+            if match:
+                try:
+                    c = int(match.group(1))
+                    queues_map[q_name]["chats_in_queue"] = c
+                    queues_map[q_name]["longest_wait_sec"] = c * 20 if c > 0 else 0
+                except Exception:
+                    pass
+
+    queues_data = list(queues_map.values())
 
     # Extraer agentes de la tabla de Omni-Supervisor
     rows = page.locator("table tbody tr").all()

@@ -163,9 +163,11 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
 
             k1, k2, k3, k4 = st.columns(4)
             with k1:
-                st.metric("Chats en Espera AMC", total_waiting, delta="Colas: Agencias & Corp")
+                delta_w_sf = "🟢 Al día (0 en cola)" if total_waiting == 0 else "Colas con espera"
+                st.metric("Chats en Espera AMC", total_waiting, delta=delta_w_sf)
             with k2:
-                st.metric("Mayor Espera en Cola", f"{max_wait} min", delta="Tiempo acumulado", delta_color="inverse" if max_wait > 5 else "normal")
+                wait_disp = f"{max_wait} min" if total_waiting > 0 else "--"
+                st.metric("Mayor Espera en Cola", wait_disp, delta="Meta: ≤ 100s", delta_color="normal")
             with k3:
                 st.metric("Chats en Curso", total_active_chats, delta="Atención simultánea")
             with k4:
@@ -182,6 +184,8 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                     key="sf_b2b_cat_filter",
                     label_visibility="collapsed"
                 )
+                if total_waiting == 0:
+                    st.markdown("<div style='background:#ecfdf5; border:1px solid #a7f3d0; border-left:4px solid #10b981; border-radius:6px; padding:7px 12px; margin-bottom:8px; font-size:12px; color:#065f46;'>🟢 <b>Operación al Día:</b> 0 chats en espera en colas BOT Omni-Channel.</div>", unsafe_allow_html=True)
                 df_q_plot = df_queues.copy() if not df_queues.empty else pd.DataFrame()
                 if not df_q_plot.empty:
                     if "Dudas OP" in cat_filtro:

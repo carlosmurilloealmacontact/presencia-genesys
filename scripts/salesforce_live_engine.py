@@ -256,26 +256,26 @@ def advance_live_state_smoothly():
 
     QUEUE_TARGETS = {
         # Dudas Operacionales (8 colas)
-        "BOT AMC DUDAS OP SSC NIVEL 1": {"target": 4, "min": 1, "max": 8, "agents": 5},
-        "BOT AMC DUDAS OP SSC NIVEL 2": {"target": 2, "min": 0, "max": 4, "agents": 3},
-        "BOT AMC DUDAS OP SSC NIVEL 3": {"target": 1, "min": 0, "max": 3, "agents": 2},
-        "BOT AMC DUDAS OP INTER NA ESP NIVEL 1": {"target": 3, "min": 1, "max": 6, "agents": 4},
-        "BOT AMC DUDAS OP INTER NA ING NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 2},
-        "BOT AMC DUDAS OP INTER EU ESP NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 3},
-        "BOT AMC DUDAS OP INTER EU ING NIVEL 1": {"target": 1, "min": 0, "max": 3, "agents": 2},
-        "BOT AMC DUDAS OP INTER OC ING NIVEL 1": {"target": 1, "min": 0, "max": 2, "agents": 1},
+        "BOT AMC DUDAS OP SSC NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 5},
+        "BOT AMC DUDAS OP SSC NIVEL 2": {"target": 0, "min": 0, "max": 0, "agents": 3},
+        "BOT AMC DUDAS OP SSC NIVEL 3": {"target": 0, "min": 0, "max": 0, "agents": 2},
+        "BOT AMC DUDAS OP INTER NA ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 4},
+        "BOT AMC DUDAS OP INTER NA ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+        "BOT AMC DUDAS OP INTER EU ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 3},
+        "BOT AMC DUDAS OP INTER EU ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+        "BOT AMC DUDAS OP INTER OC ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 1},
         # NDC (8 colas)
-        "BOT AMC NDC SSC NIVEL 1": {"target": 4, "min": 1, "max": 8, "agents": 5},
-        "BOT AMC NDC SSC NIVEL 2": {"target": 2, "min": 0, "max": 4, "agents": 3},
-        "BOT AMC NDC SSC NIVEL 3": {"target": 1, "min": 0, "max": 3, "agents": 2},
-        "BOT AMC NDC INTER NA ESP NIVEL 1": {"target": 3, "min": 1, "max": 6, "agents": 4},
-        "BOT AMC NDC INTER NA ING NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 2},
-        "BOT AMC NDC INTER EU ESP NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 3},
-        "BOT AMC NDC INTER EU ING NIVEL 1": {"target": 1, "min": 0, "max": 3, "agents": 2},
-        "BOT AMC NDC INTER OC ING NIVEL 1": {"target": 1, "min": 0, "max": 2, "agents": 1},
+        "BOT AMC NDC SSC NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 5},
+        "BOT AMC NDC SSC NIVEL 2": {"target": 0, "min": 0, "max": 0, "agents": 3},
+        "BOT AMC NDC SSC NIVEL 3": {"target": 0, "min": 0, "max": 0, "agents": 2},
+        "BOT AMC NDC INTER NA ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 4},
+        "BOT AMC NDC INTER NA ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+        "BOT AMC NDC INTER EU ESP NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 3},
+        "BOT AMC NDC INTER EU ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 2},
+        "BOT AMC NDC INTER OC ING NIVEL 1": {"target": 0, "min": 0, "max": 0, "agents": 1},
         # Corporativo & Grupos (2 colas)
-        "BOT CORP SOPORTE OPERACIONAL SSC": {"target": 3, "min": 1, "max": 6, "agents": 4},
-        "BOT AMC GRUPOS CORP SSC": {"target": 2, "min": 0, "max": 4, "agents": 2},
+        "BOT CORP SOPORTE OPERACIONAL SSC": {"target": 0, "min": 0, "max": 0, "agents": 4},
+        "BOT AMC GRUPOS CORP SSC": {"target": 0, "min": 0, "max": 0, "agents": 2},
     }
 
     queues_data = []
@@ -285,48 +285,49 @@ def advance_live_state_smoothly():
         if prev:
             curr_val = prev["chats"]
             if curr_val > cfg["max"]:
-                delta = random.choice([-2, -1, -1])
+                delta = -1
             elif curr_val < cfg["min"]:
-                delta = random.choice([1, 1, 2])
+                delta = 1
             elif curr_val > cfg["target"]:
-                delta = random.choice([-1, -1, 0, 1])
+                delta = -1
             elif curr_val < cfg["target"]:
-                delta = random.choice([-1, 0, 1, 1])
+                delta = 1
             else:
-                delta = random.choice([-1, 0, 0, 1])
+                delta = 0
             new_val = max(0, curr_val + delta)
-            wait_sec = max(20, new_val * random.randint(10, 16))
+            wait_sec = 0 if new_val == 0 else max(15, new_val * random.randint(10, 16))
         else:
-            new_val = cfg["target"] + random.choice([-1, 0, 1])
-            wait_sec = new_val * 14
+            new_val = cfg["target"]
+            wait_sec = 0 if new_val == 0 else new_val * 14
 
         # Gestionar los chats individuales en espera con sus identificadores ms-
         pw_list = prev_waiting.get(q_name, [])
         pw_list = sorted(pw_list, key=lambda x: x["wait_time_sec"])
         updated_chats = []
-        for c in pw_list:
-            updated_chats.append({
-                "chat_id": c["chat_id"],
-                "queue_name": q_name,
-                "wait_time_sec": c["wait_time_sec"] + random.randint(20, 35),
-                "channel": c.get("channel", "Web Chat")
-            })
-
-        if new_val > len(updated_chats):
-            for _ in range(new_val - len(updated_chats)):
+        if new_val > 0:
+            for c in pw_list:
                 updated_chats.append({
-                    "chat_id": f"ms-{random.randint(100000, 999999)}",
+                    "chat_id": c["chat_id"],
                     "queue_name": q_name,
-                    "wait_time_sec": random.randint(10, 25),
-                    "channel": "Web Chat"
+                    "wait_time_sec": c["wait_time_sec"] + random.randint(20, 35),
+                    "channel": c.get("channel", "Web Chat")
                 })
-        elif new_val < len(updated_chats):
-            # Se atendieron chats (los de mayor espera salieron de cola)
-            updated_chats = sorted(updated_chats, key=lambda x: x["wait_time_sec"])[:new_val]
 
-        if updated_chats:
-            real_longest = max([c["wait_time_sec"] for c in updated_chats])
-            wait_sec = max(wait_sec, real_longest)
+            if new_val > len(updated_chats):
+                for _ in range(new_val - len(updated_chats)):
+                    updated_chats.append({
+                        "chat_id": f"ms-{random.randint(100000, 999999)}",
+                        "queue_name": q_name,
+                        "wait_time_sec": random.randint(10, 25),
+                        "channel": "Web Chat"
+                    })
+            elif new_val < len(updated_chats):
+                # Se atendieron chats (los de mayor espera salieron de cola)
+                updated_chats = sorted(updated_chats, key=lambda x: x["wait_time_sec"])[:new_val]
+
+            if updated_chats:
+                real_longest = max([c["wait_time_sec"] for c in updated_chats])
+                wait_sec = max(wait_sec, real_longest)
 
         waiting_chats_data.extend(updated_chats)
 
