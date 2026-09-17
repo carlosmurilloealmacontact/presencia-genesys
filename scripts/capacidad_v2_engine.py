@@ -184,6 +184,13 @@ def calcular_ejecutiva_capacidad_base(fecha_desde: str, fecha_hasta: str, srv_fi
             else:
                 aht_real = np.nan
 
+        # Para Back Office, si ns_real no viene de conmutador, su indicador de cumplimiento de nivel de servicio es la tasa de resolución
+        if es_canal_bo and pd.isna(ns_real) and pd.notna(tasa_res):
+            ns_real = tasa_res
+            meta_ns = 90.0  # Meta estándar de resolución de cola en Back Office
+
+        brecha_ns = round(ns_real - meta_ns, 1) if pd.notna(ns_real) else np.nan
+
         pct_capacidad = (min_disp / min_req * 100.0) if min_req > 0 else 100.0
         gap_fte = fte_con - fte_req
 
@@ -211,7 +218,9 @@ def calcular_ejecutiva_capacidad_base(fecha_desde: str, fecha_hasta: str, srv_fi
             "Tasa Resolución %": tasa_res if pd.notna(tasa_res) else np.nan,
             "AHT Plan (s)": meta_aht,
             "AHT Real (s)": aht_real if pd.notna(aht_real) else np.nan,
+            "Meta NS": meta_ns,
             "NS Real": ns_real if pd.notna(ns_real) else np.nan,
+            "Brecha NS": brecha_ns,
             "% Capacidad": pct_capacidad,
             "Causa Raíz 1.0": causa_1,
             "minutos_req": min_req,
@@ -328,7 +337,9 @@ def diagnosticar_causa_raiz_v2(
     aht_plan: float = 0.0,      # Meta AHT Plana
     aht_real: float = np.nan,   # AHT Real
     tipo_canal: str = "Inbound", # Tipo de canal (Inbound / Back Office)
-    casos_balance: float = 0.0  # Balance Neto de Casos en Cola (para BO)
+    casos_balance: float = 0.0, # Balance Neto de Casos en Cola (para BO)
+    meta_ns: float = 80.0,      # Meta Nivel de Servicio / SLA (80% default o 90% en BO)
+    ns_real: float = np.nan     # Nivel de Servicio Real alcanzado (o Tasa de Cierre en BO)
 ) -> tuple[str, str, str]:
     """
     Determina la causa raíz 2.0 con responsabilidad asignada objetiva:
@@ -337,6 +348,7 @@ def diagnosticar_causa_raiz_v2(
       3. Subprogramación de Malla WFM (Horas programadas vs Erlang)
       4. Asistencia y Cumplimiento de Jornada (Fuga de piso / Ausentismo)
       5. Disciplina de Pausas (Exceso de minutos y descalce horario)
+      6. Cumplimiento de SLA / Nivel de Servicio al Cliente
     """
     es_bo = ("Back" in tipo_canal or "BO" in tipo_canal)
 
@@ -421,6 +433,15 @@ def diagnosticar_causa_raiz_v2(
             responsable.append("Capacidad / Desahogo")
         detalles.append(f"Ingresaron más casos de los resueltos (+{int(casos_balance)} casos en cola).")
 
+    # 8. ¿Impacto en Nivel de Servicio / SLA al cliente?
+    if pd.notna(ns_real) and meta_ns > 0:
+        diff_ns = float(ns_real) - meta_ns
+        if float(ns_real) < (meta_ns - 2.0):
+            causas.append(f"Incumplimiento NS ({float(ns_real):.1f}% vs {meta_ns:.0f}%)")
+            detalles.append(f"El Nivel de Servicio cerró en {float(ns_real):.1f}% ({diff_ns:+.1f}pp bajo meta).")
+        elif float(ns_real) >= meta_ns and not causas:
+            detalles.append(f"El Nivel de Servicio protegió a los clientes cerrando en meta ({float(ns_real):.1f}% vs {meta_ns:.0f}%).")
+
     if not causas:
         return (
             "🟡 Desviación Leve Aceptable",
@@ -494,7 +515,9 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
             aht_plan=float(r.get("AHT Plan (s)", 0.0)),
             aht_real=r.get("AHT Real (s)"),
             tipo_canal=r.get("Tipo", "Inbound"),
-            casos_balance=float(r.get("Balance Cola", 0.0)) if pd.notna(r.get("Balance Cola")) else 0.0
+            casos_balance=float(r.get("Balance Cola", 0.0)) if pd.notna(r.get("Balance Cola")) else 0.0,
+            meta_ns=float(r.get("Meta NS", 80.0)),
+            ns_real=r.get("NS Real")
         )
 
         filas_v2.append({
@@ -523,7 +546,9 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
             "Tasa Resolución %": r.get("Tasa Resolución %", np.nan),
             "AHT Plan (s)": r.get("AHT Plan (s)", 0.0),
             "AHT Real (s)": r.get("AHT Real (s)", np.nan),
-            "NS Real": r.get("NS Real", np.nan),
+            "Meta NS": r.get("Meta NS", 80.0),
+            "% NS Real": r.get("NS Real", np.nan),
+            "Brecha NS": r.get("Brecha NS", np.nan),
             "minutos_req": min_req,
             "min_conectado": min_con,
             "min_disponible": min_disp,
@@ -968,7 +993,21 @@ def render_tab_capacidad_v2(agentes_map: dict):
         pct_cumpl_turno_global = (tot_fte_con / tot_fte_prog * 100.0) if tot_fte_prog > 0 else 100.0
         pct_adh_p_global = df_v2["% Adh Pausas"].mean()
 
-        m1, m2, m3, m4, m5 = st.columns(5)
+        # Ponderación global de Nivel de Servicio / SLA
+        valid_ns = df_v2[df_v2["% NS Real"].notna() & (df_v2["Tráfico Real"] > 0)]
+        if not valid_ns.empty:
+            tot_w = valid_ns["Tráfico Real"].sum()
+            ns_pond = (valid_ns["% NS Real"] * valid_ns["Tráfico Real"]).sum() / tot_w
+            meta_ns_pond = (valid_ns["Meta NS"] * valid_ns["Tráfico Real"]).sum() / tot_w
+            diff_pond = ns_pond - meta_ns_pond
+            str_delta_ns = f"{diff_pond:+.1f}pp (Meta: {meta_ns_pond:.1f}%)"
+            col_delta_ns = "normal" if diff_pond >= 0 else "inverse"
+        else:
+            ns_pond = 0.0
+            str_delta_ns = "Sin datos"
+            col_delta_ns = "off"
+
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
         m1.metric(
             "FTE Requerido (Sore)",
             f"{tot_fte_req:.1f}",
@@ -1000,17 +1039,26 @@ def render_tab_capacidad_v2(agentes_map: dict):
             delta_color="inverse" if tot_exc_min > 60 else "normal",
             help="Porcentaje de capacidad efectiva disponible tras pausas"
         )
+        m6.metric(
+            "Nivel Servicio / SLA",
+            f"{ns_pond:.1f}%" if ns_pond > 0 else "N/D",
+            delta=str_delta_ns,
+            delta_color=col_delta_ns,
+            help="Nivel de Servicio global ponderado por volumen de tráfico (o Tasa de Cierre en Back Office)"
+        )
 
         st.write("")
 
         # Tabla Panorámica 2.0
-        st.markdown("##### 📋 Matriz de Servicios: Capacidad, Cobertura de Malla & Disciplina")
-        st.caption("Contrasta la exigencia teórica de WFM frente a lo que se programó en la malla y lo que los asesores realmente cumplieron en jornada y descansos.")
+        st.markdown("##### 📋 Matriz de Servicios: Capacidad, Cobertura de Malla, Disciplina & Nivel de Servicio")
+        st.caption("Contrasta la exigencia teórica de WFM frente a la programación de malla, asistencia real, pausas y el impacto final en Nivel de Servicio al cliente.")
 
         cols_mostrar_v2 = [
             "Servicio", "Tipo", "Origen Demanda", "FTE Requerido", "FTE Malla (Prog)", "Brecha Malla (WFM)",
             "FTE Conectado", "Brecha Operación", "% Cumpl Turno", "FTE Disponible",
-            "% Capacidad", "% Adh Pausas", "Exceso Pausas (min)", "Tráfico Plan", "Tráfico Real", "AHT Plan (s)", "AHT Real (s)", "Diagnóstico 2.0 (Enriquecido)"
+            "% Capacidad", "% Adh Pausas", "Exceso Pausas (min)",
+            "Tráfico Plan", "Tráfico Real", "AHT Plan (s)", "AHT Real (s)",
+            "Meta NS", "% NS Real", "Brecha NS", "Diagnóstico 2.0 (Enriquecido)"
         ]
         df_show_v2 = df_v2[[c for c in cols_mostrar_v2 if c in df_v2.columns]].copy()
 
@@ -1025,6 +1073,9 @@ def render_tab_capacidad_v2(agentes_map: dict):
             "Tráfico Real": st.column_config.NumberColumn("Demanda Real", format="%.0f"),
             "AHT Plan (s)": st.column_config.NumberColumn("AHT Meta", format="%.0fs"),
             "AHT Real (s)": st.column_config.NumberColumn("AHT Real", format="%.0fs"),
+            "Meta NS": st.column_config.NumberColumn("Meta NS", format="%.0f%%", help="Meta contractual oficial de Nivel de Servicio (80/20) o Tasa de Cierre"),
+            "% NS Real": st.column_config.NumberColumn("% NS Real", format="%.1f%%", help="Nivel de Servicio real alcanzado (o Tasa de Cierre en BO)"),
+            "Brecha NS": st.column_config.NumberColumn("Δ NS", format="%+.1fpp", help="Puntos porcentuales frente a la meta contractual"),
         }
 
         st.dataframe(df_show_v2, use_container_width=True, hide_index=True, column_config=cfg_cols)
@@ -1203,6 +1254,7 @@ def render_tab_capacidad_v2(agentes_map: dict):
                         <li><b>Requerido Sore:</b> {row_sel['FTE Requerido']:.1f} FTEs</li>
                         <li><b>Conectado Real:</b> {row_sel['FTE Conectado']:.1f} FTEs (Brecha neta: {row_sel['FTE Conectado'] - row_sel['FTE Requerido']:+.1f} FTEs)</li>
                         <li><b>Evaluación de Pausas:</b> {row_sel['% Aux Real']:.1f}% vs 14% meta plano</li>
+                        <li><b>Nivel de Servicio:</b> {row_sel['% NS Real']:.1f}% (Meta contractual: {row_sel['Meta NS']:.0f}%)</li>
                         <li><b>Punto Ciego:</b> No sabe cuántos asesores estaban en malla ni si cumplieron sus 8 horas contratadas.</li>
                     </ul>
                 </div>
@@ -1226,6 +1278,7 @@ def render_tab_capacidad_v2(agentes_map: dict):
                         <li><b>Malla Planificada:</b> {row_sel['FTE Malla (Prog)']:.1f} FTEs (Brecha WFM: {row_sel['Brecha Malla (WFM)']:+.1f} FTEs)</li>
                         <li><b>Cumplimiento de Jornada:</b> {row_sel['% Cumpl Turno']:.1f}% (Brecha Operación: {row_sel['Brecha Operación']:+.1f} FTEs)</li>
                         <li><b>Disciplina de Descansos:</b> {row_sel['% Adh Pausas']:.1f}% puntuales • {row_sel['Exceso Pausas (min)']} min de exceso</li>
+                        <li><b>Nivel de Servicio / SLA:</b> {row_sel['% NS Real']:.1f}% (Meta: {row_sel['Meta NS']:.0f}% • Δ: {row_sel['Brecha NS']:+.1f}pp)</li>
                         <li><b>Responsable Asignado:</b> <span style="color: #38bdf8; font-weight: 700;">{row_sel['Responsable 2.0']}</span></li>
                     </ul>
                 </div>
