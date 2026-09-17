@@ -275,7 +275,7 @@ def calcular_metricas_pausas_disciplina(fecha: str, srv_sore: str, df_pausas_all
         return {"pausas_prog": 0, "pausas_punt": 0, "pct_adh_pausas": 100.0, "min_exceso_pausas": 0}
 
 
-# ── DIAGNÓSTICO ENRIQUECIDO 2.0 (4 FACTORES) ──────────────────────────────────
+# ── DIAGNÓSTICO ENRIQUECIDO 2.0 (LOS 5 PILARES MULTIDIMENSIONALES) ─────────────
 def diagnosticar_causa_raiz_v2(
     gap_fte_malla: float,       # FTE Prog Malla - FTE Requerido (Subprogramación WFM)
     gap_fte_operacion: float,   # FTE Conectado - FTE Prog Malla (Fuga de Jornada)
@@ -283,13 +283,32 @@ def diagnosticar_causa_raiz_v2(
     pct_adh_pausas: float,      # % Adherencia de Pausas
     min_exceso_pausas: int,     # Minutos totales de exceso en pausas
     aux_real: float,            # % Auxiliares
-    aux_meta: float             # Meta Auxiliares (14%)
+    aux_meta: float,            # Meta Auxiliares (14%)
+    traf_plan: float = 0.0,     # Forecast de Tráfico SORE
+    traf_real: float = np.nan,  # Tráfico Real
+    aht_plan: float = 0.0,      # Meta AHT Plana
+    aht_real: float = np.nan,   # AHT Real
+    tipo_canal: str = "Inbound" # Tipo de canal (Inbound / Back Office)
 ) -> tuple[str, str, str]:
     """
     Determina la causa raíz 2.0 con responsabilidad asignada objetiva:
-    Retorna (badge_estado, causa_principal, explicacion_ejecutiva).
+      1. Demanda Externa (Sobrecarga de clientes vs Forecast Sore)
+      2. Eficiencia de AHT (Tiempos de conversación vs Meta)
+      3. Subprogramación de Malla WFM (Horas programadas vs Erlang)
+      4. Asistencia y Cumplimiento de Jornada (Fuga de piso / Ausentismo)
+      5. Disciplina de Pausas (Exceso de minutos y descalce horario)
     """
+    es_bo = ("Back" in tipo_canal or "BO" in tipo_canal)
+
+    # Si el canal cumplió la capacidad física
     if pct_capacidad >= 95.0 and pct_adh_pausas >= 85.0 and min_exceso_pausas <= 60:
+        if pd.notna(traf_real) and traf_plan > 0 and float(traf_real) > (traf_plan * 1.20):
+            pct_sobredem = ((float(traf_real) - traf_plan) / traf_plan * 100.0)
+            return (
+                "🟡 Capacidad Cubierta bajo Sobredemanda",
+                "Sobredemanda Externa Absorbida",
+                f"El equipo cumplió su dotación ({pct_capacidad:.1f}%), pero absorbió una sobrecarga de demanda de +{pct_sobredem:.0f}% sobre lo proyectado."
+            )
         return (
             "🟢 Capacidad y Disciplina Óptima",
             "Operación en Meta Integral",
@@ -314,25 +333,39 @@ def diagnosticar_causa_raiz_v2(
     responsable = []
     detalles = []
 
-    # 1. ¿Subprogramación de Malla por WFM?
+    # 1. ¿Sobredemanda externa desbordante?
+    if pd.notna(traf_real) and traf_plan > 0 and float(traf_real) > (traf_plan * 1.15):
+        pct_sobre = ((float(traf_real) - traf_plan) / traf_plan * 100.0)
+        causas.append(f"Sobredemanda Externa (+{pct_sobre:.0f}% tráfico)")
+        responsable.append("Demanda / Cliente")
+        detalles.append(f"El volumen real superó en +{pct_sobre:.0f}% el forecast planificado (+{int(float(traf_real) - traf_plan):,d} casos/llamadas no previstas).")
+
+    # 2. ¿Subprogramación de Malla por WFM?
     if gap_fte_malla < -1.0:
         causas.append(f"Sub-programación WFM ({gap_fte_malla:+.1f} FTEs en malla)")
         responsable.append("WFM / Planeación")
         detalles.append(f"La malla programó {abs(gap_fte_malla):.1f} FTEs por debajo de lo que exigía el modelo Sore.")
 
-    # 2. ¿Fuga de Jornada / Desconexión Temprana?
+    # 3. ¿Fuga de Jornada / Desconexión Temprana?
     if gap_fte_operacion < -1.0:
         causas.append(f"Fuga Jornada Operativa ({gap_fte_operacion:+.1f} FTEs no conectados)")
         responsable.append("Operaciones / Supervisión")
         detalles.append(f"Los asesores estaban en malla, pero no completaron su jornada (brecha de {abs(gap_fte_operacion):.1f} FTEs).")
 
-    # 3. ¿Exceso de Pausas (> 14% o minutos severos de exceso)?
+    # 4. ¿Dilución por AHT Excedido?
+    if pd.notna(aht_real) and aht_plan > 0 and float(aht_real) > (aht_plan * 1.12):
+        diff_aht = int(float(aht_real) - aht_plan)
+        causas.append(f"Dilución AHT (+{diff_aht}s sobre meta)")
+        responsable.append("Eficiencia Operativa")
+        detalles.append(f"El tiempo de atención real ({float(aht_real):.0f}s) superó la meta plana ({aht_plan:.0f}s), destruyendo horas-hombre equivalentes.")
+
+    # 5. ¿Exceso de Pausas (> 14% o minutos severos de exceso)?
     if aux_real > (aux_meta + 2.0) or min_exceso_pausas > 180:
         causas.append(f"Exceso Pausas (+{min_exceso_pausas} min exceso, {aux_real:.1f}% aux)")
         responsable.append("Operaciones / Asesores")
-        detalles.append(f"Fuga por descansos no autorizados o prolongados ({min_exceso_pausas} minutos de exceso neto).")
+        detalles.append(f"Fuga por descansos prolongados o no autorizados ({min_exceso_pausas} minutos de exceso neto).")
 
-    # 4. ¿Descalce horario de descansos?
+    # 6. ¿Descalce horario de descansos?
     if pct_adh_pausas < 75.0 and not (aux_real > aux_meta + 2.0):
         causas.append(f"Descalce Horario Pausas ({pct_adh_pausas:.1f}% puntualidad)")
         responsable.append("Supervisión / Piso")
@@ -405,7 +438,12 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
             pct_adh_pausas=m_p["pct_adh_pausas"],
             min_exceso_pausas=m_p["min_exceso_pausas"],
             aux_real=aux_real,
-            aux_meta=aux_meta
+            aux_meta=aux_meta,
+            traf_plan=float(r.get("Tráfico Plan", 0.0)),
+            traf_real=r.get("Tráfico Real"),
+            aht_plan=float(r.get("AHT Plan (s)", 0.0)),
+            aht_real=r.get("AHT Real (s)"),
+            tipo_canal=r.get("Tipo", "Inbound")
         )
 
         filas_v2.append({
@@ -512,54 +550,85 @@ def calcular_curva_intradia_v2(fecha_str: str, servicio_sel: str) -> pd.DataFram
     return merged.sort_values(by="intervalo")
 
 
-# ── ÁRBOL DE CASCADA WATERFALL 2.0 ───────────────────────────────────────────
+# ── ÁRBOL DE CASCADA WATERFALL 2.0 (LOS 5 PILARES) ───────────────────────────
 def generar_waterfall_capacidad_v2(row_data: dict | pd.Series, unidad: str = "Horas Equivalentes (h)") -> go.Figure:
     """
-    Genera el gráfico Waterfall 2.0 de Atribución y Descomposición Tripartita.
+    Genera el gráfico Waterfall 2.0 de Atribución y Descomposición Tripartita 360° (Los 5 Pilares).
     Discrimina:
       1. Requerido SORE (Demanda teórica Erlang)
       2. Brecha Malla WFM (Sub/Sobre programación)
       3. Brecha Operación (Fuga de jornada / Asistencia)
       4. Pausas en Norma (14% Meta oficial)
       5. Exceso en Pausas (>14% destruyendo capacidad)
-      6. Capacidad Neta Lograda (Disponible Real)
+      6. Efecto AHT (Eficiencia en tiempos de atención vs meta plana)
+      7. Efecto Demanda (Sobrecarga de clientes vs forecast)
+      8. Capacidad Neta Efectiva Lograda
     """
     es_horas = "Horas" in unidad
 
+    base_req_h = round(float(row_data.get("minutos_req", 0.0)) / 60.0, 1)
+    if base_req_h == 0.0:
+        base_req_h = round(float(row_data.get("FTE Requerido", 0.0)) * 8.0, 1)
+
+    fte_req = float(row_data.get("FTE Requerido", 0.0))
+    fte_prog = float(row_data.get("FTE Malla (Prog)", 0.0))
+    fte_con = float(row_data.get("FTE Conectado", 0.0))
+    fte_disp = float(row_data.get("FTE Disponible", 0.0))
+
+    delta_malla_fte = round(fte_prog - fte_req, 1)
+    delta_malla_h = round(delta_malla_fte * 8.0, 1)
+
+    delta_oper_fte = round(fte_con - fte_prog, 1)
+    delta_oper_h = round(delta_oper_fte * 8.0, 1)
+
+    h_con = round(float(row_data.get("min_conectado", 0.0)) / 60.0, 1)
+    if h_con == 0.0:
+        h_con = round(fte_con * 8.0, 1)
+
+    h_pau_total = round(float(row_data.get("min_pausas", 0.0)) / 60.0, 1)
+    h_pau_meta = round(h_con * (META_AUXILIARES_OFICIAL / 100.0), 1)
+    h_pau_exceso = round(max(0.0, h_pau_total - h_pau_meta), 1)
+
+    fte_pau_meta = round(fte_con * (META_AUXILIARES_OFICIAL / 100.0), 1)
+    fte_pau_tot = round(max(0.0, fte_con - fte_disp), 1)
+    fte_pau_exceso = round(max(0.0, fte_pau_tot - fte_pau_meta), 1)
+
+    h_disp = round(float(row_data.get("min_disponible", 0.0)) / 60.0, 1)
+    if h_disp == 0.0:
+        h_disp = round(fte_disp * 8.0, 1)
+
+    # Métricas de servicio y demanda (AHT y Tráfico)
+    traf_plan = float(row_data.get("Tráfico Plan", 0.0))
+    traf_real = row_data.get("Tráfico Real")
+    aht_plan = float(row_data.get("AHT Plan (s)", 0.0))
+    aht_real = row_data.get("AHT Real (s)")
+
+    # 1. Efecto AHT: (Meta - Real) * Volumen / 3600
+    if pd.notna(aht_real) and aht_plan > 0 and pd.notna(traf_real) and float(traf_real) > 0:
+        h_delta_aht = round(((aht_plan - float(aht_real)) * float(traf_real)) / 3600.0, 1)
+    elif pd.notna(aht_real) and aht_plan > 0 and traf_plan > 0:
+        h_delta_aht = round(((aht_plan - float(aht_real)) * traf_plan) / 3600.0, 1)
+    else:
+        h_delta_aht = 0.0
+    fte_delta_aht = round(h_delta_aht / 8.0, 1)
+
+    # 2. Efecto Demanda: (Plan - Real) * Ref_AHT / 3600
+    if pd.notna(traf_real) and traf_plan > 0:
+        ref_aht = aht_plan if aht_plan > 0 else (float(aht_real) if pd.notna(aht_real) else 800.0)
+        h_delta_demanda = round(((traf_plan - float(traf_real)) * ref_aht) / 3600.0, 1)
+    else:
+        h_delta_demanda = 0.0
+    fte_delta_demanda = round(h_delta_demanda / 8.0, 1)
+
+    # Capacidad neta efectiva final
+    h_cap_efectiva = round(max(0.0, h_disp + h_delta_aht + h_delta_demanda), 1)
+    fte_cap_efectiva = round(max(0.0, fte_disp + fte_delta_aht + fte_delta_demanda), 1)
+
     if es_horas:
-        base_req = round(float(row_data.get("minutos_req", 0.0)) / 60.0, 1)
-        if base_req == 0.0:
-            base_req = round(float(row_data.get("FTE Requerido", 0.0)) * 8.0, 1)
-
-        delta_malla = round(float(row_data.get("Brecha Malla (WFM)", 0.0)) * 8.0, 1)
-        delta_oper = round(float(row_data.get("Brecha Operación", 0.0)) * 8.0, 1)
-
-        h_con = round(float(row_data.get("min_conectado", 0.0)) / 60.0, 1)
-        if h_con == 0.0:
-            h_con = round(float(row_data.get("FTE Conectado", 0.0)) * 8.0, 1)
-
-        h_pau_total = round(float(row_data.get("min_pausas", 0.0)) / 60.0, 1)
-        h_pau_meta = round(h_con * (META_AUXILIARES_OFICIAL / 100.0), 1)
-        h_pau_exceso = round(max(0.0, h_pau_total - h_pau_meta), 1)
-
-        h_disp = round(float(row_data.get("min_disponible", 0.0)) / 60.0, 1)
-        if h_disp == 0.0:
-            h_disp = round(float(row_data.get("FTE Disponible", 0.0)) * 8.0, 1)
-
-        valores = [base_req, delta_malla, delta_oper, -h_pau_meta, -h_pau_exceso, h_disp]
+        valores = [base_req_h, delta_malla_h, delta_oper_h, -h_pau_meta, -h_pau_exceso, h_delta_aht, h_delta_demanda, h_cap_efectiva]
         sufijo = " h"
     else:
-        base_req = round(float(row_data.get("FTE Requerido", 0.0)), 1)
-        delta_malla = round(float(row_data.get("Brecha Malla (WFM)", 0.0)), 1)
-        delta_oper = round(float(row_data.get("Brecha Operación", 0.0)), 1)
-
-        fte_con = round(float(row_data.get("FTE Conectado", 0.0)), 1)
-        fte_pau_meta = round(fte_con * (META_AUXILIARES_OFICIAL / 100.0), 1)
-        fte_disp = round(float(row_data.get("FTE Disponible", 0.0)), 1)
-        fte_pau_tot = round(max(0.0, fte_con - fte_disp), 1)
-        fte_pau_exceso = round(max(0.0, fte_pau_tot - fte_pau_meta), 1)
-
-        valores = [base_req, delta_malla, delta_oper, -fte_pau_meta, -fte_pau_exceso, fte_disp]
+        valores = [round(fte_req, 1), delta_malla_fte, delta_oper_fte, -fte_pau_meta, -fte_pau_exceso, fte_delta_aht, fte_delta_demanda, fte_cap_efectiva]
         sufijo = " FTE"
 
     x_labels = [
@@ -568,9 +637,11 @@ def generar_waterfall_capacidad_v2(row_data: dict | pd.Series, unidad: str = "Ho
         "3. Δ Jornada Oper",
         "4. Pausas (14%)",
         "5. Exceso Pausas",
-        "6. Cap. Lograda"
+        "6. Efecto AHT",
+        "7. Efecto Demanda",
+        "8. Cap. Efectiva"
     ]
-    measure = ["absolute", "relative", "relative", "relative", "relative", "total"]
+    measure = ["absolute", "relative", "relative", "relative", "relative", "relative", "relative", "total"]
 
     text_labels = []
     for i, (v, m) in enumerate(zip(valores, measure)):
@@ -579,8 +650,11 @@ def generar_waterfall_capacidad_v2(row_data: dict | pd.Series, unidad: str = "Ho
         else:
             text_labels.append(f"{v:+,.1f}{sufijo}")
 
+    pct_final = (h_cap_efectiva / base_req_h * 100.0) if base_req_h > 0 else 100.0
+    color_total = "#10b981" if pct_final >= 95.0 else ("#f59e0b" if pct_final >= 85.0 else "#ef4444")
+
     fig = go.Figure(go.Waterfall(
-        name="Cascada 2.0",
+        name="Cascada 2.0 (5 Pilares)",
         orientation="v",
         measure=measure,
         x=x_labels,
@@ -590,19 +664,19 @@ def generar_waterfall_capacidad_v2(row_data: dict | pd.Series, unidad: str = "Ho
         connector={"line": {"color": "#64748b", "width": 1.5, "dash": "dot"}},
         increasing={"marker": {"color": "#10b981"}},
         decreasing={"marker": {"color": "#ef4444"}},
-        totals={"marker": {"color": "#6366f1"}}
+        totals={"marker": {"color": color_total}}
     ))
 
     srv_name = row_data.get("Servicio", "")
     fig.update_layout(
         title=dict(
-            text=f"🌳 Árbol de Cascada y Atribución Tripartita 2.0 — {srv_name} ({unidad})",
-            font=dict(color="#f8fafc", size=14)
+            text=f"🌳 Cascada Integral 2.0 (5 Pilares: Malla + Jornada + Pausas + AHT + Demanda) — {srv_name} ({unidad})",
+            font=dict(color="#f8fafc", size=13.5)
         ),
         showlegend=False,
-        height=380,
-        margin=dict(l=10, r=10, t=50, b=20),
-        xaxis=dict(tickangle=0, tickfont=dict(size=12, color="#cbd5e1"), gridcolor="#334155"),
+        height=390,
+        margin=dict(l=10, r=10, t=55, b=20),
+        xaxis=dict(tickangle=0, tickfont=dict(size=11, color="#cbd5e1"), gridcolor="#334155"),
         yaxis=dict(title=dict(text=f"Volumen ({unidad})", font=dict(color="#94a3b8")), tickfont=dict(color="#cbd5e1"), gridcolor="#1e293b"),
         plot_bgcolor="rgba(15, 23, 42, 0.4)",
         paper_bgcolor="rgba(0,0,0,0)"
@@ -610,6 +684,141 @@ def generar_waterfall_capacidad_v2(row_data: dict | pd.Series, unidad: str = "Ho
     return fig
 
 
+# ── MONITOR ESPECIALIZADO DE BACK OFFICE (ZENDESK & SALESFORCE B2B) ──────────
+def render_subtab_backoffice_v2(fecha_desde: str, fecha_hasta: str, df_v2: pd.DataFrame):
+    """
+    Renderiza el monitor especializado de Back Office multicanal (Zendesk AMC + Salesforce B2B)
+    contrastado con la programación y capacidad de la malla de turnos.
+    """
+    st.markdown(
+        """
+        <div style="background: linear-gradient(90deg, #064e3b 0%, #0f172a 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 16px; border-left: 5px solid #10b981;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h4 style="color: #ffffff; margin: 0 0 4px 0; font-size: 18px;">📂 Monitor Multicanal de Back Office: Demanda & Evacuación</h4>
+                    <p style="color: #cbd5e1; margin: 0; font-size: 13px;">
+                        Cruce integral de colas asíncronas: <b>Zendesk AMC</b> (LUA, Equipajes, Dream Team, Travel, Célula PI) + <b>Salesforce B2B</b> (Corporate y Agencias Target) vs <b>Forecast SORE</b>.
+                    </p>
+                </div>
+                <div style="text-align: right; background: #065f46; padding: 6px 14px; border-radius: 8px; border: 1px solid #10b981;">
+                    <span style="color: #a7f3d0; font-size: 11px; font-weight: 700; text-transform: uppercase;">Modelo Asíncrono</span><br>
+                    <span style="color: #ffffff; font-size: 12px; font-weight: 600;">Casos & Tickets</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    df_zd_sum, df_zd_dia = cargar_demanda_zendesk_bo(fecha_desde, fecha_hasta)
+
+    if df_zd_sum.empty:
+        st.info(f"No se encontraron registros de demanda de Back Office para las fechas seleccionadas ({fecha_desde} al {fecha_hasta}).")
+        return
+
+    tot_nuevos = int(df_zd_sum["Casos_Nuevos"].sum())
+    tot_resueltos = int(df_zd_sum["Casos_Resueltos"].sum())
+    balance_neto = int(df_zd_sum["Balance_Neto"].sum())
+    tasa_resolucion_global = (tot_resueltos / tot_nuevos * 100.0) if tot_nuevos > 0 else 100.0
+
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("📥 Casos Nuevos (Inflow)", f"{tot_nuevos:,d}", help="Casos ingresados en Zendesk y Salesforce en el periodo")
+    b2.metric("📤 Casos Resueltos (Outflow)", f"{tot_resueltos:,d}", help="Casos cerrados/evacuados por los asesores")
+    b3.metric(
+        "⚖️ Balance Neto de Backlog",
+        f"{balance_neto:+d}",
+        delta="Crecimiento Backlog" if balance_neto > 0 else "Evacuación Neta",
+        delta_color="inverse" if balance_neto > 0 else "normal",
+        help="Nuevos - Resueltos. Si es negativo, se redujo el inventario."
+    )
+    b4.metric(
+        "🎯 Tasa de Resolución Global",
+        f"{tasa_resolucion_global:.1f}%",
+        delta=f"{tasa_resolucion_global - 90.0:+.1f}% vs Meta (90%)",
+        delta_color="normal" if tasa_resolucion_global >= 90.0 else "inverse",
+        help="Casos Resueltos / Casos Nuevos"
+    )
+
+    st.write("")
+    st.markdown("##### 📋 Matriz de Evacuación de Back Office frente a Capacidad de Malla")
+
+    # Merge con df_v2 para traer datos de malla y conexión si existen
+    df_bo_table = pd.merge(
+        df_zd_sum,
+        df_v2[["Servicio", "FTE Requerido", "FTE Malla (Prog)", "FTE Conectado", "% Cumpl Turno", "% Capacidad"]],
+        left_on="servicio",
+        right_on="Servicio",
+        how="left"
+    ).fillna(0.0)
+
+    def _detectar_plataforma(srv):
+        s = str(srv).upper()
+        if "CORPORATE" in s or "TARGET" in s:
+            return "☁️ Salesforce B2B"
+        return "🎫 Zendesk AMC"
+
+    df_bo_table["Plataforma"] = df_bo_table["servicio"].apply(_detectar_plataforma)
+
+    def _veredicto_bo(r):
+        tasa = r.get("tasa_resolucion_pct", 0.0)
+        bal = r.get("Balance_Neto", 0)
+        if tasa >= 95.0 or bal <= 0:
+            return "🟢 Evacuación Óptima"
+        elif tasa >= 80.0:
+            return "🟡 Evacuación Parcial"
+        else:
+            return "🔴 Retraso / Backlog Acumulado"
+
+    df_bo_table["Estado Operativo"] = df_bo_table.apply(_veredicto_bo, axis=1)
+
+    cols_bo = [
+        "Plataforma", "servicio", "Casos_Nuevos", "Casos_Resueltos", "Balance_Neto",
+        "tasa_resolucion_pct", "FTE Requerido", "FTE Malla (Prog)", "FTE Conectado",
+        "% Capacidad", "Estado Operativo"
+    ]
+    df_show_bo = df_bo_table[[c for c in cols_bo if c in df_bo_table.columns]]
+
+    cfg_bo = {
+        "servicio": st.column_config.TextColumn("Servicio Back Office"),
+        "Casos_Nuevos": st.column_config.NumberColumn("Casos Nuevos (Inflow)", format="%d"),
+        "Casos_Resueltos": st.column_config.NumberColumn("Casos Resueltos (Outflow)", format="%d"),
+        "Balance_Neto": st.column_config.NumberColumn("Balance Neto", format="%+d"),
+        "tasa_resolucion_pct": st.column_config.ProgressColumn("Tasa Resolución", min_value=0, max_value=150, format="%.1f%%"),
+        "FTE Requerido": st.column_config.NumberColumn("FTE Sore", format="%.1f"),
+        "FTE Malla (Prog)": st.column_config.NumberColumn("FTE Malla", format="%.1f"),
+        "FTE Conectado": st.column_config.NumberColumn("FTE Conectado", format="%.1f"),
+        "% Capacidad": st.column_config.NumberColumn("% Capacidad", format="%.1f%%")
+    }
+
+    st.dataframe(df_show_bo, use_container_width=True, hide_index=True, column_config=cfg_bo, key="lab_df_bo_table")
+
+    # Gráfico de barras agrupadas Inflow vs Outflow
+    st.write("")
+    fig_bo_bar = go.Figure()
+    fig_bo_bar.add_trace(go.Bar(
+        x=df_bo_table["servicio"],
+        y=df_bo_table["Casos_Nuevos"],
+        name="📥 Casos Nuevos (Inflow)",
+        marker_color="#3b82f6"
+    ))
+    fig_bo_bar.add_trace(go.Bar(
+        x=df_bo_table["servicio"],
+        y=df_bo_table["Casos_Resueltos"],
+        name="📤 Casos Resueltos (Outflow)",
+        marker_color="#10b981"
+    ))
+    fig_bo_bar.update_layout(
+        title="Comparativo de Demanda (Inflow) y Evacuación (Outflow) por Cola Back Office",
+        barmode="group",
+        xaxis_title="Servicio Back Office",
+        yaxis_title="Cantidad de Casos",
+        height=380,
+        margin=dict(l=10, r=10, t=40, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        plot_bgcolor="rgba(15, 23, 42, 0.4)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_bo_bar, use_container_width=True, key="lab_fig_bo_bar")
 
 
 # ── RENDERIZADO PRINCIPAL UI (LABORATORIO 2.0) ────────────────────────────────
@@ -680,8 +889,9 @@ def render_tab_capacidad_v2(agentes_map: dict):
         srv_param = None if srv_filtro == "Todos los Servicios" else srv_filtro
 
     # Sub-pestañas principales
-    subtab1, subtab2 = st.tabs([
+    subtab1, subtab2, subtab3 = st.tabs([
         "🔬 Diagnóstico Integral 2.0 (Vista Enriquecida)",
+        "📂 Monitor Back Office (Salesforce & Zendesk)",
         "⚖️ Comparador Lado a Lado (Modelo 1.0 vs 2.0)"
     ])
 
@@ -860,8 +1070,12 @@ def render_tab_capacidad_v2(agentes_map: dict):
                 fig_wat = generar_waterfall_capacidad_v2(sub_srv_sel.iloc[0], unidad=unidad_wat)
                 st.plotly_chart(fig_wat, use_container_width=True, key="lab_fig_wat_sub1")
 
-    # ── PESTAÑA 2: COMPARADOR LADO A LADO (1.0 vs 2.0) ───────────────────────
+    # ── PESTAÑA 2: MONITOR MULTICANAL DE BACK OFFICE ──────────────────────────
     with subtab2:
+        render_subtab_backoffice_v2(fecha_desde, fecha_hasta, df_v2)
+
+    # ── PESTAÑA 3: COMPARADOR LADO A LADO (1.0 vs 2.0) ───────────────────────
+    with subtab3:
         st.markdown("#### ⚖️ Comparativa Directa: Diagnóstico Clásico (1.0) vs Diagnóstico Enriquecido (2.0)")
         st.caption("Selecciona cualquier servicio y observa cómo cambia la causa raíz y la atribución de responsabilidades cuando se consideran los turnos contratados y la puntualidad de pausas.")
 

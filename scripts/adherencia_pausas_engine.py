@@ -262,11 +262,13 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
     res_list = []
     for _, row in df_t.iterrows():
         bp = str(row["bp"]).strip()
-        h_prog = float(row["horas_programadas"]) if pd.notna(row["horas_programadas"]) and row["horas_programadas"] > 0 else 8.0
-        nom = row["nombre_agente"] or f"Asesor BP {bp}"
-        srv = row["servicio"] or "LATAM"
-        t_ini = row["turno_ini"] or "--"
-        t_fin = row["turno_fin"] or "--"
+        h_prog = float(row["horas_programadas"]) if pd.notna(row.get("horas_programadas")) and float(row.get("horas_programadas") or 0) > 0 else 8.0
+        nom = str(row["nombre_agente"]).strip() if pd.notna(row.get("nombre_agente")) and str(row["nombre_agente"]).strip() else f"Asesor BP {bp}"
+        srv = str(row["servicio"]).strip() if pd.notna(row.get("servicio")) and str(row["servicio"]).strip() else "LATAM"
+        t_ini_val = row.get("turno_ini")
+        t_fin_val = row.get("turno_fin")
+        t_ini = str(t_ini_val).strip() if pd.notna(t_ini_val) and str(t_ini_val).strip() not in ("", "None", "nan") else "--"
+        t_fin = str(t_fin_val).strip() if pd.notna(t_fin_val) and str(t_fin_val).strip() not in ("", "None", "nan") else "--"
 
         sub_seg = seg_by_bp.get(bp)
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
@@ -334,7 +336,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
             "Coordinador": coord_real or "No Asignado",
             "Supervisor": superv_real or "No Asignado",
             "Servicio": srv,
-            "Turno Programado": f"{t_ini[:5]} - {t_fin[:5]}",
+            "Turno Programado": f"{t_ini[:5]} - {t_fin[:5]}" if (t_ini != "--" and t_fin != "--") else "--",
             "Horas Prog": round(h_prog, 2),
             "Conexión Real": f"{h_pri} - {h_ult}",
             "Horas Conectado": h_conectado,
