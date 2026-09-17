@@ -1,9 +1,9 @@
 {
   "status": "ok",
-  "timestamp": "2026-09-17 16:14:26",
-  "timestamp_label": "17/09/2026 04:14:26 PM",
-  "duracion_seg": 270.1,
-  "backlog_count": 4867,
-  "solved_today_count": 842,
-  "next_sync_est": "05:14 PM"
+  "timestamp": "2026-09-17 18:11:51",
+  "timestamp_label": "17/09/2026 06:11:51 PM",
+  "duracion_seg": 204.1,
+  "backlog_count": 4873,
+  "solved_today_count": 951,
+  "next_sync_est": "07:11 PM"
 }
