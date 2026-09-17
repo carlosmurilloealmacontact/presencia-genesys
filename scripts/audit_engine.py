@@ -9,7 +9,6 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
-DEFAULT_NEON_URL = "postgresql://neondb_owner:npg_u94jTQIadNYr@ep-proud-violet-a5lapj40-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
 DOMINIO_CORPORATIVO = "@outsourcing-account.com"
 DOMINIOS_CORPORATIVOS = (
     "@outsourcing-account.com",
@@ -22,14 +21,28 @@ ADMINS_AUTORIZADOS = {
 }
 
 
-def _obtener_db_url() -> str:
-    """Obtiene la URL de Neon Postgres desde st.secrets, entorno o por defecto."""
+def _obtener_db_url() -> str | None:
+    """Obtiene la URL de Neon Postgres desde st.secrets, entorno o .streamlit/secrets.toml sin exponer credenciales."""
     try:
         if "NEON_DB_URL" in st.secrets:
             return str(st.secrets["NEON_DB_URL"]).strip()
     except Exception:
         pass
-    return os.environ.get("NEON_DB_URL", DEFAULT_NEON_URL)
+    env_url = os.environ.get("NEON_DB_URL")
+    if env_url and env_url.strip():
+        return env_url.strip()
+    sec_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".streamlit", "secrets.toml"))
+    if os.path.exists(sec_path):
+        try:
+            with open(sec_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("NEON_DB_URL"):
+                        parts = line.split("=", 1)
+                        if len(parts) == 2:
+                            return parts[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return None
 
 
 def registrar_evento(email: str, nombre: str, seccion: str, accion: str, detalles: str = ""):
@@ -38,6 +51,8 @@ def registrar_evento(email: str, nombre: str, seccion: str, accion: str, detalle
         return
 
     db_url = _obtener_db_url()
+    if not db_url:
+        return
     try:
         import psycopg2
         conn = psycopg2.connect(db_url, connect_timeout=5)

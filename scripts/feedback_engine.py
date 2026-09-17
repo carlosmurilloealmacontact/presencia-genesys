@@ -15,9 +15,8 @@ import streamlit as st
 try:
     from audit_engine import _obtener_db_url, registrar_evento, ADMINS_AUTORIZADOS
 except Exception:
-    DEFAULT_NEON = "postgresql://neondb_owner:npg_u94jTQIadNYr@ep-proud-violet-a5lapj40-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
     def _obtener_db_url():
-        return DEFAULT_NEON
+        return None
     def registrar_evento(*args, **kwargs):
         pass
     ADMINS_AUTORIZADOS = {"carlosmurilloe.almacontact@outsourcing-account.com"}

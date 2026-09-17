@@ -12,6 +12,12 @@ data/salesforce_state.json
 scripts/salesforce_session.json
 scripts/salesforce_live_config.json
 
+# Credenciales y Secretos
+.streamlit/
+.env
+*.env
+secrets.toml
+
 # Bases de datos y logs locales
 *.db
 *.sqlite

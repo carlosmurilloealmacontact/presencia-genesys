@@ -16,9 +16,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.normpath(os.path.join(BASE_DIR, ".."))
 JUSTIFICACIONES_JSON = os.path.join(PROJECT_ROOT, "data", "justificaciones_b2b.json")
 SQLITE_DB_PATH = os.path.join(PROJECT_ROOT, "data", "presencia.db")
-
-DEFAULT_NEON_URL = "postgresql://neondb_owner:npg_u94jTQIadNYr@ep-proud-violet-a5lapj40-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
-
 # Mapeo oficial entre claves internas y nombres comunes usados por los líderes
 MAPEO_SERVICIOS_B2B = {
     "VOZ ESP": "TARGET ESP",
@@ -60,13 +57,27 @@ MOTIVOS_PREDEFINIDOS = [
 ]
 
 
-def _obtener_db_url() -> str:
+def _obtener_db_url() -> str | None:
     try:
         if "NEON_DB_URL" in st.secrets:
             return str(st.secrets["NEON_DB_URL"]).strip()
     except Exception:
         pass
-    return os.environ.get("NEON_DB_URL", DEFAULT_NEON_URL)
+    env_url = os.environ.get("NEON_DB_URL")
+    if env_url and env_url.strip():
+        return env_url.strip()
+    sec_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".streamlit", "secrets.toml"))
+    if os.path.exists(sec_path):
+        try:
+            with open(sec_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("NEON_DB_URL"):
+                        parts = line.split("=", 1)
+                        if len(parts) == 2:
+                            return parts[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return None
 
 
 def init_justificaciones_db():
