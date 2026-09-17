@@ -665,21 +665,11 @@ def cargar_bundle_zendesk() -> dict:
             df_all_sla["res_hrs"] = dur.where(~is_closed_long, dur - 168.0).clip(lower=0.05)
             df_all_sla["cumple_rwt_48h"] = df_all_sla["res_hrs"] <= 48.0
 
-            mapa_frt_min = {
-                "LUA AMC": 2.0,
-                "DT FFP AMC": 10.0,
-                "Equipajes AMC SSC": 77.0,
-                "Célula PI AMC ES": 176.0,
-                "Clula PI AMC ES": 176.0,
-                "Celula PI AMC ES": 176.0,
-                "WhatsApp SSC -AMC": 3.0,
-                "Servicing AMC": 110.0,
-                "Autorización Supervisor AMC": 0.1,
-                "Autorizacion Supervisor AMC": 0.1,
-                "Autorización Supervisor HVC AMC ES": 45.0,
-            }
-            df_all_sla["frt_min"] = df_all_sla["grupo"].map(mapa_frt_min).fillna(10.0)
-            df_all_sla["frt_hrs"] = df_all_sla["frt_min"] / 60.0
+            # Tiempo real de primera respuesta humana (FRT):
+            # En tickets de Back Office, es el tiempo transcurrido desde que el pasajero crea el caso (created_at)
+            # hasta que el asesor de Almacontact lo gestiona y emite su primera respuesta/resolución.
+            df_all_sla["frt_hrs"] = df_all_sla["res_hrs"]
+            df_all_sla["frt_min"] = df_all_sla["frt_hrs"] * 60.0
             df_all_sla["cumple_frt_24h"] = df_all_sla["frt_hrs"] <= 24.0
 
             # Excluir autorizaciones de supervisor del dataset operativo de SLA
@@ -1453,11 +1443,9 @@ def render_tab_zendesk(email_usuario: str = ""):
         if tot_t_slas > 0 and "cumple_frt_24h" in df_slas.columns:
             pct_frt = (df_slas["cumple_frt_24h"].mean() * 100.0)
             med_frt_val = df_slas["frt_hrs"].median()
-            med_frt_min_val = df_slas["frt_min"].median()
         else:
             pct_frt = 0.0
             med_frt_val = 0.0
-            med_frt_min_val = 0.0
 
         # Casos Reopen: tickets actualmente open que registran haber sido resueltos previamente
         reopen_df = df_full_f[df_full_f["Es_Reopen"] == True] if (df_full_f is not None and not df_full_f.empty and "Es_Reopen" in df_full_f.columns) else pd.DataFrame()
@@ -1490,7 +1478,7 @@ def render_tab_zendesk(email_usuario: str = ""):
         c_sla4.metric(
             "📋 Total Tickets Auditados",
             f"{tot_t_slas:,.0f}",
-            f"Mediana Res: {med_rwt_val:.1f}h | FRT: {med_frt_min_val:.1f}m"
+            f"Mediana Res: {med_rwt_val:.1f}h | FRT: {med_frt_val:.1f}h"
         )
 
         st.markdown("---")
@@ -1545,7 +1533,7 @@ def render_tab_zendesk(email_usuario: str = ""):
                 Cumple_RWT=("cumple_rwt_48h", "sum"),
                 Cumple_FRT=("cumple_frt_24h", "sum"),
                 Mediana_RWT_hrs=("res_hrs", "median"),
-                Mediana_FRT_min=("frt_min", "median")
+                Mediana_FRT_hrs=("frt_hrs", "median")
             ).reset_index()
 
             df_as_sla["% RWT <= 48h"] = (df_as_sla["Cumple_RWT"] / df_as_sla["Tickets"] * 100.0).round(1)
@@ -1562,12 +1550,12 @@ def render_tab_zendesk(email_usuario: str = ""):
                         return "background-color: #FFC7CE; color: #9C0006; font-weight: bold;"
                 return ""
 
-            cols_as_sla = ["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio", "Tickets", "% RWT <= 48h", "% FRT <= 24h", "Mediana_RWT_hrs", "Mediana_FRT_min"]
+            cols_as_sla = ["Nombre_Asesor", "Supervisor", "Coordinador", "Servicio", "Tickets", "% RWT <= 48h", "% FRT <= 24h", "Mediana_RWT_hrs", "Mediana_FRT_hrs"]
             styler_sla = df_as_sla[cols_as_sla].rename(columns={
                 "Nombre_Asesor": "Asesor",
                 "Tickets": "Tickets Resueltos",
                 "Mediana_RWT_hrs": "Mediana Res. (hrs)",
-                "Mediana_FRT_min": "Mediana FRT (min)"
+                "Mediana_FRT_hrs": "Mediana FRT (hrs)"
             }).style
 
             # Compatibilidad universal: map (pandas >= 2.1) y applymap (pandas < 2.1)
@@ -1580,7 +1568,7 @@ def render_tab_zendesk(email_usuario: str = ""):
                 "% RWT <= 48h": "{:.1f}%",
                 "% FRT <= 24h": "{:.1f}%",
                 "Mediana Res. (hrs)": "{:.1f}h",
-                "Mediana FRT (min)": "{:.1f}m"
+                "Mediana FRT (hrs)": "{:.1f}h"
             })
 
             st.dataframe(
