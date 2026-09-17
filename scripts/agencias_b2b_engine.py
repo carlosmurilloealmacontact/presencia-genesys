@@ -611,12 +611,16 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
             "staff_real": c_data.get("staff_real", 0.0)
         }
 
-        # Extraer observación cualitativa si un líder la registró previamente
+        # Extraer observación cualitativa si un líder la registró previamente (en día específico)
         j_item = justificaciones.get(k, "")
-        obs_manual = j_item.get("justificacion", "") if isinstance(j_item, dict) else (j_item if isinstance(j_item, str) else "")
+        obs_manual = ""
+        if not (fecha_inicio and fecha_fin):
+            obs_manual = j_item.get("justificacion", "") if isinstance(j_item, dict) else (j_item if isinstance(j_item, str) else "")
 
         if jb:
             just_txt = jb.generar_justificacion_automatica_avanzada(dict_calc, obs_manual)
+            if fecha_inicio and fecha_fin and estado != "🟢 Cumple SLA":
+                just_txt = f"[Periodo {fecha_inicio} al {fecha_fin}] " + just_txt
         else:
             just_txt = "🟢 Meta alcanzada sin desvío" if estado == "🟢 Cumple SLA" else f"Pérdida de NS ({dif_ns:+.1f}pp)"
 
