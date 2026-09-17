@@ -829,13 +829,21 @@ def render_tab_zendesk(email_usuario: str = ""):
 
             # 1. Aplicar filtros generales superiores
             if solo_alma:
-                is_alma = df_full_f["TICKET_ASSIGNEE_PRIMARY_EMAIL"].astype(str).str.contains(
-                    r"almacontact|\.alma@|@almacontact|@outsourcing-account\.com", case=False, na=False
-                ) | (df_full_f["Nombre_Asesor"] != "Sin Asignar")
+                is_alma = (
+                    df_full_f["TICKET_ASSIGNEE_PRIMARY_EMAIL"].astype(str).str.contains(
+                        r"almacontact|\.alma@|@almacontact|@outsourcing-account\.com", case=False, na=False
+                    )
+                    | (df_full_f["Nombre_Asesor"] == "Sin Asignar")
+                    | (df_full_f["TICKET_ASSIGNEE_PRIMARY_EMAIL"].isna())
+                )
                 df_full_f = df_full_f[is_alma]
 
             if sel_servicio != "Todos":
-                df_full_f = df_full_f[(df_full_f["Servicio"] == sel_servicio) | (df_full_f["grupo"] == sel_servicio)]
+                df_full_f = df_full_f[
+                    (df_full_f["Servicio"] == sel_servicio)
+                    | (df_full_f["grupo"] == sel_servicio)
+                    | (df_full_f["grupo"].map(MAPA_GRUPO_A_SERVICIO) == sel_servicio)
+                ]
 
             if sel_coord != "Todos":
                 df_full_f = df_full_f[df_full_f["Coordinador"] == sel_coord]
@@ -847,6 +855,8 @@ def render_tab_zendesk(email_usuario: str = ""):
                 norm_sel = normalizar(sel_asesor)
                 toks_sel = set(norm_sel.split())
                 def match_asesor(val):
+                    if not val or pd.isna(val):
+                        return False
                     n_val = normalizar(str(val))
                     if n_val == norm_sel:
                         return True
@@ -859,7 +869,7 @@ def render_tab_zendesk(email_usuario: str = ""):
             with col_fb1:
                 servicios_b_disp = sorted([s for s in df_full_f["Servicio"].dropna().unique() if str(s).strip()])
                 grupos_b = ["Todos los Servicios"] + servicios_b_disp
-                sel_b_grp = st.selectbox("Filtrar Backlog por Cola / Servicio:", grupos_b, key="zd_sel_b_grp_v2")
+                sel_b_grp = st.selectbox("Filtrar Backlog por Cola / Servicio:", grupos_b, key="zd_sel_b_grp_v3")
             with col_fb2:
                 map_estados = {
                     "new": "Nuevo",
@@ -873,10 +883,14 @@ def render_tab_zendesk(email_usuario: str = ""):
                     df_full_f["Estado_Legible"] = df_full_f["status"].map(map_estados).fillna(df_full_f["status"].astype(str).str.title())
                 estados_b_disp = sorted([e for e in df_full_f["Estado_Legible"].dropna().unique() if str(e).strip()])
                 estados_b = ["Todos los Estados"] + estados_b_disp
-                sel_b_est = st.selectbox("Filtrar por Estado Operativo:", estados_b, key="zd_sel_b_est_v2")
+                sel_b_est = st.selectbox("Filtrar por Estado Operativo:", estados_b, key="zd_sel_b_est_v3")
 
             if sel_b_grp != "Todos los Servicios":
-                df_full_f = df_full_f[df_full_f["Servicio"] == sel_b_grp]
+                df_full_f = df_full_f[
+                    (df_full_f["Servicio"] == sel_b_grp)
+                    | (df_full_f["grupo"] == sel_b_grp)
+                    | (df_full_f["grupo"].map(MAPA_GRUPO_A_SERVICIO) == sel_b_grp)
+                ]
             if sel_b_est != "Todos los Estados":
                 df_full_f = df_full_f[df_full_f["Estado_Legible"] == sel_b_est]
 
@@ -901,6 +915,9 @@ def render_tab_zendesk(email_usuario: str = ""):
             k5.metric("🔴 Crítico (>30 Días)", f"{c_mas30:,}", f"{(c_mas30/tot_bl)*100:.1f}%" if tot_bl > 0 else "0.0%", delta_color="inverse")
 
             st.markdown("---")
+
+            if tot_bl == 0:
+                st.info("ℹ️ No se encontraron tickets en cola para la combinación de filtros seleccionada. Prueba seleccionando 'Todos los Servicios' o 'Todos los Estados'.")
 
             # Gráficos ejecutivos
             col_g1, col_g2 = st.columns([3, 2])
