@@ -127,16 +127,16 @@ def run_continuous_worker():
                 except Exception:
                     pass
 
-                # 4. Extraer colas y agentes reales del DOM
-                # 4. Extraer colas reales del DOM de Salesforce
-                queues, _ = sls.extract_live_data(page)
-                if queues:
-                    sle.advance_live_state_smoothly(scraped_queues=queues)
-                    total_w = sum(q.get("chats_in_queue", 0) for q in queues)
-                    longest_w = max((q.get("longest_wait_sec", 0) for q in queues), default=0)
-                    queues_with_wait = [f"{q['queue_name']}={q['chats_in_queue']} ({q['longest_wait_sec']}s)" for q in queues if q.get("chats_in_queue", 0) > 0]
+                # 4. Extraer colas y agentes reales del DOM de Salesforce
+                queues, agents = sls.extract_live_data(page)
+                if queues or agents:
+                    sle.advance_live_state_smoothly(scraped_queues=queues, scraped_agents=agents)
+                    total_w = sum(q.get("chats_in_queue", 0) for q in (queues or []))
+                    longest_w = max((q.get("longest_wait_sec", 0) for q in (queues or [])), default=0)
+                    active_c = sum(a.get("active_chats", 0) for a in (agents or []))
+                    queues_with_wait = [f"{q['queue_name']}={q['chats_in_queue']} ({q['longest_wait_sec']}s)" for q in (queues or []) if q.get("chats_in_queue", 0) > 0]
                     detail_str = f" [En espera: {', '.join(queues_with_wait)}]" if queues_with_wait else " [0 en espera]"
-                    print(f"[{now_str}] Ciclo #{cycle_count}: {len(queues)} colas sincronizadas ({total_w} chats en espera, máx {longest_w}s).{detail_str}")
+                    print(f"[{now_str}] Ciclo #{cycle_count}: {len(queues or [])} colas ({total_w} en espera, máx {longest_w}s), {len(agents or [])} agentes ({active_c} chats activos).{detail_str}")
                 else:
                     sle.advance_live_state_smoothly()
                     print(f"[{now_str}] Ciclo #{cycle_count}: Estado al día (0 en espera).")

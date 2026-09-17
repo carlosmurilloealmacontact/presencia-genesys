@@ -600,13 +600,23 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
         st.warning("⚠️ No se encontraron turnos detallados en la base de datos.")
         return
 
+    # Selección de fecha por defecto: Día anterior (ayer) para evitar días futuros sin conexión
+    ayer_str = (datetime.now().date() - timedelta(days=1)).strftime("%Y-%m-%d")
+    idx_def = 0
+    if ayer_str in fechas_disp:
+        idx_def = fechas_disp.index(ayer_str)
+    else:
+        fechas_pasadas = [f for f in fechas_disp if f <= ayer_str]
+        if fechas_pasadas:
+            idx_def = fechas_disp.index(fechas_pasadas[0])
+
     # Fila de Filtros
     coords_disp = ["Todos los Coordinadores"] + obtener_coordinadores_disponibles(ambito)
     servs_disp = ["Todos los Servicios"] + obtener_servicios_disponibles(ambito)
 
     c_f1, c_f2, c_f3, c_f4, c_f5, c_f6 = st.columns([1.1, 1.4, 1.4, 1.3, 1.4, 1.4])
     with c_f1:
-        fecha_sel = st.selectbox("📅 Fecha", options=fechas_disp, index=0, key=f"{key_prefix}fecha")
+        fecha_sel = st.selectbox("📅 Fecha", options=fechas_disp, index=idx_def, key=f"{key_prefix}fecha")
     with c_f2:
         coord_sel = st.selectbox("👤 Coordinación", options=coords_disp, index=0, key=f"{key_prefix}coord")
 

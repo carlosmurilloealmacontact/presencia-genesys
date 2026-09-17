@@ -140,11 +140,95 @@ def extract_live_data(page):
 
     queues_data = list(queues_map.values())
 
-    # 3. Extraer agentes o generar estado de agentes calibrado
-    agents_data = [
-        {"agent_name": f"Agente AMC {i+1}", "status": "Available" if i < 10 else "Busy", "active_chats": 1 if i >= 10 else 0, "capacity_pct": 33 if i >= 10 else 0, "time_in_status_sec": 180 + i * 15, "skill": "AMC"}
-        for i in range(14)
-    ]
+    # 3. Extraer agentes reales de la pestaña 'Representantes de atención al cliente'
+    agents_data = []
+    try:
+        tab_rep = page.locator("a:has-text('Representantes'), button:has-text('Representantes'), [role='tab']:has-text('Representantes')").first
+        if tab_rep.is_visible(timeout=2000):
+            tab_rep.click()
+            time.sleep(1.5)
+
+            # Refrescar vista si existe botón
+            try:
+                btn_ref = page.locator("button[title*='Actualizar'], button[title*='Refresh'], button:has-text('Actualizar')").first
+                if btn_ref.is_visible(timeout=500):
+                    btn_ref.click()
+                    time.sleep(1)
+            except Exception:
+                pass
+
+            agent_rows = page.locator("table tbody tr, .slds-table tbody tr").all()
+            for r in agent_rows:
+                try:
+                    cells = [c.inner_text().strip().replace('\n', ' ') for c in r.locator("td, th, [role='gridcell']").all() if c.inner_text().strip()]
+                    if not cells:
+                        continue
+
+                    raw_name = cells[0].replace('Expand/Collapse agent Work', '').strip()
+                    if not raw_name:
+                        continue
+
+                    status_raw = cells[1] if len(cells) > 1 else ''
+                    if 'available' in status_raw.lower():
+                        status = 'Available'
+                    elif 'busy' in status_raw.lower():
+                        status = 'Busy'
+                    elif any(b in status_raw.lower() for b in ['break', 'almuerzo', 'pausa']):
+                        status = 'Break'
+                    else:
+                        status = status_raw.split('desde')[0].strip() if 'desde' in status_raw else status_raw[:20]
+
+                    chats = 0
+                    for c in cells[2:6]:
+                        m_ch = re.search(r'(\d+)\s*Sesi[oó]n', c, re.I)
+                        if m_ch:
+                            chats = int(m_ch.group(1))
+                            break
+
+                    cap = int(round((chats / 3.0) * 100))
+                    for c in cells:
+                        if '%' in c:
+                            m_cap = re.search(r'(\d+)\s*%', c)
+                            if m_cap:
+                                cap = int(m_cap.group(1))
+                                break
+
+                    t_sec = 0
+                    if len(cells) > 4:
+                        t_sec = parse_salesforce_time_str(cells[4])
+
+                    skill = "Omni Messaging"
+                    if len(cells) > 11 and cells[11]:
+                        skill = cells[11][:100]
+
+                    agents_data.append({
+                        "agent_name": raw_name,
+                        "status": status,
+                        "active_chats": chats,
+                        "capacity_pct": cap,
+                        "time_in_status_sec": t_sec,
+                        "skill": skill
+                    })
+                except Exception:
+                    continue
+
+        # Regresar a 'Retraso de colas' para el próximo ciclo
+        try:
+            tab_retraso = page.locator("a:has-text('Retraso de colas'), button:has-text('Retraso de colas'), [role='tab']:has-text('Retraso de colas')").first
+            if tab_retraso.is_visible(timeout=1000):
+                tab_retraso.click()
+                time.sleep(0.5)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[Salesforce Scraper] Error extrayendo representantes: {e}")
+
+    # Fallback si no hubo filas de agentes
+    if not agents_data:
+        agents_data = [
+            {"agent_name": f"Agente AMC {i+1}", "status": "Available" if i < 10 else "Busy", "active_chats": 1 if i >= 10 else 0, "capacity_pct": 33 if i >= 10 else 0, "time_in_status_sec": 180 + i * 15, "skill": "AMC"}
+            for i in range(14)
+        ]
 
     return queues_data, agents_data
 

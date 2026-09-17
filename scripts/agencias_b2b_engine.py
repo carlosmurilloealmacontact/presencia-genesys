@@ -82,7 +82,7 @@ def estilo_abandono(val):
 
 
 # ── PILAR 1: CONTROL DE ESTADOS & MONITOREO EN VIVO (UNIFICADO) ──────────────
-@st.fragment(run_every=30)
+@st.fragment(run_every=20)
 def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str = "agb2b_live_"):
     """
     Monitoreo de piso en tiempo real UNIFICADO:
@@ -100,6 +100,8 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     with col_btn:
         st.write("")
         btn_refresh = st.button("🔄 Actualizar Ahora", key=f"{key_prefix}btn_refresh", type="primary", use_container_width=True)
+        if btn_refresh:
+            st.rerun(scope="fragment")
 
     # 1. Obtener estados de ambas plataformas
     # A. Genesys Cloud
@@ -119,13 +121,19 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     # B. Salesforce Service Cloud
     df_queues, df_agents_sf, latest_ts = sle.get_latest_live_state(force_fresh=btn_refresh)
     hora_display = str(latest_ts or "")
+    diff_sec = 999999
     try:
         dt_obj = datetime.strptime(latest_ts, "%Y-%m-%d %H:%M:%S")
         hora_display = dt_obj.strftime("%I:%M:%S %p")
+        diff_sec = abs((datetime.now() - dt_obj).total_seconds())
     except Exception:
         pass
 
-    st.caption(f"🟢 **Sincronización Multicanal:** Actualizado a las **{hora_display}** (Hora Colombia - COT / UTC-5) • Auto-recarga cada **30 segundos**.")
+    if diff_sec <= 90:
+        st.caption(f"🟢 **Sincronización en Vivo:** Actualizado hace **{int(diff_sec)}s** a las **{hora_display}** (Hora Colombia - COT / UTC-5) • Auto-recarga cada **20 segundos**.")
+    else:
+        minutos_pausa = int(diff_sec // 60)
+        st.caption(f"🟡 **Sincronización en Pausa:** Última captura hace **{minutos_pausa} min** a las **{hora_display}** COT. Para reactivar el escaneo en tiempo real ejecute el worker local (`iniciar_worker_salesforce.bat`).")
 
     # 2. Métricas Consolidadas de Piso con protección de columnas
     tot_genesys = len(df_live_genesys) if not df_live_genesys.empty else 0
@@ -354,18 +362,44 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     st.caption("Cruce en vivo del estado en Genesys Cloud con el estado en Salesforce Omni-Channel para cada asesor.")
 
     maestro = mse.sync_maestro_asesores()
-    sf_by_name = {}
-    sf_by_bp = {}
+    sf_agents_list = []
     if df_agents_sf is not None and not df_agents_sf.empty:
         for _, r_sf in df_agents_sf.iterrows():
+            sf_dict = r_sf.to_dict()
             ag_alias = str(r_sf["agent_name"]).strip().upper()
             info_m = maestro.get(ag_alias, {})
-            nombre_real = info_m.get("nombre_completo", ag_alias)
-            bp_val = str(info_m.get("bp", "")).strip()
-            sf_by_name[nombre_real.strip().upper()] = r_sf
-            if bp_val:
-                sf_by_bp[bp_val] = r_sf
+            if info_m:
+                sf_dict["bp"] = info_m.get("bp", "")
+                sf_dict["nombre_completo"] = info_m.get("nombre_completo", ag_alias)
+            sf_agents_list.append(sf_dict)
 
+    def match_advisor_sf(nom_g, bp_g, list_sf):
+        import re
+        tokens_g = set(re.findall(r'[a-zA-Z0-9]+', str(nom_g).upper())) - {'P', 'DE', 'DEL', 'LA', 'LAS', 'LOS', 'Y', 'A', 'EN', 'EL'}
+        best_match = None
+        best_score = 0
+        for item in list_sf:
+            item_bp = str(item.get("bp", "")).strip()
+            if bp_g and item_bp and item_bp == bp_g:
+                return item
+
+            sfn = str(item.get("agent_name", "")).upper()
+            tokens_sf = set(re.findall(r'[a-zA-Z0-9]+', sfn)) - {'P', 'DE', 'DEL', 'LA', 'LAS', 'LOS', 'Y', 'A', 'EN', 'EL'}
+            if not tokens_sf:
+                continue
+
+            if sfn in str(nom_g).upper() or str(nom_g).upper() in sfn:
+                return item
+
+            overlap = tokens_sf & tokens_g
+            if (tokens_sf.issubset(tokens_g) and len(tokens_sf) >= 1) or len(overlap) >= 2:
+                if len(overlap) > best_score:
+                    best_score = len(overlap)
+                    best_match = item
+
+        return best_match
+
+    matched_sf_names = set()
     filas_piso = []
     if not df_live_genesys.empty:
         for _, rg in df_live_genesys.iterrows():
@@ -384,23 +418,15 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
                 t_llamada = rg.get("cronometro_llamada", rg.get("tiempo_llamada_formateado", t_g))
                 est_g = f"📞 En Llamada ({t_llamada})"
 
-            # Buscar correspondencia en Salesforce por BP o nombre
-            match_sf = None
-            if bp_g and bp_g in sf_by_bp:
-                match_sf = sf_by_bp[bp_g]
-            elif nom_g in sf_by_name:
-                match_sf = sf_by_name[nom_g]
-            else:
-                for k_sf, v_sf in sf_by_name.items():
-                    if k_sf and (k_sf in nom_g or nom_g in k_sf):
-                        match_sf = v_sf
-                        break
+            # Buscar correspondencia en Salesforce en vivo
+            match_sf = match_advisor_sf(nom_g, bp_g, sf_agents_list)
 
             sesiones_sf = "—"
             if match_sf is not None:
+                matched_sf_names.add(str(match_sf.get("agent_name", "")).upper())
                 est_sf = str(match_sf.get("status", "Available"))
                 chats_sf = int(match_sf.get("active_chats", 0))
-                simult_sf = f"{chats_sf} de 3 ({match_sf.get('capacity_pct', 0)}%)"
+                simult_sf = f"{chats_sf} de 3 ({match_sf.get('capacity_pct', round((chats_sf/3)*100))}%)"
                 t_sec_sf = int(match_sf.get("time_in_status_sec", 0))
                 mins_sf = t_sec_sf // 60
                 raw_ms = str(match_sf.get("chat_session_ids", "")).strip()
@@ -421,7 +447,7 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
                 else:
                     diag = "🟢 Normal"
             else:
-                # Sincronización operativa para asesores activos en Genesys
+                # Asesor activo en Genesys pero sin Omni-Channel activo en Salesforce
                 raw_est_g = str(rg.get("estado", rg.get("presence_label", "")))
                 raw_dur = rg.get("duracion_segundos")
                 dur_g_seg = int(raw_dur) if (raw_dur is not None and not pd.isna(raw_dur)) else 0
@@ -434,23 +460,12 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
                 mins_g = dur_g_seg // 60
 
                 if es_llamada:
-                    est_sf = "Busy"
+                    est_sf = "Busy (Voz Genesys)"
                     chats_sf = 0
                     simult_sf = "0 de 3 (0%)"
                     raw_ll_val = rg.get("dur_llamada_seg") if not pd.isna(rg.get("dur_llamada_seg")) else (rg.get("llamada_seg") if not pd.isna(rg.get("llamada_seg")) else dur_g_seg)
                     dur_ll_sec = int(raw_ll_val or 0)
                     diag = f"🚨 Llamada >15m ({dur_ll_sec // 60}m)" if dur_ll_sec >= 900 else "🟢 Normal (Voz)"
-                elif raw_est_g in ("Available", "On Queue"):
-                    est_sf = "Available"
-                    seed_idx = (int(bp_g) if bp_g.isdigit() else 1) % 3
-                    chats_sf = 1 if seed_idx in (0, 1) else 2
-                    simult_sf = f"{chats_sf} de 3 ({round((chats_sf/3)*100)}%)"
-                    ms_base = (int(bp_g) if bp_g.isdigit() else 800000) % 900000 + 100000
-                    sesiones_sf = ", ".join([f"ms-{ms_base + i*137}" for i in range(chats_sf)])
-                    if mins_g >= 35:
-                        diag = f"🟣 Chat estancado ({mins_g}m)"
-                    else:
-                        diag = "🟢 Normal"
                 elif any(p in raw_est_g.lower() for p in ["break", "lunch", "baño", "pausa"]):
                     est_sf = "Break"
                     chats_sf = 0
@@ -461,10 +476,17 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
                     chats_sf = 0
                     simult_sf = "0 de 3 (0%)"
                     diag = f"🟡 Busy prolongado ({mins_g}m)" if mins_g >= 10 else "🟢 Normal"
+                elif raw_est_g in ("Available", "On Queue"):
+                    est_sf = "Available (Sin Omni)"
+                    chats_sf = 0
+                    simult_sf = "0 de 3 (0%)"
+                    sesiones_sf = "—"
+                    diag = "🟢 En espera voz"
                 else:
                     est_sf = "— (Desconectado)"
                     chats_sf = 0
                     simult_sf = "0 chats"
+                    sesiones_sf = "—"
                     diag = "🟢 Normal"
 
             filas_piso.append({
@@ -477,6 +499,26 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
                 "Simultaneidad SF": simult_sf,
                 "💬 Sesiones Chat (ms-)": sesiones_sf,
                 "Alerta Integrada": diag
+            })
+
+    # Añadir ejecutivos que estén activos en Salesforce Omni pero no figuren en Genesys
+    for sf_item in sf_agents_list:
+        sfn_u = str(sf_item.get("agent_name", "")).strip().upper()
+        if sfn_u and sfn_u not in matched_sf_names:
+            c_sf = int(sf_item.get("active_chats", 0))
+            sim_sf = f"{c_sf} de 3 ({sf_item.get('capacity_pct', round((c_sf/3)*100))}%)"
+            t_sf = int(sf_item.get("time_in_status_sec", 0))
+            ses_sf = sf_item.get("chat_session_ids", "—")
+            filas_piso.append({
+                "Asesor": sf_item.get("agent_name", ""),
+                "BP": sf_item.get("bp", "—"),
+                "Supervisor": "Coordinación Marelyn Cardona",
+                "Estado Genesys": "— (Solo Omni)",
+                "⏱️ Tiempo Genesys": "—",
+                "Estado Salesforce Omni": sf_item.get("status", "Available"),
+                "Simultaneidad SF": sim_sf,
+                "💬 Sesiones Chat (ms-)": ses_sf,
+                "Alerta Integrada": "🟢 Normal (Chat)"
             })
 
     df_piso = pd.DataFrame(filas_piso)
@@ -755,6 +797,7 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
     return pd.DataFrame(filas)
 
 
+@st.fragment(run_every=30)
 def render_subtab_niveles_servicio_unificado():
     """Renderiza la vista unificada de Niveles de Servicio Multicanal para Agencias B2B con histórico y justificaciones."""
     if jb:

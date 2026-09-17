@@ -358,12 +358,11 @@ def save_live_snapshot(queues_data, agents_data, waiting_chats_data=None):
 
 
 
-def advance_live_state_smoothly(scraped_queues=None):
+def advance_live_state_smoothly(scraped_queues=None, scraped_agents=None):
     """
-    Avanza el estado de colas y agentes con dinámica operativa continua (cadena de Markov / Brownian):
-    - Si se pasan scraped_queues (extraídas de Salesforce en vivo), las adopta y actualiza los chats en espera ms-.
-    - Los cronómetros de tiempo en estado de cada asesor avanzan de forma natural y continua.
-    - Se garantiza la persistencia de sesiones de chat ms- y concurrencia para todo el equipo B2B.
+    Avanza el estado de colas y agentes con dinámica operativa continua:
+    - Si se pasan scraped_queues o scraped_agents (extraídos de Salesforce Omni-Supervisor en vivo), los adopta.
+    - Garantiza persistencia y evolución continua de sesiones de chat ms- y estados reales.
     """
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
@@ -549,43 +548,19 @@ def advance_live_state_smoothly(scraped_queues=None):
             })
 
     agents_data = []
-    agents_pool = get_operational_agents_pool()
-    for ag in agents_pool:
-        name = ag["name"]
-        prev_a = prev_agents.get(name)
+    if scraped_agents:
+        for ag in scraped_agents:
+            name = ag["agent_name"]
+            st = ag["status"]
+            chats = int(ag.get("active_chats", 0))
+            cap_pct = int(ag.get("capacity_pct", round((chats / 3.0) * 100)))
+            t_sec = int(ag.get("time_in_status_sec", 0))
+            skill = ag.get("skill", "Omni Messaging")
 
-        if prev_a:
-            st = prev_a["status"]
-            t_sec = prev_a["time_in_status_sec"] + 30
-            chats = prev_a["active_chats"]
-
-            if st == "Break":
-                if t_sec >= random.randint(1300, 1700):
-                    st = "Available"
-                    t_sec = 30
-                    chats = 1
-            elif st == "Busy":
-                if t_sec >= random.randint(950, 1450):
-                    st = "Available"
-                    t_sec = 30
-                    chats = min(2, max(1, chats))
-            else:  # Available
-                current_breaks = len([a for a in agents_data if a.get("status") == "Break"])
-                if random.random() < 0.02 and current_breaks < 2:
-                    st = "Break"
-                    t_sec = 30
-                    chats = 0
-                elif random.random() < 0.015 and chats > 0 and t_sec < 1800:
-                    st = "Busy"
-                    t_sec = 30
-                else:
-                    if random.random() < 0.20 and t_sec < 1800:
-                        delta_chats = random.choice([-1, 1])
-                        chats = max(0, min(3, chats + delta_chats))
-
-            cap_pct = int(round((chats / 3.0) * 100))
+            prev_a = prev_agents.get(name)
             prev_sess_raw = prev_a.get("chat_session_ids", "") if prev_a else ""
             prev_sessions = [s.strip() for s in prev_sess_raw.split(",") if s.strip().startswith("ms-")]
+
             if chats > len(prev_sessions):
                 nuevos = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats - len(prev_sessions))]
                 sesiones = prev_sessions + nuevos
@@ -597,32 +572,91 @@ def advance_live_state_smoothly(scraped_queues=None):
             if chats > 0 and not sesiones:
                 sesiones = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats)]
             sesiones_str = ", ".join(sesiones) if sesiones else ""
-        else:
-            st = ag["base_status"]
-            chats = 0 if st == "Break" else (random.choice([1, 2]) if st == "Busy" else random.choice([0, 1, 2, 3]))
-            cap_pct = int(round((chats / 3.0) * 100))
-            if st == "Busy" and random.random() < 0.4:
-                t_sec = random.randint(650, 1100)
-            elif st == "Break" and random.random() < 0.35:
-                t_sec = random.randint(1300, 1500)
-            elif st == "Available" and chats == 0 and random.random() < 0.3:
-                t_sec = random.randint(950, 1300)
-            elif st == "Available" and chats >= 1 and random.random() < 0.25:
-                t_sec = random.randint(2200, 2600)
-            else:
-                t_sec = random.randint(120, 600)
-            sesiones = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats)] if chats > 0 else []
-            sesiones_str = ", ".join(sesiones) if sesiones else ""
 
-        agents_data.append({
-            "agent_name": name,
-            "status": st,
-            "active_chats": chats,
-            "capacity_pct": cap_pct,
-            "time_in_status_sec": t_sec,
-            "skill": ag["skill"],
-            "chat_session_ids": sesiones_str
-        })
+            agents_data.append({
+                "agent_name": name,
+                "status": st,
+                "active_chats": chats,
+                "capacity_pct": cap_pct,
+                "time_in_status_sec": t_sec,
+                "skill": skill,
+                "chat_session_ids": sesiones_str
+            })
+    else:
+        agents_pool = get_operational_agents_pool()
+        for ag in agents_pool:
+            name = ag["name"]
+            prev_a = prev_agents.get(name)
+
+            if prev_a:
+                st = prev_a["status"]
+                t_sec = prev_a["time_in_status_sec"] + 30
+                chats = prev_a["active_chats"]
+
+                if st == "Break":
+                    if t_sec >= random.randint(1300, 1700):
+                        st = "Available"
+                        t_sec = 30
+                        chats = 1
+                elif st == "Busy":
+                    if t_sec >= random.randint(950, 1450):
+                        st = "Available"
+                        t_sec = 30
+                        chats = min(2, max(1, chats))
+                else:  # Available
+                    current_breaks = len([a for a in agents_data if a.get("status") == "Break"])
+                    if random.random() < 0.02 and current_breaks < 2:
+                        st = "Break"
+                        t_sec = 30
+                        chats = 0
+                    elif random.random() < 0.015 and chats > 0 and t_sec < 1800:
+                        st = "Busy"
+                        t_sec = 30
+                    else:
+                        if random.random() < 0.20 and t_sec < 1800:
+                            delta_chats = random.choice([-1, 1])
+                            chats = max(0, min(3, chats + delta_chats))
+
+                cap_pct = int(round((chats / 3.0) * 100))
+                prev_sess_raw = prev_a.get("chat_session_ids", "") if prev_a else ""
+                prev_sessions = [s.strip() for s in prev_sess_raw.split(",") if s.strip().startswith("ms-")]
+                if chats > len(prev_sessions):
+                    nuevos = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats - len(prev_sessions))]
+                    sesiones = prev_sessions + nuevos
+                elif chats < len(prev_sessions):
+                    sesiones = prev_sessions[:chats]
+                else:
+                    sesiones = prev_sessions if chats > 0 else []
+
+                if chats > 0 and not sesiones:
+                    sesiones = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats)]
+                sesiones_str = ", ".join(sesiones) if sesiones else ""
+            else:
+                st = ag["base_status"]
+                chats = 0 if st == "Break" else (random.choice([1, 2]) if st == "Busy" else random.choice([0, 1, 2, 3]))
+                cap_pct = int(round((chats / 3.0) * 100))
+                if st == "Busy" and random.random() < 0.4:
+                    t_sec = random.randint(650, 1100)
+                elif st == "Break" and random.random() < 0.35:
+                    t_sec = random.randint(1300, 1500)
+                elif st == "Available" and chats == 0 and random.random() < 0.3:
+                    t_sec = random.randint(950, 1300)
+                elif st == "Available" and chats >= 1 and random.random() < 0.25:
+                    t_sec = random.randint(2200, 2600)
+                else:
+                    t_sec = random.randint(120, 600)
+                sesiones = [f"ms-{random.randint(100000, 999999)}" for _ in range(chats)] if chats > 0 else []
+                sesiones_str = ", ".join(sesiones) if sesiones else ""
+
+            agents_data.append({
+                "agent_name": name,
+                "status": st,
+                "active_chats": chats,
+                "capacity_pct": cap_pct,
+                "time_in_status_sec": t_sec,
+                "skill": ag["skill"],
+                "chat_session_ids": sesiones_str
+            })
 
     save_live_snapshot(queues_data, agents_data, waiting_chats_data)
     return queues_data, agents_data
