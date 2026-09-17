@@ -25,6 +25,30 @@ def get_colombia_now():
         return datetime.now(timezone(timedelta(hours=-5)))
 
 LIVE_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "salesforce_live.db")
+DEFAULT_NEON_URL = "postgresql://neondb_owner:npg_u94jTQIadNYr@ep-proud-violet-a5lapj40-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+
+def _get_neon_connection():
+    """Retorna una conexión a Neon Postgres (si está disponible y accesible)."""
+    db_url = None
+    try:
+        import streamlit as st
+        if "NEON_DB_URL" in st.secrets:
+            db_url = str(st.secrets["NEON_DB_URL"]).strip()
+    except Exception:
+        pass
+
+    if not db_url:
+        db_url = os.environ.get("NEON_DB_URL", DEFAULT_NEON_URL)
+
+    if db_url:
+        try:
+            import psycopg2
+            return psycopg2.connect(db_url, connect_timeout=5)
+        except Exception:
+            return None
+    return None
+
 
 # 18 Colas BOT Omni-Channel Oficiales (Dudas OP, NDC, Corp & Grupos)
 BOT_QUEUES_AMC = [
@@ -101,93 +125,185 @@ DEFAULT_AGENTS = [
 
 
 def init_live_db():
-    """Inicializa las tablas SQLite para el estado de chats en vivo."""
-    os.makedirs(os.path.dirname(LIVE_DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(LIVE_DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS live_chat_queues (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        queue_name TEXT NOT NULL,
-        chats_in_queue INTEGER NOT NULL,
-        longest_wait_sec INTEGER NOT NULL,
-        agents_online INTEGER NOT NULL
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS live_waiting_chats (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        chat_id TEXT NOT NULL,
-        queue_name TEXT NOT NULL,
-        wait_time_sec INTEGER NOT NULL,
-        channel TEXT DEFAULT 'Web Chat'
-    )
-    """)
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS live_chat_agents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        agent_name TEXT NOT NULL,
-        status TEXT NOT NULL,
-        active_chats INTEGER NOT NULL,
-        capacity_pct INTEGER NOT NULL,
-        time_in_status_sec INTEGER NOT NULL,
-        skill TEXT,
-        chat_session_ids TEXT
-    )
-    """)
+    """Inicializa las tablas en SQLite local y en Neon Postgres."""
+    # 1. SQLite local
     try:
-        cur.execute("ALTER TABLE live_chat_agents ADD COLUMN chat_session_ids TEXT")
-    except Exception:
-        pass
+        os.makedirs(os.path.dirname(LIVE_DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(LIVE_DB_PATH)
+        cur = conn.cursor()
 
-    conn.commit()
-    conn.close()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS live_chat_queues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            queue_name TEXT NOT NULL,
+            chats_in_queue INTEGER NOT NULL,
+            longest_wait_sec INTEGER NOT NULL,
+            agents_online INTEGER NOT NULL
+        )
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS live_waiting_chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            chat_id TEXT NOT NULL,
+            queue_name TEXT NOT NULL,
+            wait_time_sec INTEGER NOT NULL,
+            channel TEXT DEFAULT 'Web Chat'
+        )
+        """)
+
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS live_chat_agents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            agent_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            active_chats INTEGER NOT NULL,
+            capacity_pct INTEGER NOT NULL,
+            time_in_status_sec INTEGER NOT NULL,
+            skill TEXT,
+            chat_session_ids TEXT
+        )
+        """)
+        try:
+            cur.execute("ALTER TABLE live_chat_agents ADD COLUMN chat_session_ids TEXT")
+        except Exception:
+            pass
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[Salesforce Live Engine] SQLite init aviso: {e}")
+
+    # 2. Neon Postgres (producción / Streamlit Cloud)
+    conn_pg = _get_neon_connection()
+    if conn_pg:
+        try:
+            cur_pg = conn_pg.cursor()
+            cur_pg.execute("""
+            CREATE TABLE IF NOT EXISTS live_chat_queues (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP NOT NULL,
+                queue_name VARCHAR(255) NOT NULL,
+                chats_in_queue INT NOT NULL,
+                longest_wait_sec INT NOT NULL,
+                agents_online INT NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS live_chat_agents (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP NOT NULL,
+                agent_name VARCHAR(255) NOT NULL,
+                status VARCHAR(100) NOT NULL,
+                active_chats INT NOT NULL,
+                capacity_pct INT NOT NULL,
+                time_in_status_sec INT NOT NULL,
+                skill VARCHAR(150),
+                chat_session_ids TEXT
+            );
+            CREATE TABLE IF NOT EXISTS live_waiting_chats (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP NOT NULL,
+                chat_id VARCHAR(100) NOT NULL,
+                queue_name VARCHAR(255) NOT NULL,
+                wait_time_sec INT NOT NULL,
+                channel VARCHAR(100) DEFAULT 'Web Chat'
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_chat_queues_ts ON live_chat_queues(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_live_chat_agents_ts ON live_chat_agents(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_live_waiting_chats_ts ON live_waiting_chats(timestamp DESC);
+            """)
+            conn_pg.commit()
+            cur_pg.close()
+            conn_pg.close()
+        except Exception as e:
+            try:
+                conn_pg.close()
+            except Exception:
+                pass
 
 
 def save_live_snapshot(queues_data, agents_data, waiting_chats_data=None):
-    """Guarda un snapshot del estado en vivo en Hora Colombia y mantiene la base de datos ligera."""
+    """Guarda un snapshot del estado en vivo en Hora Colombia en SQLite local y Neon Postgres."""
     init_live_db()
-    conn = sqlite3.connect(LIVE_DB_PATH)
-    cur = conn.cursor()
     now_col = get_colombia_now()
     now_str = now_col.strftime("%Y-%m-%d %H:%M:%S")
 
-    for q in queues_data:
-        cur.execute("""
-        INSERT INTO live_chat_queues (timestamp, queue_name, chats_in_queue, longest_wait_sec, agents_online)
-        VALUES (?, ?, ?, ?, ?)
-        """, (now_str, q["queue_name"], q["chats_in_queue"], q["longest_wait_sec"], q.get("agents_online", 0)))
-
-    for a in agents_data:
-        cur.execute("""
-        INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill, chat_session_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")))
-
-    if waiting_chats_data:
-        for w in waiting_chats_data:
-            cur.execute("""
-            INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel)
-            VALUES (?, ?, ?, ?, ?)
-            """, (now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")))
-
-    # Mantener sólo las últimas 24 horas en hora Colombia para evitar crecimiento innecesario
+    # 1. Guardar en SQLite local
     try:
+        conn = sqlite3.connect(LIVE_DB_PATH)
+        cur = conn.cursor()
+
+        for q in queues_data:
+            cur.execute("""
+            INSERT INTO live_chat_queues (timestamp, queue_name, chats_in_queue, longest_wait_sec, agents_online)
+            VALUES (?, ?, ?, ?, ?)
+            """, (now_str, q["queue_name"], q["chats_in_queue"], q["longest_wait_sec"], q.get("agents_online", 0)))
+
+        for a in agents_data:
+            cur.execute("""
+            INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill, chat_session_ids)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")))
+
+        if waiting_chats_data:
+            for w in waiting_chats_data:
+                cur.execute("""
+                INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel)
+                VALUES (?, ?, ?, ?, ?)
+                """, (now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")))
+
         cutoff_str = (now_col - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         cur.execute("DELETE FROM live_chat_queues WHERE timestamp < ?", (cutoff_str,))
         cur.execute("DELETE FROM live_chat_agents WHERE timestamp < ?", (cutoff_str,))
         cur.execute("DELETE FROM live_waiting_chats WHERE timestamp < ?", (cutoff_str,))
-    except Exception:
-        pass
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[Salesforce Live Engine] SQLite save aviso: {e}")
+
+    # 2. Guardar en Neon Postgres (producción / multi-dispositivo en tiempo real)
+    conn_pg = _get_neon_connection()
+    if conn_pg:
+        try:
+            cur_pg = conn_pg.cursor()
+            for q in queues_data:
+                cur_pg.execute("""
+                INSERT INTO live_chat_queues (timestamp, queue_name, chats_in_queue, longest_wait_sec, agents_online)
+                VALUES (%s, %s, %s, %s, %s)
+                """, (now_str, q["queue_name"], q["chats_in_queue"], q["longest_wait_sec"], q.get("agents_online", 0)))
+
+            for a in agents_data:
+                cur_pg.execute("""
+                INSERT INTO live_chat_agents (timestamp, agent_name, status, active_chats, capacity_pct, time_in_status_sec, skill, chat_session_ids)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (now_str, a["agent_name"], a["status"], a["active_chats"], a["capacity_pct"], a["time_in_status_sec"], a.get("skill", ""), a.get("chat_session_ids", "")))
+
+            if waiting_chats_data:
+                for w in waiting_chats_data:
+                    cur_pg.execute("""
+                    INSERT INTO live_waiting_chats (timestamp, chat_id, queue_name, wait_time_sec, channel)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """, (now_str, w["chat_id"], w["queue_name"], int(w["wait_time_sec"]), w.get("channel", "Web Chat")))
+
+            cutoff_str = (now_col - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+            cur_pg.execute("DELETE FROM live_chat_queues WHERE timestamp < %s", (cutoff_str,))
+            cur_pg.execute("DELETE FROM live_chat_agents WHERE timestamp < %s", (cutoff_str,))
+            cur_pg.execute("DELETE FROM live_waiting_chats WHERE timestamp < %s", (cutoff_str,))
+
+            conn_pg.commit()
+            cur_pg.close()
+            conn_pg.close()
+        except Exception as e:
+            print(f"[Salesforce Live Engine] Neon Postgres write aviso: {e}")
+            try:
+                conn_pg.rollback()
+                conn_pg.close()
+            except Exception:
+                pass
+
 
 
 def advance_live_state_smoothly():
@@ -413,12 +529,61 @@ def advance_live_state_smoothly():
 def get_live_waiting_chats(latest_ts: str = None) -> pd.DataFrame:
     """
     Retorna los chats individuales que están actualmente en cola esperando atención en Omni-Channel.
-    Incluye:
-    - ID de Chat (ms-XXXXXX)
-    - Cola Salesforce a la que pertenecen
-    - Tiempo de Espera (mm:ss)
-    - Estado de Cumplimiento de SLA (Meta <= 100 segundos)
+    Consulta primero Neon Postgres (para Streamlit Cloud y producción) y luego SQLite local.
     """
+    # 1. Intentar consultar Neon Postgres
+    conn_pg = _get_neon_connection()
+    if conn_pg:
+        try:
+            cur_pg = conn_pg.cursor()
+            if not latest_ts:
+                cur_pg.execute("SELECT MAX(timestamp) FROM live_waiting_chats")
+                row = cur_pg.fetchone()
+                target_ts = row[0] if row else None
+            else:
+                target_ts = latest_ts
+
+            if target_ts:
+                cur_pg.execute(
+                    "SELECT chat_id, queue_name, wait_time_sec, channel FROM live_waiting_chats WHERE timestamp = %s ORDER BY wait_time_sec DESC",
+                    (target_ts,)
+                )
+                cols = [desc[0] for desc in cur_pg.description]
+                rows = cur_pg.fetchall()
+                cur_pg.close()
+                conn_pg.close()
+                df = pd.DataFrame(rows, columns=cols)
+                if not df.empty:
+                    def format_wait(sec):
+                        m, s = divmod(int(sec), 60)
+                        return f"{m:02d}:{s:02d} min"
+
+                    def format_sla(sec):
+                        if sec <= 60:
+                            return "🟢 Normal (≤ 60s)"
+                        elif sec <= 100:
+                            return "🟡 En Riesgo (61-100s)"
+                        else:
+                            return "🔴 SLA Excedido (> 100s)"
+
+                    df["Tiempo de Espera"] = df["wait_time_sec"].apply(format_wait)
+                    df["Estado SLA"] = df["wait_time_sec"].apply(format_sla)
+                    df = df.rename(columns={
+                        "chat_id": "💬 ID Chat (ms-)",
+                        "queue_name": "🏷️ Cola Salesforce",
+                        "channel": "Canal"
+                    })
+                    return df[["💬 ID Chat (ms-)", "🏷️ Cola Salesforce", "Tiempo de Espera", "Estado SLA", "wait_time_sec", "Canal"]]
+            else:
+                cur_pg.close()
+                conn_pg.close()
+        except Exception:
+            try:
+                conn_pg.close()
+            except Exception:
+                pass
+
+    # 2. Fallback SQLite local
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
     if not latest_ts:
@@ -474,9 +639,43 @@ def generate_simulated_live_tick():
 def get_latest_live_state(force_fresh: bool = False):
     """
     Obtiene el estado más reciente de colas y agentes en tiempo real.
-    Si han transcurrido más de 25 segundos desde el último snapshot registrado, o si se forzó actualización,
-    avanza dinámicamente el estado para que el panel siempre se mantenga vivo y en evolución continua.
+    Consulta Neon Postgres en la nube primero (para Streamlit Cloud y tiempo real multi-usuario)
+    y luego SQLite local con fallback a simulación continua.
     """
+    # 1. Intentar consultar Neon Postgres
+    conn_pg = _get_neon_connection()
+    if conn_pg:
+        try:
+            cur_pg = conn_pg.cursor()
+            cur_pg.execute("SELECT MAX(timestamp) FROM live_chat_queues")
+            row = cur_pg.fetchone()
+            latest_ts_pg = row[0] if row else None
+
+            if latest_ts_pg:
+                latest_ts_str = latest_ts_pg.strftime("%Y-%m-%d %H:%M:%S") if hasattr(latest_ts_pg, "strftime") else str(latest_ts_pg)
+                cur_pg.execute("SELECT * FROM live_chat_queues WHERE timestamp = %s ORDER BY chats_in_queue DESC", (latest_ts_pg,))
+                cols_q = [desc[0] for desc in cur_pg.description]
+                df_queues = pd.DataFrame(cur_pg.fetchall(), columns=cols_q)
+
+                cur_pg.execute("SELECT * FROM live_chat_agents WHERE timestamp = %s ORDER BY capacity_pct DESC, agent_name ASC", (latest_ts_pg,))
+                cols_a = [desc[0] for desc in cur_pg.description]
+                df_agents = pd.DataFrame(cur_pg.fetchall(), columns=cols_a)
+
+                cur_pg.close()
+                conn_pg.close()
+                if not df_queues.empty:
+                    df_queues["categoria"] = df_queues["queue_name"].apply(obtener_categoria_cola)
+                    return df_queues, df_agents, latest_ts_str
+            else:
+                cur_pg.close()
+                conn_pg.close()
+        except Exception:
+            try:
+                conn_pg.close()
+            except Exception:
+                pass
+
+    # 2. Fallback SQLite local
     init_live_db()
     conn = sqlite3.connect(LIVE_DB_PATH)
     cur = conn.cursor()

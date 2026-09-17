@@ -40,37 +40,48 @@ def load_target_url():
         except Exception:
             pass
     return default_url
-
-
 def run_continuous_worker():
     target_url = load_target_url()
-    os.makedirs(PROFILE_DIR, exist_ok=True)
+    STATE_PATH = os.path.join(BASE_DIR, "..", "data", "salesforce_state.json")
+
 
     print("=" * 70)
     print("INICIANDO WORKER CONTINUO DE SALESFORCE OMNI-SUPERVISOR (30S)")
     print(f"URL de monitoreo: {target_url}")
-    print(f"Perfil persistente: {PROFILE_DIR}")
+    print(f"Estado de sesión: {STATE_PATH}")
     print("=" * 70)
 
     with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=PROFILE_DIR,
+        browser = p.chromium.launch(
             headless=True,
-            viewport={"width": 1600, "height": 1000},
             args=["--disable-blink-features=AutomationControlled"]
         )
-        page = context.pages[0] if context.pages else context.new_page()
+        context_kwargs = {
+            "viewport": {"width": 1600, "height": 1000},
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        if os.path.exists(STATE_PATH):
+            context_kwargs["storage_state"] = STATE_PATH
+
+        context = browser.new_context(**context_kwargs)
+        page = context.new_page()
 
         print("[*] Conectando con Salesforce...")
         try:
             page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
-            time.sleep(5)
+            time.sleep(6)
         except Exception as e:
             print(f"[*] Nota navegación inicial: {e}")
 
-        # Asegurar sesión con el gestor de autenticación autónomo
-        sam.asegurar_sesion_salesforce(page, context, target_url)
-        time.sleep(4)
+        # Asegurar sesión si no estaba previamente autenticada
+        if "login" in page.url.lower() or "ec=302" in page.url.lower():
+            sam.asegurar_sesion_salesforce(page, context, target_url)
+            try:
+                context.storage_state(path=STATE_PATH)
+            except Exception:
+                pass
+            time.sleep(4)
+
 
         cycle_count = 0
 
