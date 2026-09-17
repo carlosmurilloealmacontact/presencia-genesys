@@ -59,51 +59,57 @@ def obtener_codigo_verificacion_outlook(min_received_time: datetime = None, max_
     print(f"[*] Buscando código 2FA en Outlook posterior a las {min_received_time.strftime('%H:%M:%S')}...")
     start_time = time.time()
 
-    while time.time() - start_time < max_wait_sec:
+    try:
+        import win32com.client
+        import pythoncom
+        pythoncom.CoInitialize()
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        namespace = outlook.GetNamespace("MAPI")
+        inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
+
+        while time.time() - start_time < max_wait_sec:
+            try:
+                messages = inbox.Items
+                messages.Sort("[ReceivedTime]", True)
+
+                for i in range(min(15, messages.Count)):
+                    msg = messages.Item(i + 1)
+                    subj = str(getattr(msg, "Subject", "") or "").lower()
+                    sender = str(getattr(msg, "SenderEmailAddress", "") or getattr(msg, "SenderName", "")).lower()
+
+                    if "verificar su identidad" in subj or "salesforce" in subj or "noreply@salesforce.com" in sender:
+                        recv_time = getattr(msg, "ReceivedTime", None)
+                        if recv_time:
+                            try:
+                                t_naive = recv_time.replace(tzinfo=None)
+                            except Exception:
+                                t_naive = datetime.now()
+
+                            if t_naive >= min_received_time:
+                                body = str(getattr(msg, "Body", "") or "")
+                                codes = re.findall(r"\b\d{6}\b", body)
+                                if codes:
+                                    print(f"[+] ¡Nuevo código 2FA recibido a las {t_naive.strftime('%H:%M:%S')}!: {codes[0]}")
+                                    return codes[0]
+                            else:
+                                print(f"[*] Último correo en Outlook es de las {t_naive.strftime('%H:%M:%S')}. Esperando llegada del nuevo código...")
+                                break
+            except Exception as e_mapi:
+                print(f"[!] Aviso leyendo Outlook MAPI: {e_mapi}")
+                time.sleep(2)
+
+            time.sleep(3)
+
+        print("[!] Tiempo de espera agotado buscando código nuevo en Outlook.")
+        return None
+    except Exception as e_outer:
+        print(f"[!] Error inicializando Outlook COM: {e_outer}")
+        return None
+    finally:
         try:
-            import win32com.client
-            import pythoncom
-            pythoncom.CoInitialize()
-            outlook = win32com.client.Dispatch("Outlook.Application")
-            namespace = outlook.GetNamespace("MAPI")
-
-            inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
-            messages = inbox.Items
-            messages.Sort("[ReceivedTime]", True)
-
-            for i in range(min(10, messages.Count)):
-                msg = messages.Item(i + 1)
-                subj = str(getattr(msg, "Subject", "") or "").lower()
-                sender = str(getattr(msg, "SenderEmailAddress", "") or getattr(msg, "SenderName", "")).lower()
-
-                if "verificar su identidad" in subj or "salesforce" in subj or "noreply@salesforce.com" in sender:
-                    recv_time = getattr(msg, "ReceivedTime", None)
-                    if recv_time:
-                        try:
-                            t_naive = recv_time.replace(tzinfo=None)
-                        except Exception:
-                            t_naive = datetime.now()
-
-                        # Verificar si es posterior a la hora en que se envió el formulario
-                        if t_naive >= min_received_time:
-                            body = str(getattr(msg, "Body", "") or "")
-                            codes = re.findall(r"\b\d{6}\b", body)
-                            if codes:
-                                print(f"[+] ¡Nuevo código 2FA recibido a las {t_naive.strftime('%H:%M:%S')}!: {codes[0]}")
-                                pythoncom.CoUninitialize()
-                                return codes[0]
-                        else:
-                            print(f"[*] Último correo en Outlook es de las {t_naive.strftime('%H:%M:%S')}. Esperando llegada del nuevo código...")
-                            break
             pythoncom.CoUninitialize()
-        except Exception as e_mapi:
-            print(f"[!] Aviso leyendo Outlook MAPI: {e_mapi}")
-            time.sleep(2)
-
-        time.sleep(3)
-
-    print("[!] Tiempo de espera agotado buscando código nuevo en Outlook.")
-    return None
+        except Exception:
+            pass
 
 
 def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
@@ -121,7 +127,7 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
     curr_url = page.url.lower()
     page_title = page.title().lower()
 
-    attempt_start = datetime.now() - timedelta(seconds=15)
+    attempt_start = datetime.now() - timedelta(minutes=5)
 
     # 1. Detectar si requiere login de usuario / contraseña
     is_login = False
