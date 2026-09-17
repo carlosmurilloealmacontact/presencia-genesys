@@ -978,10 +978,7 @@ def cargar_agentes_map_base():
 
 
 SECCIONES_APP = [
-    "Analisis de Pausas y Adherencia",
-    "Control de Estados (en Vivo)",
-    "Niveles de Servicio",
-    "📚 Glosario & Guía",
+    "✈️ LATAM Pasajeros",
 ]
 
 # Pestaña de Salesforce B2B:
@@ -1108,6 +1105,8 @@ def es_usuario_capacidad_autorizado(email: str) -> bool:
 if es_usuario_capacidad_autorizado(current_email) or not auth_configurado:
     SECCIONES_APP.append("🧭 Capacidad y Diagnóstico")
     SECCIONES_APP.append("🚨 Control de Ausentismo")
+
+SECCIONES_APP.append("📚 Glosario & Guía")
 
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
@@ -1930,14 +1929,34 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
 
 
 
-if seccion_activa == "Analisis de Pausas y Adherencia":
-    render_tab_asesores_historico()
+if seccion_activa in ("✈️ LATAM Pasajeros", "Analisis de Pausas y Adherencia", "Control de Estados (en Vivo)", "Niveles de Servicio"):
+    sub_secciones_pasajeros = [
+        "📡 Pausas y Adherencia",
+        "🔴 Control de Estados (en Vivo)",
+        "📞 Niveles de Servicio",
+    ]
+    def_sub = sub_secciones_pasajeros[0]
+    if seccion_activa == "Control de Estados (en Vivo)":
+        def_sub = sub_secciones_pasajeros[1]
+    elif seccion_activa == "Niveles de Servicio":
+        def_sub = sub_secciones_pasajeros[2]
 
-elif seccion_activa == "Control de Estados (en Vivo)":
-    render_tab_en_vivo(cargar_agentes_map_base())
+    sub_pasajeros = st.segmented_control(
+        "Submódulos LATAM Pasajeros",
+        options=sub_secciones_pasajeros,
+        default=def_sub,
+        label_visibility="collapsed",
+        key="subnav_latam_pasajeros",
+    )
+    if not sub_pasajeros:
+        sub_pasajeros = def_sub
 
-elif seccion_activa == "Niveles de Servicio":
-    render_tab_gtr(cargar_agentes_map_base())
+    if sub_pasajeros == "📡 Pausas y Adherencia":
+        render_tab_asesores_historico()
+    elif sub_pasajeros == "🔴 Control de Estados (en Vivo)":
+        render_tab_en_vivo(cargar_agentes_map_base())
+    elif sub_pasajeros == "📞 Niveles de Servicio":
+        render_tab_gtr(cargar_agentes_map_base())
 
 elif seccion_activa in ("🏢 Agencias B2B", "☁️ Salesforce B2B"):
     render_tab_agencias_b2b(cargar_agentes_map_base(), current_email, render_tab_asesores_historico)
