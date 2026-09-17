@@ -1299,7 +1299,7 @@ if "seccion_audit_actual" not in st.session_state or st.session_state["seccion_a
     st.session_state["seccion_audit_actual"] = seccion_activa
     registrar_evento(current_email, current_name, seccion_activa, "cambio_seccion")
 
-def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: str = ""):
+def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: str = "", excluir_b2b_y_cargo: bool = False):
     rango_disponible = cargar_rango_fechas()
     if not rango_disponible:
         st.warning("Todavía no hay datos extraídos. Corre `python extract_presencia.py` primero.")
@@ -1357,6 +1357,16 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
     df = cargar_rango(fecha_desde, fecha_hasta)
     if coordinador_forzado and not df.empty and "coordinador" in df.columns:
         df = df[df["coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
+    elif excluir_b2b_y_cargo and not df.empty:
+        # Excluir Cargo Booking
+        if "servicio" in df.columns:
+            df = df[~df["servicio"].astype(str).str.upper().str.contains("CARGO", na=False)]
+        # Excluir Agencias B2B (coordinadores y servicios)
+        b2b_coords = ["CARDONA", "RODRIGUEZ URIBE"]
+        b2b_servs = ["AGENCIA", "AGY", "CORPORATE", "PYME", "BO_CUS", "BO_WAIVERS", "BO_CORPORATE", "BO AGENCIAS", "AG CELULA", "AG CHECK"]
+        mask_b2b = df["coordinador"].astype(str).apply(lambda c: any(k in c.upper() for k in b2b_coords)) if "coordinador" in df.columns else False
+        mask_b2b_serv = df["servicio"].astype(str).apply(lambda s: any(k in s.upper() for k in b2b_servs)) if "servicio" in df.columns else False
+        df = df[~(mask_b2b | mask_b2b_serv)]
 
     if "estado_laboral" in df.columns:
         sel_estado = st.session_state.get(k_estado, "Activos")

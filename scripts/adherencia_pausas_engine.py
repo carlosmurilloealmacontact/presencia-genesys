@@ -1,7 +1,8 @@
 """
 Motor Analítico Unificado de Cumplimiento de Horas Laboradas y Adherencia Intradía de Pausas Programadas.
 Aplica tanto para:
-- ✈️ LATAM Pasajeros (todas las campañas de voz, chat, soporte y coordinaciones de pasajeros).
+- ✈️ LATAM Pasajeros (todas las campañas de voz, chat, soporte y coordinaciones de pasajeros,
+  excluyendo estrictamente Cargo Booking y todo el personal de Agencias B2B).
 - 🏢 Agencias B2B (Marelyn Cardona, Andrés Rodríguez y líneas B2B).
 
 Cruza:
@@ -17,6 +18,15 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+try:
+    from exclusion_list import es_persona_excluida
+except ImportError:
+    try:
+        from scripts.exclusion_list import es_persona_excluida
+    except ImportError:
+        def es_persona_excluida(val):
+            return False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.normpath(os.path.join(BASE_DIR, ".."))
@@ -82,6 +92,63 @@ def obtener_mapa_bp_coordinador() -> dict[str, str]:
 
 
 @st.cache_data(ttl=3600)
+def obtener_bps_b2b_y_cargo() -> tuple[set[str], set[str]]:
+    """
+    Identifica de forma exhaustiva todos los BPs asignados a:
+    1. Agencias B2B (Marelyn Cardona, Andrés Rodríguez y servicios B2B).
+    2. Cargo Booking (servicios y asesores de carga excluidos para Pasajeros).
+    """
+    try:
+        with _get_db() as conn:
+            cur = conn.cursor()
+            # B2B en turnos detallados
+            q_b2b_t = """
+                SELECT distinct bp FROM turnos_detallados
+                WHERE UPPER(servicio) LIKE '%AGENCIA%'
+                   OR UPPER(servicio) LIKE '%AGY%'
+                   OR UPPER(servicio) LIKE '%CORPORATE%'
+                   OR UPPER(servicio) LIKE '%PYME%'
+                   OR UPPER(servicio) LIKE '%BO_CUS%'
+                   OR UPPER(servicio) LIKE '%BO_WAIVERS%'
+                   OR UPPER(servicio) LIKE '%BO_CORPORATE%'
+                   OR UPPER(servicio) LIKE '%BO AGENCIAS%'
+                   OR UPPER(servicio) LIKE '%AG CELULA%'
+                   OR UPPER(servicio) LIKE '%AG CHECK%'
+            """
+            cur.execute(q_b2b_t)
+            bps_b2b = set(str(r[0]).strip() for r in cur.fetchall())
+
+            # B2B en segmentos de Genesys
+            q_b2b_s = """
+                SELECT distinct agente FROM segments
+                WHERE UPPER(coordinador) LIKE '%CARDONA%'
+                   OR UPPER(coordinador) LIKE '%RODRIGUEZ URIBE%'
+            """
+            cur.execute(q_b2b_s)
+            for r in cur.fetchall():
+                bp = str(r[0]).split(" - ")[0].strip()
+                if bp:
+                    bps_b2b.add(bp)
+
+            # Cargo Booking en turnos
+            q_cargo_t = "SELECT distinct bp FROM turnos_detallados WHERE UPPER(servicio) LIKE '%CARGO%'"
+            cur.execute(q_cargo_t)
+            bps_cargo = set(str(r[0]).strip() for r in cur.fetchall())
+
+            # Cargo Booking en segmentos
+            q_cargo_s = "SELECT distinct agente FROM segments WHERE UPPER(servicio) LIKE '%CARGO%'"
+            cur.execute(q_cargo_s)
+            for r in cur.fetchall():
+                bp = str(r[0]).split(" - ")[0].strip()
+                if bp:
+                    bps_cargo.add(bp)
+
+            return bps_b2b, bps_cargo
+    except Exception:
+        return set(), set()
+
+
+@st.cache_data(ttl=3600)
 def obtener_coordinadores_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     """Retorna la lista ordenada de coordinadores por ámbito ('TODOS', 'PASAJEROS', 'B2B')."""
     try:
@@ -94,10 +161,11 @@ def obtener_coordinadores_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
 
     b2b_keywords = ["CARDONA", "RODRIGUEZ URIBE"]
     if filtro_tipo == "B2B":
-        return [c for c in todos if any(k in c.upper() for k in b2b_keywords)]
+        return [c for c in todos if any(k in c.upper() for k in b2b_keywords) and not es_persona_excluida(c)]
     elif filtro_tipo == "PASAJEROS":
-        return [c for c in todos if not any(k in c.upper() for k in b2b_keywords)]
-    return todos
+        # Excluye B2B y personas restringidas
+        return [c for c in todos if not any(k in c.upper() for k in b2b_keywords) and not es_persona_excluida(c)]
+    return [c for c in todos if not es_persona_excluida(c)]
 
 
 @st.cache_data(ttl=3600)
@@ -115,7 +183,8 @@ def obtener_servicios_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     if filtro_tipo == "B2B":
         return [s for s in todos if any(k in s.upper() for k in b2b_keywords)]
     elif filtro_tipo == "PASAJEROS":
-        return [s for s in todos if not any(k in s.upper() for k in b2b_keywords)]
+        # En Pasajeros: EXCLUIR terminantemente Cargo Booking y todos los servicios de Agencias B2B
+        return [s for s in todos if not any(k in s.upper() for k in b2b_keywords) and "CARGO" not in s.upper()]
     return todos
 
 
@@ -124,10 +193,12 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servi
     Evalúa el cumplimiento de horas de la jornada laboral:
     Horas Programadas vs Horas Reales Conectado (productivo + pausas de ley).
     Calcula: % Cumplimiento, Horas Faltantes/Sobrantes, y clasifica en semáforo.
+    Aplica exclusión estricta de Cargo Booking y Agencias B2B cuando ambito == 'PASAJEROS'.
     """
     bp_to_coord = obtener_mapa_bp_coordinador()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
+    bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
 
     with _get_db() as conn:
         query_turnos = """
@@ -173,15 +244,25 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, servi
         sub_seg = seg_by_bp.get(bp)
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
 
-        # Filtro por ámbito
+        # ── EXCLUSIONES ESPECÍFICAS POR ÁMBITO ────────────────────────────────
         if ambito == "PASAJEROS":
-            if coord_real and coord_real not in coords_pasajeros and coord_real in coords_b2b:
+            # 1. Excluir Cargo Booking
+            if bp in bps_cargo or "CARGO" in srv.upper():
                 continue
+            # 2. Excluir todos los asesores y servicios que ya están en Agencias B2B
+            if bp in bps_b2b or (coord_real and coord_real in coords_b2b):
+                continue
+            # 3. Excluir personal no operativo
+            if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)):
+                continue
+
         elif ambito == "B2B":
             if coord_real and coord_real not in coords_b2b and coord_real in coords_pasajeros:
                 continue
+            if es_persona_excluida(nom):
+                continue
 
-        # Filtro por coordinador específico
+        # Filtro de coordinador específico
         if coordinador and coordinador != "Todos los Coordinadores":
             if not coord_real or coordinador.upper() not in coord_real.upper():
                 continue
@@ -247,10 +328,12 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, ser
     Audita franja a franja la puntualidad y duración de cada pausa programada:
     Descanso 1, Descanso 2, Almuerzo, Diálogo 4DX y Capacitaciones.
     Cruza el horario programado contra los eventos de presence_label en segments.
+    Aplica exclusión estricta de Cargo Booking y Agencias B2B cuando ambito == 'PASAJEROS'.
     """
     bp_to_coord = obtener_mapa_bp_coordinador()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
+    bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
 
     with _get_db() as conn:
         query_turnos = """
@@ -305,11 +388,19 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, ser
         sub_seg = seg_by_bp.get(bp)
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
 
+        # ── EXCLUSIONES ESPECÍFICAS POR ÁMBITO ────────────────────────────────
         if ambito == "PASAJEROS":
-            if coord_real and coord_real not in coords_pasajeros and coord_real in coords_b2b:
+            if bp in bps_cargo or "CARGO" in srv.upper():
                 continue
+            if bp in bps_b2b or (coord_real and coord_real in coords_b2b):
+                continue
+            if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)):
+                continue
+
         elif ambito == "B2B":
             if coord_real and coord_real not in coords_b2b and coord_real in coords_pasajeros:
+                continue
+            if es_persona_excluida(nom):
                 continue
 
         if coordinador and coordinador != "Todos los Coordinadores":
@@ -627,9 +718,10 @@ def render_ui_adherencia_pausas(ambito: str = "PASAJEROS", key_prefix: str = "pa
 def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
     """
     Submódulo integral de Pausas, Adherencia y Horas de Turno para LATAM Pasajeros.
+    Excluye estrictamente Cargo Booking y todo asesor perteneciente a Agencias B2B.
     """
     st.markdown("### ⏸️ Pausas, Adherencia y Cumplimiento de Turno — LATAM Pasajeros")
-    st.caption("Auditoría de cumplimiento de jornada laboral contratada y puntualidad de descansos intradía (Descansos 1 y 2, Lunch, Diálogo 4DX y Capacitaciones).")
+    st.caption("Auditoría de cumplimiento de jornada laboral y puntualidad de descansos intradía (Descansos 1 y 2, Lunch, Diálogo 4DX y Capacitaciones).")
 
     SUB_PAUSAS_PASAJEROS = [
         "⏱️ Cumplimiento de Horas de Turno",
@@ -654,6 +746,6 @@ def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
         render_ui_adherencia_pausas(ambito="PASAJEROS", key_prefix="pasajeros_pausa_")
     elif sel_sub == "📊 Histórico y Fuga de Estados Genesys":
         if render_tab_historico_fn:
-            render_tab_historico_fn(key_prefix="pasajeros_pausas_hist_")
+            render_tab_historico_fn(key_prefix="pasajeros_pausas_hist_", excluir_b2b_y_cargo=True)
         else:
             st.info("Cargando motor de pausas de Genesys...")
