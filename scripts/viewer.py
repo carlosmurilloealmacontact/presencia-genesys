@@ -20,6 +20,7 @@ import os
 from live_engine import render_tab_en_vivo, servicio_autorizado_casos_bo, obtener_token_genesys
 from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_gtr
 from capacidad_engine import render_tab_capacidad
+from capacidad_v2_engine import render_tab_capacidad_v2
 from ausentismo_engine import render_tab_ausentismo
 from glosario_engine import render_tab_glosario
 from exclusion_list import es_usuario_bloqueado, es_persona_excluida, filtrar_df_exclusiones, detectar_nivel_directivo
@@ -1229,6 +1230,7 @@ if es_usuario_capacidad_autorizado(current_email) or not auth_configurado:
 SECCIONES_APP.append("📚 Glosario & Guía")
 
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
+    SECCIONES_APP.append("🧪 Capacidad 2.0 (Lab)")
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
 
 # ── BARRA LATERAL (PERFIL Y SESIÓN) ──────────────────────────────────────────
@@ -2121,6 +2123,9 @@ elif seccion_activa == "🧭 Capacidad y Diagnóstico":
 
 elif seccion_activa == "🚨 Control de Ausentismo":
     render_tab_ausentismo(cargar_agentes_map_base())
+
+elif seccion_activa == "🧪 Capacidad 2.0 (Lab)":
+    render_tab_capacidad_v2(cargar_agentes_map_base())
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
     st.markdown(
