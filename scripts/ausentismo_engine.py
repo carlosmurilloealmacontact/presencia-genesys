@@ -326,6 +326,8 @@ def cargar_sociodemografico_db() -> dict:
     with sqlite3.connect(db_path) as conn:
         try:
             df = pd.read_sql_query("SELECT bp, nombre, servicio, jefe_inmediato, coordinador, cargo, estado_laboral FROM sociodemografico", conn)
+            from exclusion_list import filtrar_df_exclusiones
+            df = filtrar_df_exclusiones(df)
             return df.set_index("bp").to_dict(orient="index")
         except Exception:
             return {}
@@ -567,7 +569,8 @@ def construir_radar_ausentismo(
         })
 
     df_res = pd.DataFrame(filas)
-    return df_res
+    from exclusion_list import filtrar_df_exclusiones
+    return filtrar_df_exclusiones(df_res)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

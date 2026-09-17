@@ -22,6 +22,7 @@ from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_g
 from capacidad_engine import render_tab_capacidad
 from ausentismo_engine import render_tab_ausentismo
 from glosario_engine import render_tab_glosario
+from exclusion_list import es_usuario_bloqueado, es_persona_excluida, filtrar_df_exclusiones
 
 try:
     from salesforce_b2b_engine import render_tab_salesforce_b2b
@@ -106,6 +107,29 @@ if auth_configurado:
 
     current_email = (getattr(st.user, "email", "") or "").strip().lower()
     current_name = getattr(st.user, "name", "") or current_email
+
+    # 1.5. Validar revocación / restricción expresa de personas no autorizadas
+    if es_usuario_bloqueado(current_email, current_name):
+        st.markdown(
+            f"""
+            <div style="max-width: 520px; margin: 60px auto 20px auto; padding: 30px; background-color: #fef2f2; border-radius: 12px; border: 1px solid #f87171; text-align: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+                <h3 style="color: #991b1b; margin-top: 0;">⛔ Acceso No Autorizado</h3>
+                <p style="color: #7f1d1d; font-size: 14px; margin-bottom: 12px;">
+                    Has iniciado sesión con el usuario:<br><b>{current_name}</b> ({current_email})
+                </p>
+                <div style="background: #fff5f5; border-radius: 8px; padding: 14px; margin-bottom: 20px; border: 1px dashed #fca5a5; font-size: 13px; color: #991b1b; text-align: left; line-height: 1.5;">
+                    🔒 Tu perfil o cuenta no cuenta con permisos autorizados para acceder ni visualizar este panel operacional.<br><br>
+                    Si requieres acceso o consideras que esto es un error, por favor contacta a la Gerencia de Operaciones o Administración del Sistema.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        c_b1, c_b2, c_b3 = st.columns([1, 1.5, 1])
+        with c_b2:
+            if st.button("Cerrar Sesión", use_container_width=True):
+                st.logout()
+        st.stop()
 
     # 2. Validar revocación expresa de @latam.com
     if current_email.endswith("@latam.com"):
@@ -203,9 +227,9 @@ def _obtener_listas_lideres_db():
         conn = sqlite3.connect(real_db_path)
         c = conn.cursor()
         c.execute("SELECT DISTINCT coordinador FROM segments WHERE coordinador IS NOT NULL AND coordinador != '' ORDER BY coordinador")
-        coords = [r[0] for r in c.fetchall()]
+        coords = [r[0] for r in c.fetchall() if not es_persona_excluida(r[0])]
         c.execute("SELECT DISTINCT jefe_inmediato FROM segments WHERE jefe_inmediato IS NOT NULL AND jefe_inmediato != '' ORDER BY jefe_inmediato")
-        sups = [r[0] for r in c.fetchall()]
+        sups = [r[0] for r in c.fetchall() if not es_persona_excluida(r[0])]
         conn.close()
         return coords, sups
     except Exception:
@@ -610,7 +634,7 @@ def cargar_rango(fecha_min: str, fecha_max: str) -> pd.DataFrame:
             conn,
             params=(fecha_min, fecha_max)
         )
-    return df
+    return filtrar_df_exclusiones(df)
 
 
 @st.cache_data(ttl=3600)
@@ -1044,6 +1068,7 @@ def cargar_agentes_map_base():
         agentes_db = agentes_db[agentes_db["cargo"].str.upper().str.contains("ASESOR", na=False)]
     if "estado_laboral" in agentes_db.columns:
         agentes_db = agentes_db[agentes_db["estado_laboral"].str.upper() == "ACTIVO"]
+    agentes_db = filtrar_df_exclusiones(agentes_db)
     agentes_db = agentes_db.drop_duplicates("agente_id", keep="last")
     return agentes_db.set_index("agente_id").to_dict(orient="index")
 

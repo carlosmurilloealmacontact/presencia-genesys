@@ -122,6 +122,8 @@ def cargar_roster_maestro() -> pd.DataFrame:
         m["servicio"] = m["servicio"].fillna("Por Definir")
         m["jefe"] = m["jefe"].fillna("Por Asignar")
         m["coordinador"] = m["coordinador"].fillna("Por Asignar")
+        from exclusion_list import filtrar_df_exclusiones
+        m = filtrar_df_exclusiones(m)
         return m
     except Exception:
         return pd.DataFrame()
@@ -133,7 +135,9 @@ def cargar_condicion_antiguedad() -> dict:
     if not estados_file.exists():
         return {}
     try:
+        from exclusion_list import es_persona_excluida
         df_est = pd.read_csv(estados_file, low_memory=False).dropna(subset=["Asesor"])
+        df_est = df_est[~df_est["Asesor"].apply(es_persona_excluida)]
         return {
             normalizar(r["Asesor"]): ("NUEVO" if pd.notna(r.get("Antiguedad_Dias")) and r.get("Antiguedad_Dias") <= 90 else "ANTIGUO")
             for _, r in df_est.iterrows()
