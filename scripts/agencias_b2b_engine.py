@@ -40,6 +40,14 @@ except ImportError:
     except ImportError:
         csl = None
 
+try:
+    import justificaciones_b2b_engine as jb
+except ImportError:
+    try:
+        from scripts import justificaciones_b2b_engine as jb
+    except ImportError:
+        jb = None
+
 
 # ── UTILIDADES DE FORMATO Y ESTILOS ──────────────────────────────────────────
 def estilo_ns_real(val, meta):
@@ -434,20 +442,28 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
 
 
 # ── PILAR 2: NIVELES DE SERVICIO MULTICANAL (UNIFICADO GTR) ─────────────────
-def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None):
+def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio: str = None, fecha_fin: str = None):
     """
-    Matriz unificada de SLA para Agencias B2B con formato idéntico a GTR.
+    Matriz unificada de SLA para Agencias B2B con formato idéntico a GTR y justificaciones operativas.
     Combina con máxima fidelidad los datos oficiales auditados de:
     1. Genesys Cloud: TARGET ESP, TARGET ENG, CORPORATE PYME (telefonía).
     2. Salesforce Messaging: AG CHAT ES, AG CORPORATE CHAT, AG CELULA REMISION (chats).
     3. Salesforce Service Cloud: BO AGENCIAS TARGET, BO_CORPORATE (casos 24h).
     """
-    cierres_dia = csl.obtener_cierre_b2b_por_fecha(fecha_sel if fecha_sel != "live" else None) if csl else {}
+    if fecha_inicio and fecha_fin:
+        cierres_dia = csl.obtener_cierre_b2b_por_rango(fecha_inicio, fecha_fin) if csl else {}
+        justificaciones = jb.obtener_justificaciones_por_rango(fecha_inicio, fecha_fin) if jb else {}
+    elif fecha_sel and fecha_sel != "live":
+        cierres_dia = csl.obtener_cierre_b2b_por_fecha(fecha_sel) if csl else {}
+        justificaciones = jb.obtener_justificaciones_por_fecha(fecha_sel) if jb else {}
+    else:
+        cierres_dia = {}
+        justificaciones = jb.obtener_justificaciones_por_fecha(date.today().strftime("%Y-%m-%d")) if jb else {}
 
     token = obtener_token_genesys()
     gtr_cfg = gtr.cargar_config_gtr()
     serv_genesys_data = {}
-    if token and fecha_sel == "live":
+    if token and (fecha_sel == "live" or (not fecha_sel and not fecha_inicio)):
         try:
             df_raw, _ = gtr.consultar_metricas_genesys(token, None, None, gtr_cfg)
             if not df_raw.empty:
@@ -571,10 +587,25 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None):
 
         if ns_real >= meta_ns:
             estado = "🟢 Cumple SLA"
+            just_txt = "🟢 Meta alcanzada sin desvío"
         elif ns_real >= meta_ns - 5.0:
             estado = "🟡 En Riesgo (-5%)"
+            j_item = justificaciones.get(k, "")
+            if isinstance(j_item, dict):
+                just_txt = j_item.get("justificacion") or (jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "En riesgo de incumplimiento")
+            elif isinstance(j_item, str) and j_item:
+                just_txt = j_item
+            else:
+                just_txt = jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "En riesgo de incumplimiento"
         else:
             estado = "🔴 Crítico (< SLA)"
+            j_item = justificaciones.get(k, "")
+            if isinstance(j_item, dict):
+                just_txt = j_item.get("justificacion") or (jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "Pérdida de NS sin justificar")
+            elif isinstance(j_item, str) and j_item:
+                just_txt = j_item
+            else:
+                just_txt = jb.diagnosticar_justificacion_automatica(ns_real, meta_ns, aht_real, meta_aht, entrantes) if jb else "Pérdida de NS sin justificar"
 
         filas.append({
             "Clave": k,
@@ -592,30 +623,69 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None):
             "AHT Real (s)": int(round(aht_real)),
             "AHT Meta (s)": int(round(meta_aht)),
             "Desv AHT (%)": round(desv_aht, 1),
-            "ASA (s)": int(round(asa))
+            "ASA (s)": int(round(asa)),
+            "Justificación Operativa": just_txt
         })
 
     return pd.DataFrame(filas)
 
 
 def render_subtab_niveles_servicio_unificado():
-    """Renderiza la vista unificada de Niveles de Servicio Multicanal para Agencias B2B."""
+    """Renderiza la vista unificada de Niveles de Servicio Multicanal para Agencias B2B con histórico y justificaciones."""
+    if jb:
+        jb.init_justificaciones_db()
+        try:
+            if not jb.obtener_justificaciones_por_fecha("2026-09-16"):
+                jb.precargar_justificaciones_ejemplo_ayer()
+        except Exception:
+            pass
+
+    st.markdown("### 📈 Niveles de Servicio Multicanal — Agencias B2B")
+    st.caption("Visión consolidada oficial auditada: **Genesys Cloud** (Voz e Inbound) + **Salesforce** (Chats Omni-Channel & Casos) • Metas contractuales GTR con justificaciones de causa raíz.")
+
     cierres_all = csl.cargar_todos_los_cierres_b2b() if csl else {}
-    fechas_lista = sorted(cierres_all.keys(), reverse=True) if cierres_all else []
+    fechas_lista = sorted(cierres_all.keys(), reverse=True) if cierres_all else ["2026-09-16", "2026-09-15", "2026-09-14", "2026-09-13"]
+    max_d_csl = date.fromisoformat(fechas_lista[0]) if fechas_lista else date.today()
+    min_d_csl = date.fromisoformat(fechas_lista[-1]) if fechas_lista else (date.today() - timedelta(days=7))
 
-    col_title, col_fecha = st.columns([3.0, 2.0])
-    with col_title:
-        st.markdown("### 📈 Niveles de Servicio Multicanal — Agencias B2B")
-        st.caption("Visión consolidada oficial auditada: **Genesys Cloud** (Voz e Inbound) + **Salesforce** (Chats Omni-Channel & Casos) • Formato GTR.")
+    c_modo, c_f1, c_f2 = st.columns([1.6, 1.2, 1.2])
+    with c_modo:
+        modo_vista = st.radio(
+            "Periodo de Medición:",
+            ["🔴 En Vivo (Tiempo Real)", "📅 Día Específico", "📆 Rango de Fechas"],
+            horizontal=True,
+            index=1,
+            key="b2b_ns_modo_vista"
+        )
 
-    opciones_fechas = [f"{f} (Cierre Semanal Auditado)" if idx == 0 else f"{f} (Cierre Semanal)" for idx, f in enumerate(fechas_lista)]
-    opciones_fechas.append("🔴 En Vivo (Tiempo Real)")
+    fecha_param = None
+    f_ini_param = None
+    f_fin_param = None
 
-    with col_fecha:
-        sel_opc = st.selectbox("📅 Periodo de Medición:", opciones_fechas, index=0, key="b2b_sel_fecha_cierre")
+    if modo_vista == "🔴 En Vivo (Tiempo Real)":
+        fecha_param = "live"
+        st.caption(f"🟢 **Modo En Vivo:** Sincronizado a las **{datetime.now().strftime('%H:%M:%S')}** con Genesys Cloud y Omni-Channel.")
+    elif modo_vista == "📅 Día Específico":
+        with c_f1:
+            sel_dia = st.date_input(
+                "Fecha de Consulta:",
+                value=max_d_csl,
+                min_value=date(2026, 9, 1),
+                max_value=date.today(),
+                key="b2b_ns_sel_dia"
+            )
+            fecha_param = sel_dia.strftime("%Y-%m-%d")
+            st.caption(f"📅 Mostrando Cierre Oficial Auditado para el día: **{fecha_param}**")
+    elif modo_vista == "📆 Rango de Fechas":
+        with c_f1:
+            sel_desde = st.date_input("Desde:", value=min_d_csl, min_value=date(2026, 9, 1), max_value=date.today(), key="b2b_ns_sel_desde")
+        with c_f2:
+            sel_hasta = st.date_input("Hasta:", value=max_d_csl, min_value=date(2026, 9, 1), max_value=date.today(), key="b2b_ns_sel_hasta")
+        f_ini_param = sel_desde.strftime("%Y-%m-%d")
+        f_fin_param = sel_hasta.strftime("%Y-%m-%d")
+        st.caption(f"📆 Consolidado Ponderado Acumulado: del **{f_ini_param}** al **{f_fin_param}**")
 
-    fecha_param = "live" if "En Vivo" in sel_opc else sel_opc.split(" ")[0]
-    df_ns = obtener_metricas_agencias_b2b_unificadas(fecha_sel=fecha_param)
+    df_ns = obtener_metricas_agencias_b2b_unificadas(fecha_sel=fecha_param, fecha_inicio=f_ini_param, fecha_fin=f_fin_param)
 
     criticos = df_ns[df_ns["Estado"] == "🔴 Crítico (< SLA)"]
     en_riesgo = df_ns[df_ns["Estado"] == "🟡 En Riesgo (-5%)"]
@@ -659,9 +729,9 @@ def render_subtab_niveles_servicio_unificado():
 
     f_c1, f_c2, f_c3 = st.columns([1.5, 1.5, 1.5])
     with f_c1:
-        sel_plat = st.selectbox("Filtrar por Plataforma:", ["Todas las Plataformas", "Genesys Cloud", "Salesforce Service Cloud"], key="ns_agb2b_plat")
+        sel_plat = st.selectbox("Filtrar por Plataforma:", ["Todas las Plataformas", "Genesys Cloud", "Salesforce Messaging", "Salesforce Service Cloud"], key="ns_agb2b_plat")
     with f_c2:
-        sel_canal = st.selectbox("Filtrar por Canal:", ["Todos los Canales", "VOZ", "CHAT", "CASOS", "BO"], key="ns_agb2b_canal")
+        sel_canal = st.selectbox("Filtrar por Canal:", ["Todos los Canales", "VOZ", "CHAT", "CASOS"], key="ns_agb2b_canal")
     with f_c3:
         sel_est = st.selectbox("Filtrar por Estado SLA:", ["Todos los Estados", "🟢 Cumple SLA", "🟡 En Riesgo (-5%)", "🔴 Crítico (< SLA)"], key="ns_agb2b_est")
 
@@ -676,7 +746,7 @@ def render_subtab_niveles_servicio_unificado():
     cols_mostrar = [
         "Servicio", "Plataforma", "Canal", "Estado", "Entrantes", "Atendidas",
         "% Aband", "NS Real", "NS Meta", "Umbral NS", "Dif NS (pp)",
-        "AHT Real (s)", "AHT Meta (s)", "Desv AHT (%)", "ASA (s)"
+        "AHT Real (s)", "AHT Meta (s)", "Desv AHT (%)", "ASA (s)", "Justificación Operativa"
     ]
 
     st.dataframe(
@@ -693,9 +763,69 @@ def render_subtab_niveles_servicio_unificado():
             "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%d s"),
             "AHT Meta (s)": st.column_config.NumberColumn("AHT Meta (s)", format="%d s"),
             "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
-            "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%d s")
+            "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%d s"),
+            "Justificación Operativa": st.column_config.TextColumn("📋 Justificación Operativa (Causa Raíz)", width="large")
         }
     )
+
+    # ── MÓDULO DE REGISTRO Y EDICIÓN DE JUSTIFICACIONES OPERATIVAS ───────────
+    with st.expander("✍️ Registrar / Editar Justificación de Pérdida de Nivel de Servicio", expanded=(modo_vista == "📅 Día Específico")):
+        st.markdown("##### 📝 Panel de Justificación de Desvíos de NS (Líderes B2B & GTR)")
+        st.caption("Permite a la coordinación (Marelyn Cardona, Andrés Rodríguez y Supervisores) documentar formalmente la causa raíz de la pérdida de NS con persistencia central en Neon Postgres.")
+
+        c_j1, c_j2, c_j3 = st.columns([1.5, 1.5, 1.2])
+
+        servicios_opc = df_ns["Servicio"].tolist()
+        servicios_caidos = df_ns[df_ns["Estado"] != "🟢 Cumple SLA"]["Servicio"].tolist()
+        servicios_opc_sorted = servicios_caidos + [s for s in servicios_opc if s not in servicios_caidos] if servicios_caidos else servicios_opc
+
+        with c_j1:
+            sel_srv_just = st.selectbox("1. Servicio a Justificar:", servicios_opc_sorted, key="b2b_just_sel_srv")
+            row_srv = df_ns[df_ns["Servicio"] == sel_srv_just].iloc[0] if not df_ns[df_ns["Servicio"] == sel_srv_just].empty else None
+            ns_val_srv = float(row_srv["NS Real"]) if row_srv is not None else 0.0
+            meta_val_srv = float(row_srv["NS Meta"]) if row_srv is not None else 70.0
+            clave_srv = row_srv["Clave"] if row_srv is not None else sel_srv_just
+
+        with c_j2:
+            sel_motivo = st.selectbox("2. Causa Raíz Principal:", jb.MOTIVOS_PREDEFINIDOS if jb else ["Sobredemanda", "AHT Largo", "Falta de Personal"], key="b2b_just_sel_motivo")
+
+        with c_j3:
+            fecha_just_guardar = fecha_param if (fecha_param and fecha_param != "live") else date.today().strftime("%Y-%m-%d")
+            st.date_input("Fecha a Aplicar:", value=date.fromisoformat(fecha_just_guardar) if fecha_just_guardar else date.today(), key="b2b_just_fecha_input")
+
+        # Texto actual si ya existe
+        just_actual = jb.obtener_justificaciones_por_fecha(fecha_just_guardar).get(clave_srv, {}).get("justificacion", "") if jb else ""
+
+        txt_just = st.text_area(
+            "3. Detalle de la Justificación (Explicación para Operaciones & Gerencia):",
+            value=just_actual,
+            placeholder="Ej. Pérdida de NNSS por sobredemanda del 24.10% con una contestación del 13.0%, caída de plataforma hasta las 10:00 am, falta de requerido de 7 agentes...",
+            height=100,
+            key="b2b_just_txt_input"
+        )
+
+        c_save_btn, c_save_info = st.columns([1.3, 3.0])
+        with c_save_btn:
+            if st.button("💾 Guardar Justificación", type="primary", use_container_width=True, key="btn_b2b_save_just"):
+                if txt_just.strip() and jb:
+                    user_registra = getattr(st.user, "name", "") or getattr(st.user, "email", "Coordinación B2B") if hasattr(st, "user") else "Coordinación B2B"
+                    ok = jb.guardar_justificacion(
+                        fecha=fecha_just_guardar,
+                        servicio=clave_srv,
+                        ns_real=ns_val_srv,
+                        ns_meta=meta_val_srv,
+                        motivo_principal=sel_motivo,
+                        justificacion=txt_just.strip(),
+                        registrado_por=user_registra
+                    )
+                    if ok:
+                        st.success("✅ Justificación guardada exitosamente en Neon Postgres.")
+                    else:
+                        st.warning("⚠️ Guardado en réplica local.")
+                    time.sleep(0.6)
+                    st.rerun()
+                else:
+                    st.error("Por favor ingresa el texto de la justificación.")
 
     if not df_disp.empty:
         st.write("")

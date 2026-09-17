@@ -256,23 +256,28 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
 
         resumen_por_fecha[fecha_oficial] = servicios_dia
 
-    if resumen_por_fecha:
+    # Combinar con los datos existentes en JSON consolidado para no perder días cargados manualmente (ej. 2026-09-16)
+    datos_combinados = {}
+    if os.path.exists(JSON_CONSOLIDADO_PATH):
+        try:
+            with open(JSON_CONSOLIDADO_PATH, "r", encoding="utf-8") as f:
+                datos_combinados = json.load(f)
+        except Exception:
+            datos_combinados = {}
+
+    datos_combinados.update(resumen_por_fecha)
+
+    if datos_combinados:
         try:
             os.makedirs(os.path.dirname(JSON_CONSOLIDADO_PATH), exist_ok=True)
             with open(JSON_CONSOLIDADO_PATH, "w", encoding="utf-8") as f:
-                json.dump(resumen_por_fecha, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-    elif os.path.exists(JSON_CONSOLIDADO_PATH):
-        try:
-            with open(JSON_CONSOLIDADO_PATH, "r", encoding="utf-8") as f:
-                resumen_por_fecha = json.load(f)
+                json.dump(datos_combinados, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
-    _CACHE_CIERRES_B2B = resumen_por_fecha
+    _CACHE_CIERRES_B2B = datos_combinados
     _CACHE_SIGNATURE = firma_actual
-    return resumen_por_fecha
+    return datos_combinados
 
 
 def obtener_cierre_b2b_por_fecha(fecha_str: str = None) -> dict:
@@ -285,6 +290,91 @@ def obtener_cierre_b2b_por_fecha(fecha_str: str = None) -> dict:
 
     ultima_fecha = sorted(data_all.keys())[-1]
     return data_all[ultima_fecha]
+
+
+def obtener_cierre_b2b_por_rango(fecha_desde: str, fecha_hasta: str) -> dict:
+    """
+    Consolida métricas oficiales de Agencias B2B para un rango de fechas.
+    Calcula sumas de tráfico y ponderaciones exactas de NS, Abandono y AHT.
+    """
+    data_all = cargar_todos_los_cierres_b2b()
+    if not data_all:
+        return {}
+
+    fechas_sel = [f for f in sorted(data_all.keys()) if str(fecha_desde) <= f <= str(fecha_hasta)]
+    if not fechas_sel:
+        # Fallback al día más cercano
+        return obtener_cierre_b2b_por_fecha(fecha_hasta)
+
+    if len(fechas_sel) == 1:
+        return data_all.get(fechas_sel[0], {})
+
+    servicios_acum = {}
+    for f in fechas_sel:
+        dia_dict = data_all.get(f, {})
+        for srv, m in dia_dict.items():
+            if srv not in servicios_acum:
+                servicios_acum[srv] = {
+                    "fecha": f"{fecha_desde} al {fecha_hasta}",
+                    "servicio": srv,
+                    "canal": m.get("canal", ""),
+                    "plataforma": m.get("plataforma", ""),
+                    "meta_ns": m.get("meta_ns", 70.0),
+                    "umbral_txt": m.get("umbral_txt", ""),
+                    "meta_aht": m.get("meta_aht", 800.0),
+                    "forecast": 0,
+                    "entrante": 0,
+                    "atendido": 0,
+                    "atendido_ns": 0,
+                    "abandonado": 0,
+                    "aht_sum": 0.0,
+                    "asa_sum": 0.0,
+                    "dias_con_datos": 0
+                }
+            s = servicios_acum[srv]
+            s["forecast"] += int(m.get("forecast", 0))
+            s["entrante"] += int(m.get("entrante", 0))
+            s["atendido"] += int(m.get("atendido", 0))
+            s["atendido_ns"] += int(m.get("atendido_ns", 0))
+            s["abandonado"] += int(m.get("abandonado", 0))
+            s["aht_sum"] += (float(m.get("aht_real", 0.0)) * int(m.get("atendido", 0)))
+            s["asa_sum"] += (float(m.get("asa_real", 0.0)) * int(m.get("atendido", 0)))
+            s["dias_con_datos"] += 1
+
+    resultado = {}
+    for srv, s in servicios_acum.items():
+        ent = s["entrante"]
+        aten = s["atendido"]
+        aten_ns = s["atendido_ns"]
+        aband = s["abandonado"]
+        
+        pct_aband = round((aband / ent * 100.0), 1) if ent > 0 else 0.0
+        ns_real = round((aten_ns / ent * 100.0), 2) if ent > 0 else 100.0
+        aht_real = round(s["aht_sum"] / aten) if aten > 0 else s["meta_aht"]
+        asa_real = round(s["asa_sum"] / aten, 1) if aten > 0 else 0.0
+
+        resultado[srv] = {
+            "fecha": s["fecha"],
+            "servicio": srv,
+            "canal": s["canal"],
+            "plataforma": s["plataforma"],
+            "forecast": s["forecast"],
+            "entrante": ent,
+            "atendido": aten,
+            "atendido_ns": aten_ns,
+            "abandonado": aband,
+            "pct_abandono": pct_aband,
+            "ns_real": ns_real,
+            "meta_ns": s["meta_ns"],
+            "umbral_txt": s["umbral_txt"],
+            "aht_real": aht_real,
+            "meta_aht": s["meta_aht"],
+            "asa_real": asa_real,
+            "dias_con_datos": s["dias_con_datos"]
+        }
+
+    return resultado
+
 
 
 def obtener_metricas_salesforce_para_capacidad(fecha_desde: str, fecha_hasta: str) -> pd.DataFrame:

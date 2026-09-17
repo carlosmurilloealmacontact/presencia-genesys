@@ -1,0 +1,52 @@
+{
+  "2026-09-16": {
+    "TARGET ESP": {
+      "ns_real": 63.98,
+      "ns_meta": 70.0,
+      "motivo_principal": "📈 Sobredemanda de Tráfico (> Forecast)",
+      "justificacion": "Cierre NNSS 63,98% ⚠️ Pérdida de NNSS por sobredemanda del 24,10% con una contestación del 13,0%.",
+      "registrado_por": "Operación Agencias B2B (Oficial)",
+      "fecha_registro": "2026-09-17 09:38:21"
+    },
+    "TARGET ENG": {
+      "ns_real": 64.8,
+      "ns_meta": 70.0,
+      "motivo_principal": "📈 Sobredemanda de Tráfico (> Forecast)",
+      "justificacion": "Cierre NNSS 64,80% 🛑 Pérdida de NNSS por sobredemanda, aunque en el ponderado del día no tenemos una sobredemanda mayor al 10% en los intervalos perdidos (por debajo de 80%). De los 20 intervalos perdidos, 9 tienen sobredemanda por arriba del 10%, 5 tuvimos el AHT fuera de lo programado por procesos largos como cotizaciones y cambios, los restantes (6 intervalos) no logramos pasarlos por el rezago de las llamadas del intervalo anterior, adicional tuvimos un retiro con turno 12:00 - 19:00. Nos ayudó cerrar el AHT en 594s, es decir, -43s.",
+      "registrado_por": "Operación Agencias B2B (Oficial)",
+      "fecha_registro": "2026-09-17 09:38:22"
+    },
+    "AG CHAT ES": {
+      "ns_real": 49.89,
+      "ns_meta": 80.0,
+      "motivo_principal": "💻 Incidencia Técnica / Caída de Plataforma (SF/Genesys)",
+      "justificacion": "Cierre NNSS 49,89% ⚠️ Pérdida de NNSS por caída de Salesforce hasta las 10:00 am y adicional tuvimos un AHT de +295s sobre la meta programada relacionada a procesos largos y 6 personas nuevas en el servicio que ingresaron en el último grupo.",
+      "registrado_por": "Operación Agencias B2B (Oficial)",
+      "fecha_registro": "2026-09-17 09:38:23"
+    },
+    "AG CELULA REMISION": {
+      "ns_real": 66.67,
+      "ns_meta": 80.0,
+      "motivo_principal": "💻 Incidencia Técnica / Caída de Plataforma (SF/Genesys)",
+      "justificacion": "Cierre NNSS 66,67% ⚠️ Pérdida de NNSS por caída de Salesforce hasta las 10:00 am y adicional tuvimos una incapacidad médica (el servicio cuenta con 8 agentes en total).",
+      "registrado_por": "Operación Agencias B2B (Oficial)",
+      "fecha_registro": "2026-09-17 09:38:24"
+    },
+    "EMPRESAS": {
+      "ns_real": 40.87,
+      "ns_meta": 70.0,
+      "motivo_principal": "👥 Falta de Personal / Requerido / Incapacidades",
+      "justificacion": "Cierre NNSS 40,87% 🛑 Pérdida de NNSS por falta del requerido: estamos -7 agentes. Para contestar el máximo posible controlamos llamadas largas (-62s AHT). Equipo nuevo ingresa el próximo lunes 21 de septiembre.",
+      "registrado_por": "Operación Agencias B2B (Oficial)",
+      "fecha_registro": "2026-09-17 09:38:25"
+    },
+    "AG CORPORATE CHAT": {
+      "ns_real": 78.03,
+      "ns_meta": 80.0,
+      "motivo_principal": "📈 Sobredemanda de Tráfico (> Forecast)",
+      "justificacion": "Cierre NNSS 78,03% ⚠️ Pérdida de NNSS por sobredemanda del 20,80% con una contestación del 18,0% y un AHT favorable de -280s.",
+      "registrado_por": "Operación Agencias B2B (Oficial)",
+      "fecha_registro": "2026-09-17 09:38:26"
+    }
+  }
+}
