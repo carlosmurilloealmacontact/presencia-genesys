@@ -487,8 +487,8 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
             "servicio": "TARGET ENG (Internacional)",
             "plataforma": "Genesys Cloud",
             "canal": "VOZ",
-            "meta_ns": 70.0,
-            "umbral_txt": "≤ 20s",
+            "meta_ns": 80.0,
+            "umbral_txt": "≤ 20s (80/20)",
             "meta_aht": 637.0
         },
         {

@@ -251,6 +251,8 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                     umbral_txt = "≤ 20s"
                     meta_ns_pct = 70.0
                     if "ENG" in srv_upper:
+                        meta_ns_pct = 80.0
+                        umbral_txt = "≤ 20s (80/20)"
                         meta_aht = 637.0
                         aht_val = _buscar_metrica("TARGET ENG", dict_aht_real, 464.0)
                         asa_val = _buscar_metrica("TARGET ENG", dict_asa_real, 38.2)
