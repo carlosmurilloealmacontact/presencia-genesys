@@ -174,30 +174,50 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             st.write("")
             c_q, c_a = st.columns([1, 1.5])
             with c_q:
-                st.markdown("##### 📊 Colas AMC en Espera")
+                st.markdown("##### 📊 Colas BOT en Espera (Omni-Channel)")
+                cat_filtro = st.radio(
+                    "Familia de Colas:",
+                    options=["Todas (18)", "💬 Dudas OP (8)", "✈️ NDC (8)", "🏢 Corp & Grupos (2)"],
+                    horizontal=True,
+                    key="sf_b2b_cat_filter",
+                    label_visibility="collapsed"
+                )
+                df_q_plot = df_queues.copy() if not df_queues.empty else pd.DataFrame()
+                if not df_q_plot.empty:
+                    if "Dudas OP" in cat_filtro:
+                        df_q_plot = df_q_plot[df_q_plot["queue_name"].str.contains("DUDAS", case=False, na=False)]
+                    elif "NDC" in cat_filtro:
+                        df_q_plot = df_q_plot[df_q_plot["queue_name"].str.contains("NDC", case=False, na=False)]
+                    elif "Corp" in cat_filtro:
+                        df_q_plot = df_q_plot[df_q_plot["queue_name"].str.contains("CORP|GRUPOS", case=False, na=False)]
+
+                plot_height = max(260, len(df_q_plot) * 26)
                 fig_q = px.bar(
-                    df_queues,
+                    df_q_plot,
                     x="chats_in_queue",
                     y="queue_name",
                     orientation="h",
                     text="chats_in_queue",
                     color="chats_in_queue",
                     color_continuous_scale="Reds",
-                    labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola"}
+                    labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola BOT"}
                 )
                 fig_q.update_traces(textposition="outside")
-                fig_q.update_layout(template="plotly_dark", height=300, margin=dict(l=10, r=10, t=20, b=10), showlegend=False)
+                fig_q.update_layout(template="plotly_dark", height=plot_height, margin=dict(l=10, r=10, t=10, b=10), showlegend=False, yaxis={'categoryorder':'total ascending'})
                 st.plotly_chart(fig_q, use_container_width=True)
 
                 # Detalle de chats en espera con sus identificadores ms- y SLA
                 df_waiting_sf = sle.get_live_waiting_chats(latest_ts)
                 if not df_waiting_sf.empty:
                     with st.expander(f"📥 Detalle de {len(df_waiting_sf)} Chats en Espera (IDs ms-)", expanded=False):
+                        q_options = ["Todas las Colas"] + sorted(df_waiting_sf["🏷️ Cola Salesforce"].unique().tolist())
+                        q_sel_w = st.selectbox("Filtrar por Cola BOT:", q_options, key="sf_wait_q_sel")
+                        df_w_filt = df_waiting_sf if q_sel_w == "Todas las Colas" else df_waiting_sf[df_waiting_sf["🏷️ Cola Salesforce"] == q_sel_w]
                         st.dataframe(
-                            df_waiting_sf[["💬 ID Chat (ms-)", "🏷️ Cola Salesforce", "Tiempo de Espera", "Estado SLA"]],
+                            df_w_filt[["💬 ID Chat (ms-)", "🏷️ Cola Salesforce", "Tiempo de Espera", "Estado SLA"]],
                             use_container_width=True,
                             hide_index=True,
-                            height=180
+                            height=200
                         )
 
             with c_a:

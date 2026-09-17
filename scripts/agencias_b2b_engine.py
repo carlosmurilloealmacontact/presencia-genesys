@@ -212,18 +212,34 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     # 4. Monitor Visual: Colas de Chat AMC + Distribución de Piso
     col_v1, col_v2 = st.columns([1.2, 1.4])
     with col_v1:
-        st.markdown("##### 📥 Colas de Chat AMC en Espera (Omni-Channel)")
+        st.markdown("##### 📥 Colas BOT en Espera (Omni-Channel)")
+        cat_filtro_ag = st.radio(
+            "Familia de Colas:",
+            options=["Todas (18)", "💬 Dudas OP (8)", "✈️ NDC (8)", "🏢 Corp & Grupos (2)"],
+            horizontal=True,
+            key="ag_b2b_cat_filter",
+            label_visibility="collapsed"
+        )
         if df_queues is not None and not df_queues.empty and "chats_in_queue" in df_queues.columns:
+            df_q_plot_ag = df_queues.copy()
+            if "Dudas OP" in cat_filtro_ag:
+                df_q_plot_ag = df_q_plot_ag[df_q_plot_ag["queue_name"].str.contains("DUDAS", case=False, na=False)]
+            elif "NDC" in cat_filtro_ag:
+                df_q_plot_ag = df_q_plot_ag[df_q_plot_ag["queue_name"].str.contains("NDC", case=False, na=False)]
+            elif "Corp" in cat_filtro_ag:
+                df_q_plot_ag = df_q_plot_ag[df_q_plot_ag["queue_name"].str.contains("CORP|GRUPOS", case=False, na=False)]
+
+            plot_h_ag = max(240, len(df_q_plot_ag) * 25)
             fig_q = px.bar(
-                df_queues,
+                df_q_plot_ag,
                 x="chats_in_queue",
                 y="queue_name",
                 orientation="h",
                 color="chats_in_queue",
                 color_continuous_scale="Viridis",
-                labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola de Chat"}
+                labels={"chats_in_queue": "Chats en Espera", "queue_name": "Cola BOT"}
             )
-            fig_q.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10), template="plotly_dark", coloraxis_showscale=False)
+            fig_q.update_layout(height=plot_h_ag, margin=dict(l=10, r=10, t=10, b=10), template="plotly_dark", coloraxis_showscale=False, yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig_q, use_container_width=True)
 
             # Detalle granular de cada chat en cola con su identificador ms- y SLA

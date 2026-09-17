@@ -38,12 +38,29 @@ def extract_live_data(page):
 
     page_text = page.content()
 
-    # Buscar colas de AMC
+    # Buscar colas de AMC (18 Colas BOT Oficiales)
     amc_patterns = [
-        ("AMC Agencias Español", r"AMC Agencias Espa[ñn]ol.*?(\d+)\s*(?:chats|espera|en cola)", 18),
-        ("AMC Agencias Inglés", r"AMC Agencias Ingl[eé]s.*?(\d+)\s*(?:chats|espera|en cola)", 4),
-        ("AMC Corporativo SSC", r"AMC Corporativo.*?(\d+)\s*(?:chats|espera|en cola)", 9),
-        ("AMC Dudas Operacionales", r"AMC Dudas Operacionales.*?(\d+)\s*(?:chats|espera|en cola)", 2)
+        # Dudas Operacionales (8 colas)
+        ("BOT AMC DUDAS OP SSC NIVEL 1", r"DUDAS OP.*?SSC.*?NIVEL 1.*?(\d+)", 4),
+        ("BOT AMC DUDAS OP SSC NIVEL 2", r"DUDAS OP.*?SSC.*?NIVEL 2.*?(\d+)", 2),
+        ("BOT AMC DUDAS OP SSC NIVEL 3", r"DUDAS OP.*?SSC.*?NIVEL 3.*?(\d+)", 1),
+        ("BOT AMC DUDAS OP INTER NA ESP NIVEL 1", r"DUDAS OP.*?NA.*?ESP.*?(\d+)", 3),
+        ("BOT AMC DUDAS OP INTER NA ING NIVEL 1", r"DUDAS OP.*?NA.*?ING.*?(\d+)", 2),
+        ("BOT AMC DUDAS OP INTER EU ESP NIVEL 1", r"DUDAS OP.*?EU.*?ESP.*?(\d+)", 2),
+        ("BOT AMC DUDAS OP INTER EU ING NIVEL 1", r"DUDAS OP.*?EU.*?ING.*?(\d+)", 1),
+        ("BOT AMC DUDAS OP INTER OC ING NIVEL 1", r"DUDAS OP.*?OC.*?ING.*?(\d+)", 1),
+        # NDC (8 colas)
+        ("BOT AMC NDC SSC NIVEL 1", r"NDC.*?SSC.*?NIVEL 1.*?(\d+)", 4),
+        ("BOT AMC NDC SSC NIVEL 2", r"NDC.*?SSC.*?NIVEL 2.*?(\d+)", 2),
+        ("BOT AMC NDC SSC NIVEL 3", r"NDC.*?SSC.*?NIVEL 3.*?(\d+)", 1),
+        ("BOT AMC NDC INTER NA ESP NIVEL 1", r"NDC.*?NA.*?ESP.*?(\d+)", 3),
+        ("BOT AMC NDC INTER NA ING NIVEL 1", r"NDC.*?NA.*?ING.*?(\d+)", 2),
+        ("BOT AMC NDC INTER EU ESP NIVEL 1", r"NDC.*?EU.*?ESP.*?(\d+)", 2),
+        ("BOT AMC NDC INTER EU ING NIVEL 1", r"NDC.*?EU.*?ING.*?(\d+)", 1),
+        ("BOT AMC NDC INTER OC ING NIVEL 1", r"NDC.*?OC.*?ING.*?(\d+)", 1),
+        # Corporativo & Grupos (2 colas)
+        ("BOT CORP SOPORTE OPERACIONAL SSC", r"CORP.*?SOPORTE.*?SSC.*?(\d+)", 3),
+        ("BOT AMC GRUPOS CORP SSC", r"GRUPOS CORP.*?(\d+)", 2),
     ]
 
     for q_name, pattern, default_count in amc_patterns:

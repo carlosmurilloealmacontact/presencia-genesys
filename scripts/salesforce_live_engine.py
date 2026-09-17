@@ -26,13 +26,57 @@ def get_colombia_now():
 
 LIVE_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "salesforce_live.db")
 
-# Colas operativas de AMC segun directriz de negocio
-AMC_CHAT_QUEUES = [
-    "AMC Agencias Español",
-    "AMC Agencias Inglés",
-    "AMC Corporativo SSC",
-    "AMC Dudas Operacionales"
+# 18 Colas BOT Omni-Channel Oficiales (Dudas OP, NDC, Corp & Grupos)
+BOT_QUEUES_AMC = [
+    # Dudas Operacionales (8 colas)
+    "BOT AMC DUDAS OP INTER EU ESP NIVEL 1",
+    "BOT AMC DUDAS OP INTER EU ING NIVEL 1",
+    "BOT AMC DUDAS OP INTER NA ESP NIVEL 1",
+    "BOT AMC DUDAS OP INTER NA ING NIVEL 1",
+    "BOT AMC DUDAS OP INTER OC ING NIVEL 1",
+    "BOT AMC DUDAS OP SSC NIVEL 1",
+    "BOT AMC DUDAS OP SSC NIVEL 2",
+    "BOT AMC DUDAS OP SSC NIVEL 3",
+    # NDC (8 colas)
+    "BOT AMC NDC INTER EU ESP NIVEL 1",
+    "BOT AMC NDC INTER EU ING NIVEL 1",
+    "BOT AMC NDC INTER NA ESP NIVEL 1",
+    "BOT AMC NDC INTER NA ING NIVEL 1",
+    "BOT AMC NDC INTER OC ING NIVEL 1",
+    "BOT AMC NDC SSC NIVEL 1",
+    "BOT AMC NDC SSC NIVEL 2",
+    "BOT AMC NDC SSC NIVEL 3",
+    # Corporativo & Grupos (2 colas)
+    "BOT CORP SOPORTE OPERACIONAL SSC",
+    "BOT AMC GRUPOS CORP SSC"
 ]
+
+# 6 Colas de Casos / BackOffice (Work Queues SLA 24h)
+CASOS_WORK_QUEUES_AMC = [
+    "AMC AGENCIAS ESP",
+    "AMC AGENCIAS INTER",
+    "AMC CORPORATE SSC",
+    "AMC EMISIONES GRUPOS CORP",
+    "AMC EMISIONES GRUPOS SSC",
+    "AMC EMISIONES BO EC"
+]
+
+AMC_CHAT_QUEUES = BOT_QUEUES_AMC
+
+
+def obtener_categoria_cola(q_name: str) -> str:
+    """Clasifica una cola en su familia operacional."""
+    q = str(q_name).upper()
+    if "DUDAS OP" in q or "DUDAS OPERACIONALES" in q:
+        return "💬 Dudas Operacionales"
+    elif "NDC" in q:
+        return "✈️ NDC"
+    elif "CORP" in q or "CORPORAT" in q or "GRUPOS" in q:
+        return "🏢 Corporativo & Grupos"
+    elif "EMISION" in q or "BO EC" in q:
+        return "📋 Emisiones & BO"
+    else:
+        return "🌐 Otras Colas"
 
 # Ejecutivos conocidos de la operacion de chat
 DEFAULT_AGENTS = [
@@ -211,10 +255,27 @@ def advance_live_state_smoothly():
     conn.close()
 
     QUEUE_TARGETS = {
-        "AMC Agencias Español": {"target": 8, "min": 3, "max": 14, "agents": 7},
-        "AMC Agencias Inglés": {"target": 2, "min": 0, "max": 4, "agents": 3},
-        "AMC Corporativo SSC": {"target": 3, "min": 1, "max": 5, "agents": 4},
-        "AMC Dudas Operacionales": {"target": 1, "min": 0, "max": 3, "agents": 2}
+        # Dudas Operacionales (8 colas)
+        "BOT AMC DUDAS OP SSC NIVEL 1": {"target": 4, "min": 1, "max": 8, "agents": 5},
+        "BOT AMC DUDAS OP SSC NIVEL 2": {"target": 2, "min": 0, "max": 4, "agents": 3},
+        "BOT AMC DUDAS OP SSC NIVEL 3": {"target": 1, "min": 0, "max": 3, "agents": 2},
+        "BOT AMC DUDAS OP INTER NA ESP NIVEL 1": {"target": 3, "min": 1, "max": 6, "agents": 4},
+        "BOT AMC DUDAS OP INTER NA ING NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 2},
+        "BOT AMC DUDAS OP INTER EU ESP NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 3},
+        "BOT AMC DUDAS OP INTER EU ING NIVEL 1": {"target": 1, "min": 0, "max": 3, "agents": 2},
+        "BOT AMC DUDAS OP INTER OC ING NIVEL 1": {"target": 1, "min": 0, "max": 2, "agents": 1},
+        # NDC (8 colas)
+        "BOT AMC NDC SSC NIVEL 1": {"target": 4, "min": 1, "max": 8, "agents": 5},
+        "BOT AMC NDC SSC NIVEL 2": {"target": 2, "min": 0, "max": 4, "agents": 3},
+        "BOT AMC NDC SSC NIVEL 3": {"target": 1, "min": 0, "max": 3, "agents": 2},
+        "BOT AMC NDC INTER NA ESP NIVEL 1": {"target": 3, "min": 1, "max": 6, "agents": 4},
+        "BOT AMC NDC INTER NA ING NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 2},
+        "BOT AMC NDC INTER EU ESP NIVEL 1": {"target": 2, "min": 0, "max": 4, "agents": 3},
+        "BOT AMC NDC INTER EU ING NIVEL 1": {"target": 1, "min": 0, "max": 3, "agents": 2},
+        "BOT AMC NDC INTER OC ING NIVEL 1": {"target": 1, "min": 0, "max": 2, "agents": 1},
+        # Corporativo & Grupos (2 colas)
+        "BOT CORP SOPORTE OPERACIONAL SSC": {"target": 3, "min": 1, "max": 6, "agents": 4},
+        "BOT AMC GRUPOS CORP SSC": {"target": 2, "min": 0, "max": 4, "agents": 2},
     }
 
     queues_data = []
@@ -445,13 +506,15 @@ def get_latest_live_state(force_fresh: bool = False):
 
     conn = sqlite3.connect(LIVE_DB_PATH)
     df_queues = pd.read_sql_query(
-        "SELECT * FROM live_chat_queues WHERE timestamp = ? ORDER BY chats_in_queue DESC",
+        "SELECT * FROM live_chat_queues WHERE timestamp = ? GROUP BY queue_name ORDER BY chats_in_queue DESC",
         conn,
         params=(latest_ts,)
     )
+    if not df_queues.empty and "queue_name" in df_queues.columns:
+        df_queues["categoria"] = df_queues["queue_name"].apply(obtener_categoria_cola)
 
     df_agents = pd.read_sql_query(
-        "SELECT * FROM live_chat_agents WHERE timestamp = ? ORDER BY capacity_pct DESC, agent_name ASC",
+        "SELECT * FROM live_chat_agents WHERE timestamp = ? GROUP BY agent_name ORDER BY capacity_pct DESC, agent_name ASC",
         conn,
         params=(latest_ts,)
     )
