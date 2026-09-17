@@ -230,25 +230,31 @@ def calcular_metricas_turnos_para_sore(fecha_desde: str, fecha_hasta: str, srv_s
     }
 
 
-def calcular_metricas_pausas_disciplina(fecha: str, srv_sore: str) -> dict:
+def calcular_metricas_pausas_disciplina(fecha: str, srv_sore: str, df_pausas_all: pd.DataFrame = None) -> dict:
     """
     Calcula el % de adherencia a descansos y minutos de exceso para el servicio SORE.
-    Consume la lógica optimizada de adherencia_pausas_engine.
+    Permite recibir df_pausas_all precalculado para evitar 27 lecturas duplicadas en la BD.
     """
     try:
-        from adherencia_pausas_engine import calcular_adherencia_pausas_intradia
-        raws = [r.upper().strip() for r in obtener_servicios_raw_para_sore(srv_sore)]
-        df_p = calcular_adherencia_pausas_intradia(fecha, ambito="TODOS")
-        if df_p.empty:
+        if df_pausas_all is None:
+            from adherencia_pausas_engine import calcular_adherencia_pausas_intradia
+            df_p = calcular_adherencia_pausas_intradia(fecha, ambito="TODOS")
+        else:
+            df_p = df_pausas_all
+
+        if df_p is None or df_p.empty:
             return {"pausas_prog": 0, "pausas_punt": 0, "pct_adh_pausas": 100.0, "min_exceso_pausas": 0}
 
-        df_p["srv_norm"] = df_p["Servicio"].astype(str).str.upper().str.strip()
+        raws = [r.upper().strip() for r in obtener_servicios_raw_para_sore(srv_sore)]
+        if "srv_norm" not in df_p.columns:
+            df_p["srv_norm"] = df_p["Servicio"].astype(str).str.upper().str.strip()
+
         sub_p = df_p[df_p["srv_norm"].isin(raws)]
         if sub_p.empty:
             return {"pausas_prog": 0, "pausas_punt": 0, "pct_adh_pausas": 100.0, "min_exceso_pausas": 0}
 
         tot_p = len(sub_p)
-        punt = int(sub_p["Estado"].str.startswith("🟢").sum())
+        punt = int(sub_p["Estado"].astype(str).str.startswith("🟢").sum())
         pct_adh = round(punt / max(1, tot_p) * 100.0, 1)
 
         mins_exc = 0
@@ -346,9 +352,11 @@ def diagnosticar_causa_raiz_v2(
 
 
 # ── MATRIZ EJECUTIVA ENRIQUECIDA 2.0 ──────────────────────────────────────────
+@st.cache_data(ttl=900, show_spinner=False)
 def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filtro: str = None) -> pd.DataFrame:
     """
     Genera la tabla panorámica de capacidad enriquecida con datos de malla y pausas.
+    Optimizado en memoria: precarga adherencia de pausas 1 sola vez en lugar de iterar.
     """
     df_1 = calcular_ejecutiva_capacidad_base(fecha_desde, fecha_hasta, srv_filtro)
     if df_1.empty:
@@ -356,11 +364,21 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
 
     df_turnos_all = obtener_turnos_programados_por_servicio(fecha_desde, fecha_hasta)
 
+    # Precarga vectorizada de pausas para los 27 servicios (1 sola llamada)
+    df_pausas_all = pd.DataFrame()
+    try:
+        from adherencia_pausas_engine import calcular_adherencia_pausas_intradia
+        df_pausas_all = calcular_adherencia_pausas_intradia(fecha_hasta, ambito="TODOS")
+        if not df_pausas_all.empty and "srv_norm" not in df_pausas_all.columns:
+            df_pausas_all["srv_norm"] = df_pausas_all["Servicio"].astype(str).str.upper().str.strip()
+    except Exception:
+        df_pausas_all = pd.DataFrame()
+
     filas_v2 = []
     for _, r in df_1.iterrows():
         srv = r["Servicio"]
         m_t = calcular_metricas_turnos_para_sore(fecha_desde, fecha_hasta, srv, df_turnos_all)
-        m_p = calcular_metricas_pausas_disciplina(fecha_hasta, srv)
+        m_p = calcular_metricas_pausas_disciplina(fecha_hasta, srv, df_pausas_all=df_pausas_all)
 
         fte_req = float(r.get("FTE Requerido", 0.0))
         fte_con = float(r.get("FTE Conectado", 0.0))
@@ -368,6 +386,11 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
         pct_cap = float(r.get("% Capacidad", 0.0))
         aux_real = float(r.get("% Aux Real", 0.0))
         aux_meta = float(r.get("Meta Aux", 14.0))
+
+        min_req = float(r.get("minutos_req", 0.0))
+        min_con = float(r.get("min_conectado", 0.0))
+        min_disp = float(r.get("min_disponible", 0.0))
+        min_pau = float(r.get("min_pausas", 0.0))
 
         fte_prog = m_t["fte_prog_malla"]
         gap_malla = round(fte_prog - fte_req, 1)
@@ -407,13 +430,18 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
             "Tráfico Real": r.get("Tráfico Real", np.nan),
             "AHT Plan (s)": r.get("AHT Plan (s)", 0.0),
             "AHT Real (s)": r.get("AHT Real (s)", np.nan),
-            "NS Real": r.get("NS Real", np.nan)
+            "NS Real": r.get("NS Real", np.nan),
+            "minutos_req": min_req,
+            "min_conectado": min_con,
+            "min_disponible": min_disp,
+            "min_pausas": min_pau
         })
 
     return pd.DataFrame(filas_v2)
 
 
 # ── CURVA INTRADÍA TRIPARTITA (48 INTERVALOS) ─────────────────────────────────
+@st.cache_data(ttl=900, show_spinner=False)
 def calcular_curva_intradia_v2(fecha_str: str, servicio_sel: str) -> pd.DataFrame:
     """
     Calcula los 48 intervalos uniendo:
@@ -482,6 +510,106 @@ def calcular_curva_intradia_v2(fecha_str: str, servicio_sel: str) -> pd.DataFram
         merged["ns_real"] = np.nan
 
     return merged.sort_values(by="intervalo")
+
+
+# ── ÁRBOL DE CASCADA WATERFALL 2.0 ───────────────────────────────────────────
+def generar_waterfall_capacidad_v2(row_data: dict | pd.Series, unidad: str = "Horas Equivalentes (h)") -> go.Figure:
+    """
+    Genera el gráfico Waterfall 2.0 de Atribución y Descomposición Tripartita.
+    Discrimina:
+      1. Requerido SORE (Demanda teórica Erlang)
+      2. Brecha Malla WFM (Sub/Sobre programación)
+      3. Brecha Operación (Fuga de jornada / Asistencia)
+      4. Pausas en Norma (14% Meta oficial)
+      5. Exceso en Pausas (>14% destruyendo capacidad)
+      6. Capacidad Neta Lograda (Disponible Real)
+    """
+    es_horas = "Horas" in unidad
+
+    if es_horas:
+        base_req = round(float(row_data.get("minutos_req", 0.0)) / 60.0, 1)
+        if base_req == 0.0:
+            base_req = round(float(row_data.get("FTE Requerido", 0.0)) * 8.0, 1)
+
+        delta_malla = round(float(row_data.get("Brecha Malla (WFM)", 0.0)) * 8.0, 1)
+        delta_oper = round(float(row_data.get("Brecha Operación", 0.0)) * 8.0, 1)
+
+        h_con = round(float(row_data.get("min_conectado", 0.0)) / 60.0, 1)
+        if h_con == 0.0:
+            h_con = round(float(row_data.get("FTE Conectado", 0.0)) * 8.0, 1)
+
+        h_pau_total = round(float(row_data.get("min_pausas", 0.0)) / 60.0, 1)
+        h_pau_meta = round(h_con * (META_AUXILIARES_OFICIAL / 100.0), 1)
+        h_pau_exceso = round(max(0.0, h_pau_total - h_pau_meta), 1)
+
+        h_disp = round(float(row_data.get("min_disponible", 0.0)) / 60.0, 1)
+        if h_disp == 0.0:
+            h_disp = round(float(row_data.get("FTE Disponible", 0.0)) * 8.0, 1)
+
+        valores = [base_req, delta_malla, delta_oper, -h_pau_meta, -h_pau_exceso, h_disp]
+        sufijo = " h"
+    else:
+        base_req = round(float(row_data.get("FTE Requerido", 0.0)), 1)
+        delta_malla = round(float(row_data.get("Brecha Malla (WFM)", 0.0)), 1)
+        delta_oper = round(float(row_data.get("Brecha Operación", 0.0)), 1)
+
+        fte_con = round(float(row_data.get("FTE Conectado", 0.0)), 1)
+        fte_pau_meta = round(fte_con * (META_AUXILIARES_OFICIAL / 100.0), 1)
+        fte_disp = round(float(row_data.get("FTE Disponible", 0.0)), 1)
+        fte_pau_tot = round(max(0.0, fte_con - fte_disp), 1)
+        fte_pau_exceso = round(max(0.0, fte_pau_tot - fte_pau_meta), 1)
+
+        valores = [base_req, delta_malla, delta_oper, -fte_pau_meta, -fte_pau_exceso, fte_disp]
+        sufijo = " FTE"
+
+    x_labels = [
+        "1. Req SORE",
+        "2. Δ Malla WFM",
+        "3. Δ Jornada Oper",
+        "4. Pausas (14%)",
+        "5. Exceso Pausas",
+        "6. Cap. Lograda"
+    ]
+    measure = ["absolute", "relative", "relative", "relative", "relative", "total"]
+
+    text_labels = []
+    for i, (v, m) in enumerate(zip(valores, measure)):
+        if m == "total" or i == 0:
+            text_labels.append(f"{v:,.1f}{sufijo}")
+        else:
+            text_labels.append(f"{v:+,.1f}{sufijo}")
+
+    fig = go.Figure(go.Waterfall(
+        name="Cascada 2.0",
+        orientation="v",
+        measure=measure,
+        x=x_labels,
+        textposition="outside",
+        text=text_labels,
+        y=valores,
+        connector={"line": {"color": "#64748b", "width": 1.5, "dash": "dot"}},
+        increasing={"marker": {"color": "#10b981"}},
+        decreasing={"marker": {"color": "#ef4444"}},
+        totals={"marker": {"color": "#6366f1"}}
+    ))
+
+    srv_name = row_data.get("Servicio", "")
+    fig.update_layout(
+        title=dict(
+            text=f"🌳 Árbol de Cascada y Atribución Tripartita 2.0 — {srv_name} ({unidad})",
+            font=dict(color="#f8fafc", size=14)
+        ),
+        showlegend=False,
+        height=380,
+        margin=dict(l=10, r=10, t=50, b=20),
+        xaxis=dict(tickangle=0, tickfont=dict(size=12, color="#cbd5e1"), gridcolor="#334155"),
+        yaxis=dict(title=dict(text=f"Volumen ({unidad})", font=dict(color="#94a3b8")), tickfont=dict(color="#cbd5e1"), gridcolor="#1e293b"),
+        plot_bgcolor="rgba(15, 23, 42, 0.4)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+    return fig
+
+
 
 
 # ── RENDERIZADO PRINCIPAL UI (LABORATORIO 2.0) ────────────────────────────────
@@ -712,6 +840,26 @@ def render_tab_capacidad_v2(agentes_map: dict):
             st.caption("• **Distancia entre Verde (Conectado) y Morado (Malla):** ¿La operación cumplió con la asistencia y puntualidad de entrada/salida?")
             st.caption("• **Distancia entre Verde Sólido y Verde Área (Pausas):** ¿El volumen de asesores en descanso en ese intervalo respetó el dimensionamiento?")
 
+            # ── ÁRBOL DE CASCADA TRIPARTITO (WATERFALL 2.0) ───────────────
+            st.write("")
+            st.markdown("---")
+            c_wat_t, c_wat_u = st.columns([3, 1])
+            with c_wat_t:
+                st.markdown("#### 🌳 Cascada de Atribución Tripartita de Capacidad (Waterfall 2.0)")
+                st.caption("Explica con exactitud matemática de dónde proviene la brecha final: **Programación WFM** vs **Cumplimiento de Jornada** vs **Pausas Autorizadas** vs **Excesos Destructores de Capacidad**.")
+            with c_wat_u:
+                unidad_wat = st.selectbox(
+                    "Unidad de Desglose:",
+                    ["Horas Equivalentes (h)", "FTEs (Personas)"],
+                    index=0,
+                    key="wat_unit_v2_sub1"
+                )
+
+            sub_srv_sel = df_v2[df_v2["Servicio"] == srv_grafica]
+            if not sub_srv_sel.empty:
+                fig_wat = generar_waterfall_capacidad_v2(sub_srv_sel.iloc[0], unidad=unidad_wat)
+                st.plotly_chart(fig_wat, use_container_width=True)
+
     # ── PESTAÑA 2: COMPARADOR LADO A LADO (1.0 vs 2.0) ───────────────────────
     with subtab2:
         st.markdown("#### ⚖️ Comparativa Directa: Diagnóstico Clásico (1.0) vs Diagnóstico Enriquecido (2.0)")
@@ -784,3 +932,20 @@ def render_tab_capacidad_v2(agentes_map: dict):
             """,
             unsafe_allow_html=True
         )
+
+        # Cascada Waterfall en el Comparador
+        st.write("")
+        c_wat_t2, c_wat_u2 = st.columns([3, 1])
+        with c_wat_t2:
+            st.markdown(f"##### 🌳 Descomposición Matemática en Cascada — {srv_c_sel}")
+            st.caption("Visualiza exactamente cómo se desglosa el volumen y qué parte de la pérdida corresponde a WFM, a Operaciones o a Pausas.")
+        with c_wat_u2:
+            unidad_wat2 = st.selectbox(
+                "Unidad Cascada:",
+                ["Horas Equivalentes (h)", "FTEs (Personas)"],
+                index=0,
+                key="wat_unit_v2_sub2"
+            )
+
+        fig_wat_comp = generar_waterfall_capacidad_v2(row_sel, unidad=unidad_wat2)
+        st.plotly_chart(fig_wat_comp, use_container_width=True)

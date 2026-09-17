@@ -1236,8 +1236,15 @@ if es_usuario_capacidad_autorizado(current_email) or not auth_configurado:
 
 SECCIONES_APP.append("📚 Glosario & Guía")
 
-if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
+CARLOS_MURILLO_EMAILS = {
+    "carlosmurilloe.almacontact@outsourcing-account.com",
+    "lan.sm.carlos.murillo@gmail.com",
+}
+
+if current_email in CARLOS_MURILLO_EMAILS or not auth_configurado:
     SECCIONES_APP.append("🧪 Capacidad 2.0 (Lab)")
+
+if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
 
 # ── BARRA LATERAL (PERFIL Y SESIÓN) ──────────────────────────────────────────
