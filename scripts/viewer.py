@@ -41,6 +41,28 @@ except Exception as _zd_err:
 
 st.set_page_config(page_title="Radar Operacional | Almaexperience", page_icon="🛰️", layout="wide")
 
+import base64
+
+@st.cache_data
+def cargar_logos_base64():
+    base_assets = Path(__file__).parent.parent / "assets"
+    p_alma = base_assets / "logo_almaexperience.png"
+    p_latam = base_assets / "logo_latam.svg"
+    b64_alma, b64_latam = "", ""
+    if p_alma.exists():
+        try:
+            with open(p_alma, "rb") as f:
+                b64_alma = base64.b64encode(f.read()).decode("utf-8")
+        except Exception:
+            pass
+    if p_latam.exists():
+        try:
+            with open(p_latam, "rb") as f:
+                b64_latam = base64.b64encode(f.read()).decode("utf-8")
+        except Exception:
+            pass
+    return b64_alma, b64_latam
+
 from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, DOMINIOS_CORPORATIVOS, ADMINS_AUTORIZADOS
 
 # ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
@@ -53,9 +75,14 @@ if auth_configurado:
     # 1. Validar inicio de sesión
     if not getattr(st.user, "is_logged_in", False):
         dominios_validos_str = ", ".join(DOMINIOS_CORPORATIVOS)
+        b64_alma, b64_latam = cargar_logos_base64()
+        logo_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="28" style="vertical-align: middle;" alt="Almaexperience">' if b64_alma else ''
+        logo_latam_html = f'<img src="data:image/svg+xml;base64,{b64_latam}" height="20" style="vertical-align: middle;" alt="LATAM Airlines">' if b64_latam else ''
+        logos_badge = f'<div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 14px;">{logo_alma_html}<span style="color:#cbd5e1; font-size: 18px; font-weight: 300;">|</span>{logo_latam_html}</div>' if (b64_alma or b64_latam) else ''
         st.markdown(
             f"""
             <div style="max-width: 480px; margin: 40px auto 20px auto; padding: 35px 25px; background: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); text-align: center; border: 1px solid #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+                {logos_badge}
                 <div style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 15px;">
                     🔒 Acceso Restringido
                 </div>
@@ -1085,13 +1112,20 @@ if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
 
 # ── BARRA SUPERIOR (HEADER & SESIÓN DE USUARIO) ──────────────────────────────
-col_brand, col_auth = st.columns([3.2, 1.8])
+col_brand, col_auth = st.columns([3.6, 1.4])
 with col_brand:
+    b64_alma, b64_latam = cargar_logos_base64()
+    img_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="22" style="vertical-align: middle;" alt="Almaexperience">' if b64_alma else '<span style="font-weight:700; color:#2563eb; font-size:13px;">Almaexperience</span>'
+    img_latam_html = f'<img src="data:image/svg+xml;base64,{b64_latam}" height="17" style="vertical-align: middle;" alt="LATAM Airlines">' if b64_latam else '<span style="font-weight:700; color:#1e1b4b; font-size:13px;">LATAM</span>'
+
     st.markdown(
-        """
-        <div style="display: flex; align-items: center; gap: 10px; padding-top: 4px; padding-bottom: 2px;">
-            <span style="font-size: 18px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px;">🛰️ Radar Operacional</span>
-            <span style="background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 12px;">Almaexperience</span>
+        f"""
+        <div style="display: flex; align-items: center; gap: 12px; padding-top: 5px; padding-bottom: 2px;">
+            <span style="font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: -0.3px; white-space: nowrap;">🛰️ Radar Operacional</span>
+            <span style="color: #cbd5e1; font-size: 16px; font-weight: 300;">•</span>
+            {img_alma_html}
+            <span style="color: #cbd5e1; font-size: 16px; font-weight: 300;">•</span>
+            {img_latam_html}
         </div>
         """,
         unsafe_allow_html=True
