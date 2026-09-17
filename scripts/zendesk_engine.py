@@ -20,6 +20,7 @@ import os
 import sys
 import json
 import time
+import sqlite3
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,9 +30,26 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# Rutas relativas del repositorio
-BASE_DIR = Path(__file__).resolve().parent.parent
+# Rutas relativas del repositorio y resolución en sys.path
+SCRIPTS_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPTS_DIR.parent
 DATA_DIR = BASE_DIR / "data" / "zendesk"
+
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+try:
+    from exclusion_list import es_persona_excluida, filtrar_df_exclusiones
+except Exception:
+    try:
+        from scripts.exclusion_list import es_persona_excluida, filtrar_df_exclusiones
+    except Exception:
+        def es_persona_excluida(val: str) -> bool:
+            return False
+        def filtrar_df_exclusiones(df: pd.DataFrame) -> pd.DataFrame:
+            return df
 
 RANGOS_ORDEN = ["<48H", ">48H<=15DIAS", ">15Y<=30DIAS", ">30DIAS"]
 
@@ -74,10 +92,10 @@ def cargar_catalogo_usuarios_zd() -> dict:
 
 @st.cache_data(ttl=600, show_spinner=False)
 def cargar_roster_maestro() -> pd.DataFrame:
-    """Carga y unifica las fuentes sociodemográficas disponibles (Socio Maestro, Socio Demo, Salesforce B2B)."""
+    """Carga y unifica las fuentes sociodemográficas disponibles con prioridad para Back Office AMC."""
     m_list = []
 
-    # Fuente 1: servicios_socio_maestro.csv
+    # Fuente 1 (Prioritaria para Zendesk): servicios_socio_maestro.csv
     socio_file = DATA_DIR / "servicios_socio_maestro.csv"
     if socio_file.exists():
         try:
@@ -99,7 +117,23 @@ def cargar_roster_maestro() -> pd.DataFrame:
         except Exception:
             pass
 
-    # Fuente 3: maestro_asesores_b2b.json
+    # Fuente 3: Base de datos sociodemográfico consolidado
+    db_master = BASE_DIR / "data" / "presencia_master.db"
+    if db_master.exists():
+        try:
+            conn = sqlite3.connect(db_master)
+            df_socio_db = pd.read_sql(
+                "SELECT nombre, jefe_inmediato as jefe, coordinador, servicio FROM sociodemografico "
+                "WHERE servicio LIKE '%AMC%' OR servicio LIKE '%BO%' OR servicio LIKE '%LATAM%' OR servicio LIKE '%BACK%'",
+                conn
+            )
+            conn.close()
+            if not df_socio_db.empty:
+                m_list.append(df_socio_db)
+        except Exception:
+            pass
+
+    # Fuente 4: maestro_asesores_b2b.json (si existe)
     b2b_file = DATA_DIR.parent / "salesforce" / "maestro_asesores_b2b.json"
     if b2b_file.exists():
         try:
@@ -109,7 +143,8 @@ def cargar_roster_maestro() -> pd.DataFrame:
                 {"nombre": v.get("nombre_completo"), "jefe": v.get("supervisor"), "coordinador": v.get("coordinador"), "servicio": v.get("servicio")}
                 for v in b2b.values() if v.get("nombre_completo")
             ]
-            m_list.append(pd.DataFrame(rows_b2b))
+            if rows_b2b:
+                m_list.append(pd.DataFrame(rows_b2b))
         except Exception:
             pass
 
@@ -122,7 +157,6 @@ def cargar_roster_maestro() -> pd.DataFrame:
         m["servicio"] = m["servicio"].fillna("Por Definir")
         m["jefe"] = m["jefe"].fillna("Por Asignar")
         m["coordinador"] = m["coordinador"].fillna("Por Asignar")
-        from exclusion_list import filtrar_df_exclusiones
         m = filtrar_df_exclusiones(m)
         return m
     except Exception:
@@ -135,7 +169,6 @@ def cargar_condicion_antiguedad() -> dict:
     if not estados_file.exists():
         return {}
     try:
-        from exclusion_list import es_persona_excluida
         df_est = pd.read_csv(estados_file, low_memory=False).dropna(subset=["Asesor"])
         df_est = df_est[~df_est["Asesor"].apply(es_persona_excluida)]
         return {
@@ -146,6 +179,21 @@ def cargar_condicion_antiguedad() -> dict:
         return {}
 
 
+MAPA_GRUPO_A_SERVICIO = {
+    "DT FFP AMC": "DT FFP AMC",
+    "LUA AMC": "BO LUA AMC",
+    "Equipajes AMC SSC": "BO EQUIPAJES AMC",
+    "Célula PI AMC ES": "CÉLULA PI AMC ES",
+    "Latam Travel": "LATAM TRAVEL AMC",
+    "Autorización Supervisor HVC AMC ES": "AUTORIZACIÓN SUPERVISOR",
+    "Back Office Reclamos": "BO_CUS_COL",
+    "BO_WAIVERS": "BO_WAIVERS",
+    "BO ANTIFRAUDE AMC": "BO ANTIFRAUDE AMC",
+    "BO_CORPORATE": "BO_CORPORATE",
+    "BO AGENCIAS TARGET": "BO AGENCIAS TARGET"
+}
+
+
 def enriquecer_con_socio(df: pd.DataFrame, solo_almacontact: bool = True) -> pd.DataFrame:
     """Filtra asesores de Almacontact y cruza con la jerarquía de Socio Maestro y condición de antigüedad."""
     if df is None or df.empty:
@@ -153,9 +201,16 @@ def enriquecer_con_socio(df: pd.DataFrame, solo_almacontact: bool = True) -> pd.
 
     df_out = df.copy()
 
-    if solo_almacontact and "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_out.columns:
-        is_alma = df_out["TICKET_ASSIGNEE_PRIMARY_EMAIL"].str.contains(
-            r"almacontact|\.alma@|@almacontact", case=False, na=False
+    # Filtro Almacontact por correo si corresponde
+    col_email = None
+    for cand in ["TICKET_ASSIGNEE_PRIMARY_EMAIL", "assignee_email", "email"]:
+        if cand in df_out.columns:
+            col_email = cand
+            break
+
+    if solo_almacontact and col_email:
+        is_alma = df_out[col_email].astype(str).str.contains(
+            r"almacontact|\.alma@|@almacontact|@outsourcing-account\.com", case=False, na=False
         )
         df_out = df_out[is_alma].copy()
 
@@ -163,90 +218,97 @@ def enriquecer_con_socio(df: pd.DataFrame, solo_almacontact: bool = True) -> pd.
     maestro = cargar_roster_maestro()
     cond_map = cargar_condicion_antiguedad()
 
-    try:
-        import mapeo_socios_engine as mse
-        maestro_mse = mse.sync_maestro_asesores()
-    except Exception:
-        maestro_mse = {}
+    roster_dict = {}
+    token_tuples = []
+    if not maestro.empty:
+        for _, r in maestro.iterrows():
+            norm_k = r.get("norm_name")
+            if norm_k and norm_k not in roster_dict:
+                roster_dict[norm_k] = {
+                    "nombre": r.get("nombre", ""),
+                    "jefe": r.get("jefe", "Por Asignar"),
+                    "coordinador": r.get("coordinador", "Por Asignar"),
+                    "servicio": r.get("servicio", "Back Office AMC")
+                }
+        token_tuples = [
+            (norm_k, set(norm_k.split()), data)
+            for norm_k, data in roster_dict.items()
+            if len(norm_k.split()) >= 2
+        ]
 
     cache_matches = {}
-    socio_tuples = []
-    if not maestro.empty:
-        socio_tuples = list(zip(
-            maestro["norm_name"].str.lower().str.replace(" ", "", regex=False),
-            maestro["norm_name"].apply(lambda x: set(x.split())),
-            maestro["nombre"],
-            maestro["jefe"],
-            maestro["coordinador"],
-            maestro["servicio"]
-        ))
 
-    def obtener_jerarquia(email):
+    def obtener_jerarquia(email, grupo=""):
         if not email or pd.isna(email) or str(email).strip().lower() in ("", "nan", "none"):
-            return ("Sin Asignar", "Sin Supervisor", "Sin Coordinador", "Sin Servicio")
+            srv_def = MAPA_GRUPO_A_SERVICIO.get(str(grupo).strip(), "Back Office AMC")
+            return ("Sin Asignar", "Sin Supervisor", "Sin Coordinador", srv_def)
 
         em_str = str(email).strip().lower()
-        if em_str in cache_matches:
-            return cache_matches[em_str]
+        cache_key = f"{em_str}___{grupo}"
+        if cache_key in cache_matches:
+            return cache_matches[cache_key]
 
         zd_name = zd_catalog.get(em_str, "")
+        if not zd_name:
+            parts = em_str.split("@")[0].split(".")[0].replace("_", " ").split()
+            zd_name = " ".join(parts).title()
+
+        norm_zd = normalizar(zd_name)
         matched_info = None
 
-        # Estrategia 0: Cruce directo con Maestro Centralizado de Asesores (por BP o Nombre)
-        if maestro_mse:
-            prefix_bp = em_str.split("@")[0].split(".")[0].strip().lower()
-            for alias_k, info_m in maestro_mse.items():
-                bp_m = str(info_m.get("bp", "")).strip().lower()
-                nom_m = str(info_m.get("nombre_completo", "")).strip().upper()
-                if bp_m and (bp_m == prefix_bp or bp_m in em_str):
-                    matched_info = (
-                        nom_m.title(),
-                        info_m.get("supervisor", "Sin Supervisor"),
-                        info_m.get("coordinador", "Sin Coordinador"),
-                        info_m.get("servicio", "Back Office AMC")
-                    )
-                    break
-                if zd_name and normalizar(zd_name) == normalizar(nom_m):
-                    matched_info = (
-                        nom_m.title(),
-                        info_m.get("supervisor", "Sin Supervisor"),
-                        info_m.get("coordinador", "Sin Coordinador"),
-                        info_m.get("servicio", "Back Office AMC")
-                    )
-                    break
+        # 1. Match Exacto por nombre normalizado
+        if norm_zd in roster_dict:
+            matched_info = roster_dict[norm_zd]
 
-        # Estrategia 1: Matching por tokens de Nombre Real de Zendesk
-        if not matched_info and zd_name:
-            toks_zd = set(normalizar(zd_name).split())
+        # 2. Match por Tokens de Nombre
+        if not matched_info:
+            toks_zd = set(norm_zd.split())
             if len(toks_zd) >= 2:
-                for clean_n, toks_s, nom, jef, coo, srv in socio_tuples:
-                    if len(toks_zd.intersection(toks_s)) >= 2:
-                        matched_info = (nom.title(), jef, coo, srv)
+                for norm_k, toks_db, data in token_tuples:
+                    inter = toks_zd.intersection(toks_db)
+                    if len(inter) >= 2 and len(inter) / max(len(toks_zd), len(toks_db)) >= 0.5:
+                        matched_info = data
                         break
 
-        # Estrategia 2: Matching por prefijo de correo en Socio Maestro
+        # 3. Match por prefijo de correo en nombres de asesores
         if not matched_info:
             prefix = em_str.split("@")[0].split(".")[0].strip()
-            pref_len = len(prefix)
-            pref_start = prefix[:5]
-            pref_end = prefix[-3:]
-            for clean_n, toks_s, nom, jef, coo, srv in socio_tuples:
-                if (pref_len >= 4 and prefix in clean_n) or (pref_len > 6 and (pref_start in clean_n and pref_end in clean_n)):
-                    matched_info = (nom.title(), jef, coo, srv)
-                    break
+            if len(prefix) >= 5:
+                for norm_k, toks_db, data in token_tuples:
+                    clean_k = norm_k.replace(" ", "").lower()
+                    if prefix in clean_k:
+                        matched_info = data
+                        break
 
         if matched_info:
-            res = matched_info
-        else:
-            # Respaldo: Usar el Nombre Completo oficial de Zendesk
-            nombre_resuelto = zd_name if zd_name else em_str.split("@")[0].split(".")[0].title()
-            res = (nombre_resuelto, "Sin Supervisor Asignado", "Sin Coordinador Asignado", "Almacontact Operación")
+            nom_res = str(matched_info.get("nombre", zd_name)).title()
+            jef_res = str(matched_info.get("jefe", "Por Asignar"))
+            coo_res = str(matched_info.get("coordinador", "Por Asignar"))
+            srv_res = str(matched_info.get("servicio", "Back Office AMC"))
 
-        cache_matches[em_str] = res
+            # Refinar servicio genérico con la cola del ticket si está disponible
+            if srv_res in ("Back Office AMC", "Almacontact Operación", "Por Definir", "OPERACION MEDELLIN", "Sin Servicio") and grupo:
+                srv_res = MAPA_GRUPO_A_SERVICIO.get(str(grupo).strip(), srv_res)
+
+            res = (nom_res, jef_res, coo_res, srv_res)
+        else:
+            srv_fallback = MAPA_GRUPO_A_SERVICIO.get(str(grupo).strip(), "Back Office AMC")
+            res = (zd_name.title(), "Por Asignar", "Por Asignar", srv_fallback)
+
+        cache_matches[cache_key] = res
         return res
 
-    if "TICKET_ASSIGNEE_PRIMARY_EMAIL" in df_out.columns:
-        jerarquia = df_out["TICKET_ASSIGNEE_PRIMARY_EMAIL"].apply(obtener_jerarquia)
+    col_grp = "grupo" if "grupo" in df_out.columns else None
+
+    if col_email:
+        if col_grp:
+            jerarquia = [
+                obtener_jerarquia(em, grp)
+                for em, grp in zip(df_out[col_email], df_out[col_grp])
+            ]
+        else:
+            jerarquia = [obtener_jerarquia(em) for em in df_out[col_email]]
+
         df_out["Nombre_Asesor"] = [j[0] for j in jerarquia]
         df_out["Supervisor"] = [j[1] for j in jerarquia]
         df_out["Coordinador"] = [j[2] for j in jerarquia]
@@ -286,6 +348,8 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     df = df_backlog.copy()
+    if "Coordinador" not in df.columns or "Supervisor" not in df.columns:
+        df = enriquecer_con_socio(df, solo_almacontact=False)
 
     file_b_vivo = DATA_DIR / "backlog_en_vivo.csv"
     if file_b_vivo.exists():
@@ -676,35 +740,50 @@ def render_tab_zendesk(email_usuario: str = ""):
     df_enriquecido = bundle["df_raw_enr_alma"] if solo_alma else bundle["df_raw_enr_todos"]
     df_diario_enr = bundle["df_diario_enr_alma"] if solo_alma else bundle["df_diario_enr_todos"]
 
+    # Usar datos operativos reales filtrados por fecha para alimentar los desplegables
+    if df_diario_enr is not None and not df_diario_enr.empty:
+        d_base = df_diario_enr.copy()
+        if fecha_ini and fecha_fin:
+            f_ini_s = fecha_ini.strftime("%Y-%m-%d")
+            f_fin_s = fecha_fin.strftime("%Y-%m-%d")
+            d_base = d_base[(d_base["Fecha"] >= f_ini_s) & (d_base["Fecha"] <= f_fin_s)]
+    elif df_enriquecido is not None and not df_enriquecido.empty:
+        d_base = df_enriquecido.copy()
+    else:
+        d_base = pd.DataFrame()
+
     sel_servicio = "Todos"
     sel_coord = "Todos"
     sel_sup = "Todos"
     sel_asesor = "Todos"
 
-    if df_enriquecido is not None and not df_enriquecido.empty:
+    if d_base is not None and not d_base.empty:
         with c_f2:
-            servicios = ["Todos"] + sorted(list(df_enriquecido["Servicio"].unique()))
+            servicios_unicos = sorted([s for s in d_base["Servicio"].dropna().unique() if str(s).strip() and str(s).strip() not in ("nan", "None")])
+            servicios = ["Todos"] + servicios_unicos
             sel_servicio = st.selectbox("🏢 Servicio:", servicios, index=0, key="zd_sel_srv")
-        df_step1 = df_enriquecido if sel_servicio == "Todos" else df_enriquecido[df_enriquecido["Servicio"] == sel_servicio]
+        df_step1 = d_base if sel_servicio == "Todos" else d_base[d_base["Servicio"] == sel_servicio]
 
         with c_f3:
-            coordinadores = ["Todos"] + sorted(list(df_step1["Coordinador"].unique()))
+            coords_unicos = sorted([c for c in df_step1["Coordinador"].dropna().unique() if str(c).strip() and str(c).strip() not in ("nan", "None")])
+            coordinadores = ["Todos"] + coords_unicos
             sel_coord = st.selectbox("👔 Coordinador:", coordinadores, index=0, key="zd_sel_coord")
         df_step2 = df_step1 if sel_coord == "Todos" else df_step1[df_step1["Coordinador"] == sel_coord]
 
         with c_f4:
-            supervisores = ["Todos"] + sorted(list(df_step2["Supervisor"].unique()))
+            sups_unicos = sorted([s for s in df_step2["Supervisor"].dropna().unique() if str(s).strip() and str(s).strip() not in ("nan", "None")])
+            supervisores = ["Todos"] + sups_unicos
             sel_sup = st.selectbox("🧑‍💼 Supervisor:", supervisores, index=0, key="zd_sel_sup")
         df_step3 = df_step2 if sel_sup == "Todos" else df_step2[df_step2["Supervisor"] == sel_sup]
 
         with c_sub2:
-            asesores_disp = ["Todos"] + sorted(list(df_step3["Nombre_Asesor"].unique()))
+            asesores_disp = ["Todos"] + sorted([a for a in df_step3["Nombre_Asesor"].dropna().unique() if str(a).strip() and str(a).strip() not in ("nan", "None")])
             sel_asesor = st.selectbox("👤 Asesor Específico:", asesores_disp, index=0, key="zd_sel_asesor")
         df_filtrado = df_step3 if sel_asesor == "Todos" else df_step3[df_step3["Nombre_Asesor"] == sel_asesor]
     else:
         df_filtrado = None
 
-    # Filtrar df_diario en memoria por fecha y jerarquía
+    # Asignar df_diario_filtrado de acuerdo a la selección jerárquica
     if df_diario_enr is not None and not df_diario_enr.empty:
         d_f = df_diario_enr.copy()
         if fecha_ini and fecha_fin:
