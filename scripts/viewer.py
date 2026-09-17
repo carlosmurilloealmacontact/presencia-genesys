@@ -1092,27 +1092,50 @@ if es_usuario_capacidad_autorizado(current_email) or not auth_configurado:
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
 
-col_nav, col_auth = st.columns([4, 1.2])
-with col_nav:
-    default_tab = SECCIONES_APP[0]
-    if any(k in current_email for k in ["marelyn.cardona", "marelin.cardona", "marelync", "andres.rodriguez", "andresr", "arodriguez"]) and "🏢 Agencias B2B" in SECCIONES_APP:
-        default_tab = "🏢 Agencias B2B"
-
-    seccion_activa = st.segmented_control(
-        "Navegación del Tablero",
-        options=SECCIONES_APP,
-        default=default_tab,
-        label_visibility="collapsed"
+# ── BARRA SUPERIOR (HEADER & SESIÓN DE USUARIO) ──────────────────────────────
+col_brand, col_auth = st.columns([3.2, 1.8])
+with col_brand:
+    st.markdown(
+        """
+        <div style="display: flex; align-items: center; gap: 8px; padding-top: 4px; padding-bottom: 2px;">
+            <span style="font-size: 16px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px;">🛰️ Radar Genesys</span>
+            <span style="background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px;">Alma Contact</span>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-    if not seccion_activa:
-        seccion_activa = SECCIONES_APP[0]
 
 with col_auth:
     if auth_configurado and getattr(st.user, "is_logged_in", False):
         c_alias = current_email.split('@')[0]
-        st.markdown(f"<div style='text-align: right; padding-top: 2px; font-size: 13px; color: #475569;'>👤 <b>{current_name.split()[0]}</b><br><span style='font-size: 11px; color: #94a3b8;'>{c_alias}</span></div>", unsafe_allow_html=True)
-        if st.button("Cerrar Sesión", key="btn_logout_top", use_container_width=True):
-            st.logout()
+        c_uinfo, c_ubtn = st.columns([2.0, 1.2])
+        with c_uinfo:
+            st.markdown(
+                f"""
+                <div style="text-align: right; line-height: 1.25; padding-top: 2px;">
+                    <span style="font-size: 12px; font-weight: 600; color: #334155;">👤 {current_name.split()[0]}</span><br>
+                    <span style="font-size: 10.5px; color: #64748b;">{c_alias}</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        with c_ubtn:
+            if st.button("🚪 Salir", key="btn_logout_top", width="stretch", help="Cerrar sesión corporativa"):
+                st.logout()
+
+# ── NAVEGACIÓN PRINCIPAL A ANCHO COMPLETO (SIN COLISIONES) ───────────────────
+default_tab = SECCIONES_APP[0]
+if any(k in current_email for k in ["marelyn.cardona", "marelin.cardona", "marelync", "andres.rodriguez", "andresr", "arodriguez"]) and "🏢 Agencias B2B" in SECCIONES_APP:
+    default_tab = "🏢 Agencias B2B"
+
+seccion_activa = st.segmented_control(
+    "Navegación del Tablero",
+    options=SECCIONES_APP,
+    default=default_tab,
+    label_visibility="collapsed"
+)
+if not seccion_activa:
+    seccion_activa = SECCIONES_APP[0]
 
 # Auditoría: Registrar cambio de sección
 if "seccion_audit_actual" not in st.session_state or st.session_state["seccion_audit_actual"] != seccion_activa:
