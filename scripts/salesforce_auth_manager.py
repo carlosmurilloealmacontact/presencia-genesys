@@ -140,45 +140,71 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
 
     if is_login:
         print("[*] Formulario de inicio de sesión detectado en Salesforce...")
-        attempt_start = datetime.now() - timedelta(seconds=5)
         try:
-            # Paso 1: Usuario
-            if page.locator("#username").is_visible(timeout=4000):
+            page.wait_for_selector("#username, #password", timeout=15000)
+        except Exception:
+            pass
+
+        try:
+            # Paso 1: Usuario (Modo campo visible o Modo tarjeta recordada)
+            if page.locator("#username").is_visible(timeout=3000):
                 curr_val = page.locator("#username").input_value()
                 if not curr_val or curr_val != user:
                     print(f"[*] Rellenando usuario: {user}...")
                     page.fill("#username", user)
+                
+                try:
+                    if page.locator("#rememberUn").is_visible(timeout=2000):
+                        if not page.locator("#rememberUn").is_checked():
+                            page.locator("#rememberUn").check()
+                except Exception:
+                    pass
+
                 print("[*] Enviando usuario...")
                 page.click("#Login")
                 time.sleep(3)
+            elif page.locator("#Login").is_visible(timeout=2000) and not page.locator("#password").is_visible(timeout=1000):
+                print("[*] Tarjeta de usuario recordada en perfil detectada. Haciendo clic en Iniciar sesión...")
+                page.click("#Login")
+                time.sleep(3)
+
+            # Esperar a que aparezca la contraseña si era flujo en 2 pasos
+            try:
+                page.wait_for_selector("#password", timeout=10000)
+            except Exception:
+                pass
 
             # Paso 2: Contraseña
-            if page.locator("#password").is_visible(timeout=6000):
+            if page.locator("#password").is_visible(timeout=5000):
                 print("[*] Rellenando contraseña...")
                 page.fill("#password", pwd)
+                attempt_start = datetime.now() - timedelta(seconds=10)
                 print("[*] Enviando credenciales de acceso...")
                 page.click("#Login")
                 time.sleep(6)
         except Exception as e_login:
             print(f"[!] Nota durante ingreso de credenciales: {e_login}")
 
-    # 2. Detectar si requiere verificación de identidad (MFA / 2FA por correo)
-    curr_url = page.url.lower()
+    # 2. Esperar y detectar si requiere verificación de identidad (MFA / 2FA por correo)
     is_verification = False
-    try:
+    print("[*] Verificando si Salesforce requiere verificación 2FA por correo...")
+    for _ in range(8):
+        curr_url = page.url.lower()
         if (
             "verification" in curr_url
             or "identity" in curr_url
-            or page.locator("#emc").is_visible(timeout=3000)
-            or page.locator("input[name='emc']").is_visible(timeout=2000)
-            or "verificar su identidad" in page.content().lower()
+            or page.locator("#emc").is_visible(timeout=1000)
+            or page.locator("input[name='emc']").is_visible(timeout=1000)
+            or "verificar su identidad" in page.title().lower()
         ):
             is_verification = True
-    except Exception:
-        pass
+            break
+        if "lightning" in curr_url or "frontdoor.jsp" in curr_url:
+            break
+        time.sleep(1.5)
 
     if is_verification:
-        print("[*] Pantalla de verificación de identidad (2FA) detectada. Buscando código en Outlook...")
+        print("[*] Pantalla de verificación de identidad (2FA) detectada. Buscando código nuevo en Outlook...")
         code = obtener_codigo_verificacion_outlook(min_received_time=attempt_start, max_wait_sec=120)
         if code:
             try:

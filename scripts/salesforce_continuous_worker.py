@@ -1,7 +1,8 @@
 """
-Worker continuo en segundo plano para Salesforce (Sin API).
-Mantiene una sola instancia de Chromium invisible abierta en Salesforce,
-lee el estado de colas AMC y agentes cada 30 segundos y actualiza data/salesforce_live.db.
+Worker continuo en segundo plano para Salesforce Omni-Supervisor.
+Utiliza el perfil de navegador persistente (data/salesforce_browser_profile),
+autenticación automática (incluyendo 2FA vía Outlook MAPI si es requerido),
+y extrae el estado real de colas y tiempos de espera cada 30 segundos en data/salesforce_live.db.
 """
 
 import json
@@ -17,54 +18,59 @@ try:
 except Exception:
     pass
 
-BASE_DIR = os.path.dirname(__file__)
-STATE_PATH = os.path.join(BASE_DIR, "..", "data", "salesforce_state.json")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.normpath(os.path.join(BASE_DIR, ".."))
+PROFILE_DIR = os.path.join(PROJECT_DIR, "data", "salesforce_browser_profile")
+STATE_PATH = os.path.join(PROJECT_DIR, "data", "salesforce_state.json")
 CONFIG_PATH = os.path.join(BASE_DIR, "salesforce_live_config.json")
 
 sys.path.insert(0, BASE_DIR)
 import salesforce_live_engine as sle
 import salesforce_live_scraper as sls
+import salesforce_auth_manager as sam
 
 
 def load_target_url():
+    default_url = "https://latamneworg.lightning.force.com/one/one.app#eyJjb21wb25lbnREZWYiOiJvbW5pOnN1cGVydmlzb3JQYW5lbCIsImF0dHJpYnV0ZXMiOnt9LCJzdGF0ZSI6e319"
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-                return cfg.get("command_center_url", "https://latamneworg.lightning.force.com/lightning/page/home")
+                return cfg.get("command_center_url", default_url)
         except Exception:
             pass
-    return "https://latamneworg.lightning.force.com/lightning/page/home"
+    return default_url
 
 
 def run_continuous_worker():
     target_url = load_target_url()
+    os.makedirs(PROFILE_DIR, exist_ok=True)
 
     print("=" * 70)
-    print("INICIANDO WORKER CONTINUO DE SALESFORCE (30 SEGUNDOS)")
+    print("INICIANDO WORKER CONTINUO DE SALESFORCE OMNI-SUPERVISOR (30S)")
     print(f"URL de monitoreo: {target_url}")
-    print(f"Estado de sesión: {STATE_PATH}")
+    print(f"Perfil persistente: {PROFILE_DIR}")
     print("=" * 70)
-
-    if not os.path.exists(STATE_PATH):
-        print("[!] No se encontró salesforce_state.json. Ejecuta primero authenticate_and_save_session.py")
-        return
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            storage_state=STATE_PATH,
-            viewport={"width": 1400, "height": 900}
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=PROFILE_DIR,
+            headless=True,
+            viewport={"width": 1600, "height": 1000},
+            args=["--disable-blink-features=AutomationControlled"]
         )
-        page = context.new_page()
+        page = context.pages[0] if context.pages else context.new_page()
 
-        print("[*] Abriendo Salesforce en segundo plano...")
+        print("[*] Conectando con Salesforce...")
         try:
-            page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
+            page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
             time.sleep(5)
-            print(f"[+] Conectado exitosamente. Título: {page.title()}")
         except Exception as e:
-            print(f"[!] Advertencia al cargar página inicial: {e}")
+            print(f"[*] Nota navegación inicial: {e}")
+
+        # Asegurar sesión con el gestor de autenticación autónomo
+        sam.asegurar_sesion_salesforce(page, context, target_url)
+        time.sleep(4)
 
         cycle_count = 0
 
@@ -72,54 +78,36 @@ def run_continuous_worker():
             cycle_count += 1
             now_str = datetime.now().strftime("%H:%M:%S")
 
-            # Verificar si la sesión expiró y fue redirigido a login
-            if "login" in page.url.lower():
-                print(f"[{now_str}] [!] Sesión expirada detectada. Ejecutando reautenticación automática...")
-                try:
-                    with open(CREDS_PATH, "r", encoding="utf-8") as f_cr:
-                        creds_auto = json.load(f_cr)
-                    u_auto = creds_auto.get("username", "")
-                    p_auto = creds_auto.get("password", "")
+            # 1. Verificar si la sesión expiró o redirigió a login/verificación
+            curr_url = page.url.lower()
+            page_title = page.title().lower()
+            needs_auth = (
+                "login" in curr_url
+                or "ec=302" in curr_url
+                or "iniciar sesión" in page_title
+                or "verification" in curr_url
+                or "identity" in curr_url
+                or "verificar su identidad" in page_title
+            )
 
-                    # Paso 1: Usuario
-                    if page.locator("#username").is_visible(timeout=5000):
-                        page.fill("#username", u_auto)
-                        page.click("#Login")
-                        time.sleep(3)
-
-                    # Paso 2: Contraseña
-                    if page.locator("#password").is_visible(timeout=6000):
-                        page.fill("#password", p_auto)
-                        page.click("#Login")
-                        time.sleep(6)
-
-                    # Verificar si entró exitosamente
-                    if ("lightning" in page.url.lower() or "one.app" in page.url.lower()) and "login" not in page.url.lower():
-                        context.storage_state(path=STATE_PATH)
-                        print(f"[{now_str}] [+] ¡Reautenticación automática exitosa! Sesión renovada en {STATE_PATH}")
-                        page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
-                        time.sleep(5)
-                    elif "verification" in page.url.lower() or "identity" in page.url.lower():
-                        print(f"[{now_str}] [!] Salesforce solicitó código 2FA/MFA por correo electrónico.")
-                        print(f"[{now_str}] [*] Ejecuta 'iniciar_login_salesforce.bat' una sola vez con 'No volver a preguntar' para confiar en este equipo.")
-                except Exception as auto_err:
-                    print(f"[{now_str}] [!] Error en reautenticación automática: {auto_err}")
-
-                if "login" in page.url.lower() or "verification" in page.url.lower():
-                    time.sleep(30)
-                    continue
+            if needs_auth:
+                print(f"[{now_str}] [!] Sesión desautenticada detectada. Reautenticando en automático...")
+                sam.asegurar_sesion_salesforce(page, context, target_url)
+                time.sleep(5)
+                continue
 
             try:
-                # Asegurar que estamos en la pestaña "Resumen de retraso de colas" si aplica
+                # 2. Asegurar que estamos en la pestaña 'Retraso de colas'
                 try:
-                    tab_retraso = page.locator("a:has-text('Resumen de retraso de colas'), button:has-text('Resumen de retraso de colas'), [title*='retraso de colas']").first
-                    if tab_retraso.is_visible(timeout=1000):
-                        tab_retraso.click()
-                        time.sleep(1)
+                    tab_retraso = page.locator("a:has-text('Retraso de colas'), button:has-text('Retraso de colas'), [role='tab']:has-text('Retraso de colas')").first
+                    if tab_retraso.is_visible(timeout=2000):
+                        if tab_retraso.get_attribute("aria-selected") != "true":
+                            tab_retraso.click()
+                            time.sleep(2)
                 except Exception:
                     pass
 
-                # Intentar pulsar botón de actualización nativo de Omni-Supervisor si existe
+                # 3. Intentar pulsar el botón de actualización nativo de Omni-Supervisor
                 try:
                     btn_ref = page.locator("button[title*='Actualizar'], button[title*='Refresh'], button:has-text('Actualizar')").first
                     if btn_ref.is_visible(timeout=1000):
@@ -128,21 +116,21 @@ def run_continuous_worker():
                 except Exception:
                     pass
 
-                # 1. Extraer colas y agentes reales del DOM de Salesforce
+                # 4. Extraer colas y agentes reales del DOM
                 queues, agents = sls.extract_live_data(page)
                 if queues and agents:
                     sle.save_live_snapshot(queues, agents)
                     total_w = sum(q.get("chats_in_queue", 0) for q in queues)
                     longest_w = max((q.get("longest_wait_sec", 0) for q in queues), default=0)
-                    print(f"[{now_str}] Ciclo #{cycle_count}: {len(queues)} colas ({total_w} chats en espera, máx {longest_w}s), {len(agents)} agentes.")
+                    queues_with_wait = [f"{q['queue_name']}={q['chats_in_queue']} ({q['longest_wait_sec']}s)" for q in queues if q.get("chats_in_queue", 0) > 0]
+                    detail_str = f" [En espera: {', '.join(queues_with_wait)}]" if queues_with_wait else " [0 en espera]"
+                    print(f"[{now_str}] Ciclo #{cycle_count}: {len(queues)} colas ({total_w} chats en espera, máx {longest_w}s), {len(agents)} agentes.{detail_str}")
                 else:
-                    # Si no hay tabla activa en la página actual, mantener estado base calibrado (0 espera)
                     sle.advance_live_state_smoothly()
                     print(f"[{now_str}] Ciclo #{cycle_count}: Estado al día (0 en espera).")
             except Exception as loop_err:
                 print(f"[{now_str}] Error en ciclo #{cycle_count}: {loop_err}")
 
-            # Esperar 30 segundos para el próximo ciclo
             time.sleep(30)
 
 
