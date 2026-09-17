@@ -463,9 +463,13 @@ def _render_vista_multidia(ambito_code: str, ambito_label: str):
         st.info("Sin registros de presencia en el período seleccionado.")
         return
 
-    # Extraer BP y filtrar jerarquía y ámbito
+    # Extraer BP, nombre, supervisor y coordinador
     df_seg_multi["bp"] = df_seg_multi["agente"].astype(str).str.split(" - ").str[0].str.strip()
-    df_seg_multi["nombre"] = df_seg_multi["agente"].astype(str).str.split(" - ").str[1].str.strip()
+    df_seg_multi["nombre"] = df_seg_multi["agente"].astype(str).apply(lambda a: str(a).split(" - ", 1)[1].strip() if " - " in str(a) else str(a).strip())
+    df_seg_multi["supervisor"] = df_seg_multi["jefe_inmediato"].fillna("No Asignado").astype(str).str.strip()
+    df_seg_multi["coordinador"] = df_seg_multi["coordinador"].fillna("No Asignado").astype(str).str.strip()
+    if not df_t_multi.empty:
+        df_t_multi["horas_programadas"] = pd.to_numeric(df_t_multi["horas_programadas"], errors="coerce").fillna(8.0)
     
     # Filtro ámbito
     b2b_keywords = ["CARDONA", "RODRIGUEZ URIBE"]
