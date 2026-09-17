@@ -39,7 +39,7 @@ except Exception as _zd_err:
     def render_tab_zendesk(email_usuario=""):
         st.error(f"Error cargando módulo Zendesk: {_zd_err}")
 
-st.set_page_config(page_title="Radar Genesys", layout="wide")
+st.set_page_config(page_title="Radar Operacional | Almaexperience", page_icon="🛰️", layout="wide")
 
 from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPORATIVO, DOMINIOS_CORPORATIVOS, ADMINS_AUTORIZADOS
 
@@ -59,8 +59,8 @@ if auth_configurado:
                 <div style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 15px;">
                     🔒 Acceso Restringido
                 </div>
-                <h2 style="color: #0f172a; margin: 0 0 8px 0; font-size: 22px;">Panel de Gestión Operativa</h2>
-                <p style="color: #64748b; font-size: 13px; margin: 0 0 20px 0;">Almaexperience • Genesys Cloud & GTR</p>
+                <h2 style="color: #0f172a; margin: 0 0 8px 0; font-size: 22px;">🛰️ Radar Operacional</h2>
+                <p style="color: #64748b; font-size: 13px; margin: 0 0 20px 0;">Almaexperience • Centro de Mando Multicanal</p>
                 <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 25px; border: 1px dashed #cbd5e1; font-size: 13px; color: #334155;">
                     Acceso permitido exclusivamente a cuentas corporativas autorizadas <b>(@outsourcing-account.com, @almaexperience.co, @almacontactcol.info)</b>.
                 </div>
@@ -88,7 +88,7 @@ if auth_configurado:
                 </p>
                 <div style="background: #fff5f5; border-radius: 8px; padding: 14px; margin-bottom: 20px; border: 1px dashed #fca5a5; font-size: 13px; color: #991b1b; text-align: left; line-height: 1.5;">
                     📌 El acceso para cuentas del dominio <b>@latam.com</b> se encuentra suspendido hasta nueva orden.<br><br>
-                    Por favor cierra sesión e inicia con tu cuenta corporativa autorizada de <b>Alma Contact / Almaexperience</b> (ej. <i>@almaexperience.co</i> o <i>@outsourcing-account.com</i>).
+                    Por favor cierra sesión e inicia con tu cuenta corporativa autorizada de <b>Almaexperience</b> (ej. <i>@almaexperience.co</i> o <i>@outsourcing-account.com</i>).
                 </div>
             </div>
             """,
@@ -96,7 +96,7 @@ if auth_configurado:
         )
         c_b1, c_b2, c_b3 = st.columns([1, 1.5, 1])
         with c_b2:
-            if st.button("Cerrar Sesión e Iniciar con cuenta Alma Contact", use_container_width=True):
+            if st.button("Cerrar Sesión e Iniciar con cuenta Almaexperience", use_container_width=True):
                 st.logout()
         st.stop()
 
@@ -930,14 +930,6 @@ def render_timeline(df_agente: pd.DataFrame, color_map: dict[str, str]):
 
 # ── App ──────────────────────────────────────────────────────────────────
 
-st.markdown(
-    "<div style='text-align:center;'>"
-    "<h2 style='margin-bottom:0;'>Radar Genesys</h2>"
-    "<p style='color:gray; margin-top:0;'>Pausas y Adherencia de Turno</p>"
-    "</div>",
-    unsafe_allow_html=True,
-)
-
 
 @st.cache_data(ttl=3600)
 def cargar_agentes_map_base():
@@ -1097,9 +1089,9 @@ col_brand, col_auth = st.columns([3.2, 1.8])
 with col_brand:
     st.markdown(
         """
-        <div style="display: flex; align-items: center; gap: 8px; padding-top: 4px; padding-bottom: 2px;">
-            <span style="font-size: 16px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px;">🛰️ Radar Genesys</span>
-            <span style="background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px;">Alma Contact</span>
+        <div style="display: flex; align-items: center; gap: 10px; padding-top: 4px; padding-bottom: 2px;">
+            <span style="font-size: 18px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px;">🛰️ Radar Operacional</span>
+            <span style="background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 12px;">Almaexperience</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -1548,12 +1540,12 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         hoja_radar = tabla_mostrar.drop(columns=["agente_id"])
-        hoja_radar.to_excel(writer, index=False, sheet_name="Radar Genesys")
+        hoja_radar.to_excel(writer, index=False, sheet_name="Radar Operacional")
         conteo_general.reset_index().to_excel(writer, index=False, sheet_name="Cantidad de pausas")
     
         # Excel muestra los floats con toda su precision binaria (ej. 71.79999999999999)
         # si no se fija un formato de celda explicito - el .round(1) de pandas no alcanza.
-        ws = writer.sheets["Radar Genesys"]
+        ws = writer.sheets["Radar Operacional"]
         for nombre_col in pct_cols + conteo_cols:
             idx = hoja_radar.columns.get_loc(nombre_col) + 1
             letra = get_column_letter(idx)
