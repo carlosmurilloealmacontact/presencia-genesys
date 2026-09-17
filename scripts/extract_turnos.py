@@ -226,7 +226,7 @@ def procesar_archivo(ruta: str, cedula_a_bp: dict) -> tuple[list[dict], list[dic
     return [], []
 
 
-def run(archivo_especifico: str = None):
+def run(archivo_especifico: str = None, desde: str = None, hasta: str = None, forzar_archivo: bool = False):
     print("Cargando puente cedula -> BP desde el sheet Base...")
     cedula_a_bp = load_cedula_a_bp()
     print(f"  {len(cedula_a_bp)} cedulas mapeadas.")
@@ -234,6 +234,7 @@ def run(archivo_especifico: str = None):
     todos_los_turnos = []
     todos_los_detallados = []
 
+    # 1. Si se pasó un archivo específico o se forzó modo archivo
     if archivo_especifico:
         if os.path.exists(archivo_especifico):
             rt, rd = procesar_archivo(archivo_especifico, cedula_a_bp)
@@ -242,8 +243,30 @@ def run(archivo_especifico: str = None):
         else:
             print(f"ERROR: No se encontró el archivo especificado: {archivo_especifico}")
             return
-    else:
-        # 1. Intentar archivo de red si está disponible
+    elif not forzar_archivo:
+        # 2. Intentar extracción directa vía API de Almaverso (Recomendado)
+        try:
+            from extract_turnos_api import get_token, fetch_shifts_range, parse_api_shifts
+            from datetime import datetime, timedelta
+            
+            today = datetime.now().date()
+            start_str = desde or (today - timedelta(days=1)).strftime("%Y-%m-%d")
+            end_str = hasta or (today + timedelta(days=7)).strftime("%Y-%m-%d")
+
+            print(f"Consultando turnos vía API Almaverso ({start_str} -> {end_str}) ...")
+            token = get_token()
+            raw_shifts = fetch_shifts_range(start_str, end_str, token)
+            print(f"  {len(raw_shifts)} registros descargados desde la API de Almaverso.")
+            
+            rt, rd = parse_api_shifts(raw_shifts, cedula_a_bp)
+            todos_los_turnos.extend(rt)
+            todos_los_detallados.extend(rd)
+            print(f"  Turnos procesados vía API: {len(rt)} turnos y {len(rd)} detallados.")
+        except Exception as e:
+            print(f"Aviso: Extracción vía API no disponible ({e}). Intentando fallback por archivos...")
+
+    # 3. Fallback: Si no se obtuvieron turnos vía API y no se pasó archivo específico
+    if not todos_los_turnos and not archivo_especifico:
         if os.path.exists(RUTA_RED_DEFAULT):
             rt, rd = procesar_archivo(RUTA_RED_DEFAULT, cedula_a_bp)
             todos_los_turnos.extend(rt)
@@ -251,7 +274,6 @@ def run(archivo_especifico: str = None):
         else:
             print(f"Aviso: Ruta de red no accesible ({RUTA_RED_DEFAULT}).")
 
-        # 2. Buscar archivos complementarios en data/turnos_semanales/
         if DIR_SEMANALES.exists():
             for f in sorted(DIR_SEMANALES.glob("*.xlsx")):
                 print(f"Procesando archivo complementario: {f.name}")
@@ -288,5 +310,12 @@ def run(archivo_especifico: str = None):
 
 
 if __name__ == "__main__":
-    arg = sys.argv[1] if len(sys.argv) > 1 else None
-    run(arg)
+    import argparse
+    parser = argparse.ArgumentParser(description="Extractor y sincronizador de turnos (API Almaverso / Red / Excel).")
+    parser.add_argument("archivo", nargs="?", default=None, help="Ruta a archivo Excel específico (opcional)")
+    parser.add_argument("--desde", default=None, help="Fecha inicio YYYY-MM-DD para API")
+    parser.add_argument("--hasta", default=None, help="Fecha fin YYYY-MM-DD para API")
+    parser.add_argument("--archivos", action="store_true", help="Forzar extracción solo desde archivos (ignorar API)")
+    args = parser.parse_args()
+
+    run(archivo_especifico=args.archivo, desde=args.desde, hasta=args.hasta, forzar_archivo=args.archivos)

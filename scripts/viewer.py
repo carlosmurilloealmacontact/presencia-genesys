@@ -50,6 +50,12 @@ except Exception as _adh_err:
         if render_tab_historico_fn:
             render_tab_historico_fn()
 
+try:
+    from adherencia_v2_engine import render_tab_adherencia_v2
+except Exception as _adh_v2_err:
+    def render_tab_adherencia_v2(*args, **kwargs):
+        st.error(f"Error cargando módulo Adherencia 2.0 (Lab): {_adh_v2_err}")
+
 
 st.set_page_config(page_title="Radar Operacional | Almaexperience", page_icon="🛰️", layout="wide", initial_sidebar_state="collapsed")
 
@@ -1241,8 +1247,16 @@ CARLOS_MURILLO_EMAILS = {
     "lan.sm.carlos.murillo@gmail.com",
 }
 
-if current_email in CARLOS_MURILLO_EMAILS or not auth_configurado:
+es_carlos = (
+    current_email in CARLOS_MURILLO_EMAILS
+    or "carlosmurillo" in current_email
+    or current_email in ADMINS_AUTORIZADOS
+    or not auth_configurado
+)
+
+if es_carlos:
     SECCIONES_APP.append("🧪 Capacidad 2.0 (Lab)")
+    SECCIONES_APP.append("🧪 Adherencia & Pausas 2.0 (Lab)")
 
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
@@ -2158,6 +2172,9 @@ elif seccion_activa == "🚨 Control de Ausentismo":
 
 elif seccion_activa == "🧪 Capacidad 2.0 (Lab)":
     render_tab_capacidad_v2(cargar_agentes_map_base())
+
+elif seccion_activa == "🧪 Adherencia & Pausas 2.0 (Lab)":
+    render_tab_adherencia_v2(cargar_agentes_map_base(), current_email)
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
     st.markdown(

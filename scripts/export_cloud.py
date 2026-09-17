@@ -48,6 +48,17 @@ def run():
     turnos = master_conn.execute("SELECT * FROM turnos WHERE fecha >= ?", (corte,)).fetchall()
     export_conn.executemany("INSERT INTO turnos (bp, fecha, hora_inicio, hora_fin) VALUES (?, ?, ?, ?)", turnos)
 
+    # Turnos detallados (con pausas programadas para auditoría integral)
+    try:
+        td_desc = master_conn.execute("SELECT * FROM turnos_detallados LIMIT 0").description
+        if td_desc:
+            td_cols = [d[0] for d in td_desc]
+            placeholders_td = ", ".join("?" for _ in td_cols)
+            turnos_det = master_conn.execute("SELECT * FROM turnos_detallados WHERE fecha >= ?", (corte,)).fetchall()
+            export_conn.executemany(f"INSERT INTO turnos_detallados ({', '.join(td_cols)}) VALUES ({placeholders_td})", turnos_det)
+    except Exception as e:
+        print(f"Aviso exportando turnos detallados: {e}")
+
     export_conn.commit()
     export_conn.execute("VACUUM")
     export_conn.close()

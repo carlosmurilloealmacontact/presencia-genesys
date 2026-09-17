@@ -232,6 +232,14 @@ def run(fecha_objetivo: str):
     conn.close()
     print(f"Guardado en SQLite. {borrados} tramos viejos purgados (retención).")
 
+    # Sincronizar turnos del día automáticamente vía API de Almaverso
+    try:
+        from extract_turnos import run as run_turnos
+        print(f"\nSincronizando turnos operativos para {fecha_objetivo}...")
+        run_turnos(desde=fecha_objetivo, hasta=fecha_objetivo)
+    except Exception as e:
+        print(f"Aviso: no se pudo sincronizar turnos automáticamente: {e}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
