@@ -62,18 +62,34 @@ def _time_to_minutes(t_str: str) -> float:
 
 
 # ── CARGA DE LA MATRIZ BASE (MODELO 1.0) ───────────────────────────────────────
+def detectar_origen_demanda(srv: str, tipo: str) -> str:
+    """Identifica la plataforma de origen de demanda según la naturaleza del servicio."""
+    s = str(srv).upper()
+    es_bo = ("Back" in tipo or "BO" in tipo or s.startswith("BO ") or s.startswith("BO_") or "CASOS" in s)
+
+    if es_bo:
+        if "CORPORATE" in s or "TARGET" in s or "LTRADE" in s:
+            return "☁️ Salesforce B2B"
+        return "🎫 Zendesk AMC"
+
+    return "📞 Genesys GTR"
+
+
+@st.cache_data(ttl=900, show_spinner=False)
 def calcular_ejecutiva_capacidad_base(fecha_desde: str, fecha_hasta: str, srv_filtro: str = None) -> pd.DataFrame:
     """
-    Calcula la tabla base de capacidad (Modelo 1.0) consolidando:
-      - Forecast Sore (WFM)
-      - Presencia Genesys
-      - Métricas GTR (Tráfico, AHT, NS)
+    Calcula la matriz ejecutiva base de capacidad cruzando:
+      - Sore (Requerido, Forecast Demanda, Meta AHT)
+      - Genesys Presencia (Conectado, Disponible, Pausas)
+      - Genesys GTR (Tráfico Real y AHT para Voz/Chat)
+      - Zendesk AMC & Salesforce B2B (Demanda Inflow, Outflow y AHT para Back Office)
     """
     df_fore_all = cargar_forecast_sore_completo()
-    if df_fore_all.empty:
-        return pd.DataFrame()
+    df_fore_rango = df_fore_all[
+        (df_fore_all["fecha"] >= fecha_desde) &
+        (df_fore_all["fecha"] <= fecha_hasta)
+    ].copy()
 
-    df_fore_rango = df_fore_all[(df_fore_all["fecha"] >= fecha_desde) & (df_fore_all["fecha"] <= fecha_hasta)].copy()
     if df_fore_rango.empty:
         return pd.DataFrame()
 
@@ -96,6 +112,7 @@ def calcular_ejecutiva_capacidad_base(fecha_desde: str, fecha_hasta: str, srv_fi
     dict_zd_nuevos = dict(zip(df_zd_sum["servicio"], df_zd_sum["Casos_Nuevos"])) if not df_zd_sum.empty else {}
     dict_zd_resueltos = dict(zip(df_zd_sum["servicio"], df_zd_sum["Casos_Resueltos"])) if not df_zd_sum.empty else {}
     dict_zd_tasa = dict(zip(df_zd_sum["servicio"], df_zd_sum["tasa_resolucion_pct"])) if not df_zd_sum.empty else {}
+    dict_zd_balance = dict(zip(df_zd_sum["servicio"], df_zd_sum["Balance_Neto"])) if not df_zd_sum.empty else {}
 
     if not df_pres_rango.empty:
         matriz = pd.merge(fore_summary, df_pres_rango, on="servicio", how="left").fillna(0.0)
@@ -138,30 +155,49 @@ def calcular_ejecutiva_capacidad_base(fecha_desde: str, fecha_hasta: str, srv_fi
         aht_real = row.get("aht_real_seg")
         ns_real = row.get("ns_real")
 
-        es_canal_bo = ("Back" in tipo or "BO" in tipo or srv in dict_zd_nuevos)
-        if es_canal_bo and pd.isna(traf_real) and srv in dict_zd_nuevos:
-            traf_real = dict_zd_nuevos[srv]
+        s_upper = str(srv).upper()
+        es_canal_bo = ("Back" in tipo or "BO" in tipo or s_upper.startswith("BO ") or s_upper.startswith("BO_") or "CASOS" in s_upper)
+        origen_demanda = detectar_origen_demanda(srv, tipo)
+
+        casos_nuevos = dict_zd_nuevos.get(srv, np.nan)
+        casos_resueltos = dict_zd_resueltos.get(srv, np.nan)
+        tasa_res = dict_zd_tasa.get(srv, np.nan)
+        bal_cola = dict_zd_balance.get(srv, np.nan)
+
+        if es_canal_bo:
+            # Para Back Office, la demanda real proviene de Casos Nuevos (Inflow)
+            if srv in dict_zd_nuevos:
+                traf_real = float(casos_nuevos)
+            elif pd.isna(traf_real):
+                traf_real = np.nan
+
+            # Cálculo de AHT Real para Back Office (Segundos netos de trabajo por caso resuelto)
+            if pd.notna(casos_resueltos) and float(casos_resueltos) > 0 and min_disp > 0:
+                aht_real = round((min_disp * 60.0) / float(casos_resueltos), 0)
+            elif pd.notna(casos_resueltos) and float(casos_resueltos) > 0 and min_con > 0:
+                aht_real = round((min_con * 60.0) / float(casos_resueltos), 0)
+            elif pd.notna(aht_real) and aht_real > 0:
+                pass
+            elif meta_aht > 0:
+                # Si el corte diario no tiene casos resueltos consolidados, se toma meta neutra
+                aht_real = meta_aht
+            else:
+                aht_real = np.nan
 
         pct_capacidad = (min_disp / min_req * 100.0) if min_req > 0 else 100.0
         gap_fte = fte_con - fte_req
 
-        if srv in ["BO_CORPORATE", "BO AGENCIAS TARGET"]:
-            causa_1 = "☁️ Operación B2B vía Salesforce (Mesa Externa)"
-        elif es_canal_bo and srv in dict_zd_nuevos:
-            res_val = dict_zd_resueltos.get(srv, 0)
-            tasa_val = dict_zd_tasa.get(srv, 0)
-            causa_1 = f"🎫 Back Office Zendesk: {res_val:,.0f} resueltos ({tasa_val:.0f}% cierre)"
-        else:
-            causa_1 = diagnosticar_causa_raiz(
-                gap_personas=gap_fte,
-                aux_real=aux_real,
-                aux_meta=META_AUXILIARES_OFICIAL,
-                pct_capacidad=pct_capacidad
-            )
+        causa_1 = diagnosticar_causa_raiz(
+            gap_personas=gap_fte,
+            aux_real=aux_real,
+            aux_meta=META_AUXILIARES_OFICIAL,
+            pct_capacidad=pct_capacidad
+        )
 
         filas.append({
             "Servicio": srv,
             "Tipo": tipo,
+            "Origen Demanda": origen_demanda,
             "FTE Requerido": fte_req,
             "FTE Conectado": fte_con,
             "FTE Disponible": fte_disp,
@@ -170,6 +206,9 @@ def calcular_ejecutiva_capacidad_base(fecha_desde: str, fecha_hasta: str, srv_fi
             "Meta Aux": META_AUXILIARES_OFICIAL,
             "Tráfico Plan": traf_plan,
             "Tráfico Real": traf_real if pd.notna(traf_real) else np.nan,
+            "Casos Resueltos": casos_resueltos if pd.notna(casos_resueltos) else np.nan,
+            "Balance Cola": bal_cola if pd.notna(bal_cola) else np.nan,
+            "Tasa Resolución %": tasa_res if pd.notna(tasa_res) else np.nan,
             "AHT Plan (s)": meta_aht,
             "AHT Real (s)": aht_real if pd.notna(aht_real) else np.nan,
             "NS Real": ns_real if pd.notna(ns_real) else np.nan,
@@ -285,10 +324,11 @@ def diagnosticar_causa_raiz_v2(
     aux_real: float,            # % Auxiliares
     aux_meta: float,            # Meta Auxiliares (14%)
     traf_plan: float = 0.0,     # Forecast de Tráfico SORE
-    traf_real: float = np.nan,  # Tráfico Real
+    traf_real: float = np.nan,  # Tráfico Real (Llamadas Genesys o Casos Nuevos ZD/SF)
     aht_plan: float = 0.0,      # Meta AHT Plana
     aht_real: float = np.nan,   # AHT Real
-    tipo_canal: str = "Inbound" # Tipo de canal (Inbound / Back Office)
+    tipo_canal: str = "Inbound", # Tipo de canal (Inbound / Back Office)
+    casos_balance: float = 0.0  # Balance Neto de Casos en Cola (para BO)
 ) -> tuple[str, str, str]:
     """
     Determina la causa raíz 2.0 con responsabilidad asignada objetiva:
@@ -304,10 +344,11 @@ def diagnosticar_causa_raiz_v2(
     if pct_capacidad >= 95.0 and pct_adh_pausas >= 85.0 and min_exceso_pausas <= 60:
         if pd.notna(traf_real) and traf_plan > 0 and float(traf_real) > (traf_plan * 1.20):
             pct_sobredem = ((float(traf_real) - traf_plan) / traf_plan * 100.0)
+            tipo_unidad = "casos" if es_bo else "llamadas/chats"
             return (
                 "🟡 Capacidad Cubierta bajo Sobredemanda",
                 "Sobredemanda Externa Absorbida",
-                f"El equipo cumplió su dotación ({pct_capacidad:.1f}%), pero absorbió una sobrecarga de demanda de +{pct_sobredem:.0f}% sobre lo proyectado."
+                f"El equipo cumplió su dotación ({pct_capacidad:.1f}%), pero absorbió una sobrecarga de demanda de +{pct_sobredem:.0f}% sobre lo proyectado ({int(float(traf_real) - traf_plan):,d} {tipo_unidad} extra)."
             )
         return (
             "🟢 Capacidad y Disciplina Óptima",
@@ -336,9 +377,10 @@ def diagnosticar_causa_raiz_v2(
     # 1. ¿Sobredemanda externa desbordante?
     if pd.notna(traf_real) and traf_plan > 0 and float(traf_real) > (traf_plan * 1.15):
         pct_sobre = ((float(traf_real) - traf_plan) / traf_plan * 100.0)
-        causas.append(f"Sobredemanda Externa (+{pct_sobre:.0f}% tráfico)")
+        tipo_unidad = "casos" if es_bo else "llamadas/chats"
+        causas.append(f"Sobredemanda Externa (+{pct_sobre:.0f}% {tipo_unidad})")
         responsable.append("Demanda / Cliente")
-        detalles.append(f"El volumen real superó en +{pct_sobre:.0f}% el forecast planificado (+{int(float(traf_real) - traf_plan):,d} casos/llamadas no previstas).")
+        detalles.append(f"El volumen real superó en +{pct_sobre:.0f}% el forecast planificado (+{int(float(traf_real) - traf_plan):,d} {tipo_unidad} no previstos).")
 
     # 2. ¿Subprogramación de Malla por WFM?
     if gap_fte_malla < -1.0:
@@ -355,7 +397,8 @@ def diagnosticar_causa_raiz_v2(
     # 4. ¿Dilución por AHT Excedido?
     if pd.notna(aht_real) and aht_plan > 0 and float(aht_real) > (aht_plan * 1.12):
         diff_aht = int(float(aht_real) - aht_plan)
-        causas.append(f"Dilución AHT (+{diff_aht}s sobre meta)")
+        unidad_aht = "por caso" if es_bo else "por llamada"
+        causas.append(f"Dilución AHT (+{diff_aht}s {unidad_aht})")
         responsable.append("Eficiencia Operativa")
         detalles.append(f"El tiempo de atención real ({float(aht_real):.0f}s) superó la meta plana ({aht_plan:.0f}s), destruyendo horas-hombre equivalentes.")
 
@@ -370,6 +413,13 @@ def diagnosticar_causa_raiz_v2(
         causas.append(f"Descalce Horario Pausas ({pct_adh_pausas:.1f}% puntualidad)")
         responsable.append("Supervisión / Piso")
         detalles.append("Pausas corridas fuera de franja programada que dejaron intervalos desprotegidos.")
+
+    # 7. ¿Acumulación de Backlog en Back Office?
+    if es_bo and pd.notna(casos_balance) and float(casos_balance) > 20:
+        causas.append(f"Crecimiento Cola (+{int(casos_balance)} casos)")
+        if "Eficiencia Operativa" not in responsable and "Operaciones / Supervisión" not in responsable:
+            responsable.append("Capacidad / Desahogo")
+        detalles.append(f"Ingresaron más casos de los resueltos (+{int(casos_balance)} casos en cola).")
 
     if not causas:
         return (
@@ -443,12 +493,14 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
             traf_real=r.get("Tráfico Real"),
             aht_plan=float(r.get("AHT Plan (s)", 0.0)),
             aht_real=r.get("AHT Real (s)"),
-            tipo_canal=r.get("Tipo", "Inbound")
+            tipo_canal=r.get("Tipo", "Inbound"),
+            casos_balance=float(r.get("Balance Cola", 0.0)) if pd.notna(r.get("Balance Cola")) else 0.0
         )
 
         filas_v2.append({
             "Servicio": srv,
             "Tipo": r.get("Tipo", "Inbound"),
+            "Origen Demanda": r.get("Origen Demanda", "📞 Genesys GTR"),
             "FTE Requerido": fte_req,
             "FTE Malla (Prog)": fte_prog,
             "Brecha Malla (WFM)": gap_malla,
@@ -466,6 +518,9 @@ def calcular_ejecutiva_capacidad_v2(fecha_desde: str, fecha_hasta: str, srv_filt
             "Veredicto 2.0": desc,
             "Tráfico Plan": r.get("Tráfico Plan", 0.0),
             "Tráfico Real": r.get("Tráfico Real", np.nan),
+            "Casos Resueltos": r.get("Casos Resueltos", np.nan),
+            "Balance Cola": r.get("Balance Cola", np.nan),
+            "Tasa Resolución %": r.get("Tasa Resolución %", np.nan),
             "AHT Plan (s)": r.get("AHT Plan (s)", 0.0),
             "AHT Real (s)": r.get("AHT Real (s)", np.nan),
             "NS Real": r.get("NS Real", np.nan),
@@ -889,9 +944,8 @@ def render_tab_capacidad_v2(agentes_map: dict):
         srv_param = None if srv_filtro == "Todos los Servicios" else srv_filtro
 
     # Sub-pestañas principales
-    subtab1, subtab2, subtab3 = st.tabs([
-        "🔬 Diagnóstico Integral 2.0 (Vista Enriquecida)",
-        "📂 Monitor Back Office (Salesforce & Zendesk)",
+    subtab1, subtab2 = st.tabs([
+        "🔬 Diagnóstico Integral 2.0 (Voz, Canales Digitales & Back Office Unificado)",
         "⚖️ Comparador Lado a Lado (Modelo 1.0 vs 2.0)"
     ])
 
@@ -954,9 +1008,9 @@ def render_tab_capacidad_v2(agentes_map: dict):
         st.caption("Contrasta la exigencia teórica de WFM frente a lo que se programó en la malla y lo que los asesores realmente cumplieron en jornada y descansos.")
 
         cols_mostrar_v2 = [
-            "Servicio", "Tipo", "FTE Requerido", "FTE Malla (Prog)", "Brecha Malla (WFM)",
+            "Servicio", "Tipo", "Origen Demanda", "FTE Requerido", "FTE Malla (Prog)", "Brecha Malla (WFM)",
             "FTE Conectado", "Brecha Operación", "% Cumpl Turno", "FTE Disponible",
-            "% Capacidad", "% Adh Pausas", "Exceso Pausas (min)", "Diagnóstico 2.0 (Enriquecido)"
+            "% Capacidad", "% Adh Pausas", "Exceso Pausas (min)", "Tráfico Plan", "Tráfico Real", "AHT Plan (s)", "AHT Real (s)", "Diagnóstico 2.0 (Enriquecido)"
         ]
         df_show_v2 = df_v2[[c for c in cols_mostrar_v2 if c in df_v2.columns]].copy()
 
@@ -966,7 +1020,11 @@ def render_tab_capacidad_v2(agentes_map: dict):
             "% Adh Pausas": st.column_config.NumberColumn("% Adh Pausas", format="%.1f%%"),
             "Brecha Malla (WFM)": st.column_config.NumberColumn("Δ Malla", format="%+.1f FTE"),
             "Brecha Operación": st.column_config.NumberColumn("Δ Operación", format="%+.1f FTE"),
-            "Exceso Pausas (min)": st.column_config.NumberColumn("Exceso Pausas", format="+%d min")
+            "Exceso Pausas (min)": st.column_config.NumberColumn("Exceso Pausas", format="+%d min"),
+            "Tráfico Plan": st.column_config.NumberColumn("Demanda Plan", format="%.0f"),
+            "Tráfico Real": st.column_config.NumberColumn("Demanda Real", format="%.0f"),
+            "AHT Plan (s)": st.column_config.NumberColumn("AHT Meta", format="%.0fs"),
+            "AHT Real (s)": st.column_config.NumberColumn("AHT Real", format="%.0fs"),
         }
 
         st.dataframe(df_show_v2, use_container_width=True, hide_index=True, column_config=cfg_cols)
@@ -980,9 +1038,56 @@ def render_tab_capacidad_v2(agentes_map: dict):
         srvs_intradia = sorted(df_v2["Servicio"].unique().tolist())
         c_int1, c_int2 = st.columns([3, 1])
         with c_int1:
-            srv_grafica = st.selectbox("Seleccionar Servicio para Curva Intradía:", options=srvs_intradia, index=0, key="lab_srv_graf")
+            srv_grafica = st.selectbox("Seleccionar Servicio para Curva Intradía & Cascada:", options=srvs_intradia, index=0, key="lab_srv_graf")
         with c_int2:
             st.metric("Fecha Curva", fecha_hasta)
+
+        sub_srv_sel = df_v2[df_v2["Servicio"] == srv_grafica]
+        if not sub_srv_sel.empty:
+            r_sel = sub_srv_sel.iloc[0]
+            orig = r_sel.get("Origen Demanda", "📞 Genesys GTR")
+            traf_p = r_sel.get("Tráfico Plan", 0.0)
+            traf_r = r_sel.get("Tráfico Real", np.nan)
+            aht_p = r_sel.get("AHT Plan (s)", 0.0)
+            aht_r = r_sel.get("AHT Real (s)", np.nan)
+            c_res = r_sel.get("Casos Resueltos", np.nan)
+            bal = r_sel.get("Balance Cola", np.nan)
+            tasa = r_sel.get("Tasa Resolución %", np.nan)
+            ns = r_sel.get("NS Real", np.nan)
+
+            if "Back" in r_sel.get("Tipo", "") or "Zendesk" in orig or "Salesforce" in orig:
+                txt_c_res = f"{c_res:,.0f}" if pd.notna(c_res) else "0"
+                txt_bal = f"{bal:+,.0f}" if pd.notna(bal) else "0"
+                txt_tasa = f"{tasa:.1f}%" if pd.notna(tasa) else "N/D"
+                txt_aht_r = f"{aht_r:.0f}s" if pd.notna(aht_r) else "N/D"
+                txt_traf_r = f"{traf_r:,.0f}" if pd.notna(traf_r) else "0"
+                badge_kpi = (
+                    f"<b>Plataforma:</b> {orig} &nbsp;|&nbsp; "
+                    f"<b>📥 Inflow (Nuevos):</b> {txt_traf_r} <i>(Plan SORE: {traf_p:,.0f})</i> &nbsp;|&nbsp; "
+                    f"<b>📤 Outflow (Resueltos):</b> {txt_c_res} &nbsp;|&nbsp; "
+                    f"<b>⚖️ Balance Cola:</b> {txt_bal} &nbsp;|&nbsp; "
+                    f"<b>🎯 Tasa Resolución:</b> {txt_tasa} &nbsp;|&nbsp; "
+                    f"<b>⏱️ AHT Operativo:</b> {txt_aht_r} <i>(Meta: {aht_p:.0f}s)</i>"
+                )
+            else:
+                ns_txt = f"{ns:.1f}%" if pd.notna(ns) else "N/D"
+                txt_aht_r = f"{aht_r:.0f}s" if pd.notna(aht_r) else "N/D"
+                txt_traf_r = f"{traf_r:,.0f}" if pd.notna(traf_r) else "0"
+                badge_kpi = (
+                    f"<b>Plataforma:</b> {orig} &nbsp;|&nbsp; "
+                    f"<b>📥 Tráfico Real (Llamadas/Chats):</b> {txt_traf_r} <i>(Plan SORE: {traf_p:,.0f})</i> &nbsp;|&nbsp; "
+                    f"<b>⏱️ AHT Real:</b> {txt_aht_r} <i>(Meta: {aht_p:.0f}s)</i> &nbsp;|&nbsp; "
+                    f"<b>🎯 Nivel de Servicio:</b> {ns_txt}"
+                )
+
+            st.markdown(
+                f"""
+                <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid #475569; border-radius: 8px; padding: 10px 16px; margin-bottom: 14px; font-size: 13px; color: #f1f5f9;">
+                    {badge_kpi}
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
         df_curva = calcular_curva_intradia_v2(fecha_hasta, srv_grafica)
 
@@ -1065,17 +1170,12 @@ def render_tab_capacidad_v2(agentes_map: dict):
                     key="wat_unit_v2_sub1"
                 )
 
-            sub_srv_sel = df_v2[df_v2["Servicio"] == srv_grafica]
             if not sub_srv_sel.empty:
                 fig_wat = generar_waterfall_capacidad_v2(sub_srv_sel.iloc[0], unidad=unidad_wat)
                 st.plotly_chart(fig_wat, use_container_width=True, key="lab_fig_wat_sub1")
 
-    # ── PESTAÑA 2: MONITOR MULTICANAL DE BACK OFFICE ──────────────────────────
+    # ── PESTAÑA 2: COMPARADOR LADO A LADO (1.0 vs 2.0) ───────────────────────
     with subtab2:
-        render_subtab_backoffice_v2(fecha_desde, fecha_hasta, df_v2)
-
-    # ── PESTAÑA 3: COMPARADOR LADO A LADO (1.0 vs 2.0) ───────────────────────
-    with subtab3:
         st.markdown("#### ⚖️ Comparativa Directa: Diagnóstico Clásico (1.0) vs Diagnóstico Enriquecido (2.0)")
         st.caption("Selecciona cualquier servicio y observa cómo cambia la causa raíz y la atribución de responsabilidades cuando se consideran los turnos contratados y la puntualidad de pausas.")
 
