@@ -33,15 +33,21 @@ def parse_salesforce_time_str(t_str: str) -> int:
     s = str(t_str).strip()
     if not s or s == "--":
         return 0
+    days = re.search(r"(\d+)\s*d\b", s, re.IGNORECASE)
+    hours = re.search(r"(\d+)\s*h\b", s, re.IGNORECASE)
     mins = re.search(r"(\d+)\s*min", s, re.IGNORECASE)
     secs = re.search(r"(\d+)\s*s\b", s, re.IGNORECASE)
+    d = int(days.group(1)) if days else 0
+    h = int(hours.group(1)) if hours else 0
     m = int(mins.group(1)) if mins else 0
     sec = int(secs.group(1)) if secs else 0
-    if m > 0 or sec > 0:
-        return m * 60 + sec
+    if d > 0 or h > 0 or m > 0 or sec > 0:
+        return d * 86400 + h * 3600 + m * 60 + sec
     if ":" in s:
         p = s.split(":")
         try:
+            if len(p) == 3:
+                return int(p[0]) * 3600 + int(p[1]) * 60 + int(p[2])
             return int(p[0]) * 60 + int(p[1])
         except Exception:
             return 0
@@ -67,35 +73,31 @@ def extract_live_data(page):
     queues_map = {q: {"queue_name": q, "chats_in_queue": 0, "longest_wait_sec": 0, "agents_online": 4} for q in sle.BOT_QUEUES_AMC}
 
     # 2. Parsear la tabla real de Omni-Supervisor ("Resumen de retraso de colas")
-    # Formato de fila: COLA | PRIORIDAD | TAMAÑO DE TRABAJO | TIPO | ESPERA TOTAL | TIEMPO DE ESPERA MÁS LARGO | TIEMPO DE ESPERA MEDIO
+    # Escanea las páginas 1 a 4 para cubrir todas las 18 colas BOT oficiales (que se distribuyen por paginación de 10)
     try:
-        rows = page.locator("table tbody tr, .slds-table tbody tr").all()
-        for row in rows:
-            try:
-                row_text = row.inner_text().strip()
-                if not row_text:
-                    continue
-                for q_name in sle.BOT_QUEUES_AMC:
-                    if q_name.upper() in row_text.upper():
-                        parts = [p.strip() for p in row_text.split("\t") if p.strip()]
-                        if len(parts) < 3:
-                            parts = [p.strip() for p in row_text.split("\n") if p.strip()]
+        for page_idx in range(4):
+            rows = page.locator("table tbody tr, .slds-table tbody tr").all()
+            for row in rows:
+                try:
+                    row_text = row.inner_text().strip()
+                    if not row_text:
+                        continue
+                    for q_name in sle.BOT_QUEUES_AMC:
+                        if q_name.upper() in row_text.upper():
+                            parts = [p.strip() for p in row_text.split("\t") if p.strip()]
+                            if len(parts) < 3:
+                                parts = [p.strip() for p in row_text.split("\n") if p.strip()]
 
-                        count = 0
-                        longest_sec = 0
+                            count = 0
+                            longest_sec = 0
 
-                        # En la tabla de Salesforce:
-                        # parts[0] = Cola
-                        # parts[1] = Prioridad
-                        # parts[2] = Tamaño (ej: '5 unidades')
-                        # parts[3] = Tipo (ej: 'Sesión de Mensajería')
-                        # parts[4] = Espera Total (ej: '0' o '6')
-                        # parts[5] = Tiempo de espera más largo (ej: '--' o '30 min 4 s')
-                        if len(parts) >= 5 and parts[4].isdigit():
-                            count = int(parts[4])
-                            if len(parts) >= 6 and parts[5] != "--":
-                                longest_sec = parse_salesforce_time_str(parts[5])
-                        else:
+                            # En la tabla de Salesforce:
+                            # parts[0] = Cola
+                            # parts[1] = Prioridad
+                            # parts[2] = Tamaño (ej: '5 unidades')
+                            # parts[3] = Tipo (ej: 'Sesión de Mensajería')
+                            # parts[4] = Espera Total (ej: '0' o '4')
+                            # parts[5] = Tiempo de espera más largo (ej: '--' o '47 min 50 s')
                             for idx, p in enumerate(parts):
                                 if p.isdigit() and idx >= 2:
                                     count = int(p)
@@ -106,10 +108,30 @@ def extract_live_data(page):
                                             break
                                     break
 
-                        queues_map[q_name]["chats_in_queue"] = count
-                        queues_map[q_name]["longest_wait_sec"] = longest_sec
+                            queues_map[q_name]["chats_in_queue"] = count
+                            queues_map[q_name]["longest_wait_sec"] = longest_sec
+                except Exception:
+                    continue
+
+            # Avanzar a la siguiente página
+            try:
+                next_btn = page.locator(".pagerControl.next, a:has-text('Siguiente'), a.next").first
+                if next_btn.is_visible(timeout=1000) and next_btn.get_attribute("aria-disabled") != "true":
+                    next_btn.click()
+                    time.sleep(1.2)
+                else:
+                    break
             except Exception:
-                continue
+                break
+
+        # Regresar a la página inicial
+        try:
+            first_btn = page.locator(".pagerControl.first, a:has-text('Primero'), a.first").first
+            if first_btn.is_visible(timeout=1000):
+                first_btn.click()
+                time.sleep(0.5)
+        except Exception:
+            pass
     except Exception:
         pass
 
