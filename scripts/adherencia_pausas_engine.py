@@ -468,12 +468,12 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
 
                 if abs(desvio_ini_min) <= tolerancia_min and exceso_dur_min <= 3:
                     estado_p = "🟢 Puntual y en tiempo"
-                elif abs(desvio_ini_min) <= tolerancia_min and exceso_dur_min > 3:
-                    estado_p = f"🔴 Exceso de Tiempo (+{exceso_dur_min} min)"
-                elif abs(desvio_ini_min) > tolerancia_min and exceso_dur_min <= 3:
-                    estado_p = f"🟡 Desfasada en horario ({desvio_ini_min:+d} min)"
+                elif exceso_dur_min > 3:
+                    estado_p = "🔴 Exceso de Tiempo"
+                elif abs(desvio_ini_min) > tolerancia_min:
+                    estado_p = "🟡 Desfasada en horario"
                 else:
-                    estado_p = f"🔴 Desfasada ({desvio_ini_min:+d}m) y con Exceso (+{exceso_dur_min}m)"
+                    estado_p = "🟢 Puntual y en tiempo"
             else:
                 hora_real_str = "--"
                 real_dur_min = 0.0
@@ -720,7 +720,18 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
                 "❌ Ausente / Sin Conexión": "#64748b"
             }
         )
-        fig_pie.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10))
+        fig_pie.update_layout(
+            height=280,
+            margin=dict(l=10, r=10, t=25, b=10),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+                title_text=""
+            )
+        )
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with col_g2:
@@ -735,6 +746,14 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
                     y="Cantidad",
                     color="Estado",
                     barmode="stack",
+                    category_orders={
+                        "Estado": [
+                            "🟢 Puntual y en tiempo",
+                            "🟡 Desfasada en horario",
+                            "🔴 Exceso de Tiempo",
+                            "❌ Pausa No Tomada en Ventana"
+                        ]
+                    },
                     color_discrete_map={
                         "🟢 Puntual y en tiempo": "#10b981",
                         "🟡 Desfasada en horario": "#f59e0b",
@@ -742,7 +761,18 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
                         "❌ Pausa No Tomada en Ventana": "#64748b"
                     }
                 )
-                fig_bar_p.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=1.12))
+                fig_bar_p.update_layout(
+                    height=280,
+                    margin=dict(l=10, r=10, t=25, b=10),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="center",
+                        x=0.5,
+                        title_text=""
+                    )
+                )
                 st.plotly_chart(fig_bar_p, use_container_width=True)
             else:
                 st.info("Sin descansos registrados para los asesores seleccionados.")
