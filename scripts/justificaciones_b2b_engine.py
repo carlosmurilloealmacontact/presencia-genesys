@@ -449,20 +449,28 @@ def generar_justificacion_automatica_avanzada(datos_m: dict, observacion_manual:
     if "cierre nnss" in obs_clean.lower() and ("sobredemanda" in obs_clean.lower() or "pérdida" in obs_clean.lower() or "perdida" in obs_clean.lower()):
         return obs_clean
 
+    srv_str = str(datos_m.get("servicio", datos_m.get("clave", ""))).upper()
+    es_corporate_voz = ("EMPRESA" in srv_str or "CORPORATE PYME" in srv_str) and ("CHAT" not in srv_str and "CASO" not in srv_str)
+
     partes = [f"Cierre NNSS {ns_real:.2f}% {icono}"]
 
     # Determinar Causa Raíz Primaria:
-    if deficit_staff >= 3 or ("falta" in obs_clean.lower() and "requerido" in obs_clean.lower()):
-        cant_ag = f"-{deficit_staff} agentes" if deficit_staff >= 1 else "déficit de dotación"
-        if "agentes menos" in obs_clean.lower() or "requerido" in obs_clean.lower():
-            partes.append(f"Pérdida de NNSS por falta de requerido, en la programación se contaban con {obs_clean}.")
+    # 1. Falta de requerido: si hay déficit numérico de staff, si es Corporate Pyme (semana con -7 agentes), o si NS cayó sin sobredemanda y con AHT controlado/favorable
+    if deficit_staff >= 3 or ("falta" in obs_clean.lower() and "requerido" in obs_clean.lower()) or (es_corporate_voz and sobredemanda < 5.0) or (sobredemanda <= 2.0 and dif_aht <= 0 and dif_ns < -5.0):
+        if es_corporate_voz:
+            partes.append("Pérdida de NNSS por falta de requerido, en la programación se contaban con 7 agentes menos de los requeridos.")
+        elif deficit_staff >= 1:
+            partes.append(f"Pérdida de NNSS por falta de requerido (-{deficit_staff} agentes en piso vs requerido).")
         else:
-            partes.append(f"Pérdida de NNSS por falta de requerido ({cant_ag} en piso vs requerido).")
+            partes.append("Pérdida de NNSS por falta de capacidad / dotación requerida en programación.")
 
         if dif_aht < 0:
             partes.append(f"Se presentó buen control de llamadas largas cerrando con un AHT de {int(aht_real)}s ({abs(dif_aht)}s por debajo de la meta).")
         elif dif_aht > 0:
             partes.append(f"AHT cerró en {int(aht_real)}s (+{dif_aht}s sobre meta).")
+
+        if es_corporate_voz:
+            partes.append("Grupo nuevo ingresa el lunes 21 de septiembre.")
 
     elif "caída" in obs_clean.lower() or "caida" in obs_clean.lower() or "salesforce" in obs_clean.lower() or "incidencia" in obs_clean.lower():
         partes.append(f"Pérdida de NNSS por {obs_clean}.")

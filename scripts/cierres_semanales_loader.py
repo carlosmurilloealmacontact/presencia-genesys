@@ -256,8 +256,8 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
                         asa_val = _buscar_metrica("TARGET ENG", dict_asa_real, 38.2)
                     elif "EMPRESA" in srv_upper or "CORPORATE" in srv_upper:
                         meta_aht = 816.0
-                        aht_val = _buscar_metrica("TOTAL \nEMPRESAS", dict_aht_real, _buscar_metrica("EMPRESAS", dict_aht_real, 1233.1))
-                        asa_val = _buscar_metrica("TOTAL \nEMPRESAS", dict_asa_real, _buscar_metrica("EMPRESAS", dict_asa_real, 143.4))
+                        aht_val = _buscar_metrica("EMPRESAS", dict_aht_real, _buscar_metrica("TOTAL \nEMPRESAS", dict_aht_real, 766.5))
+                        asa_val = _buscar_metrica("EMPRESAS", dict_asa_real, _buscar_metrica("TOTAL \nEMPRESAS", dict_asa_real, 143.4))
                     else:
                         meta_aht = 880.0
                         aht_val = _buscar_metrica("TARGET ESP", dict_aht_real, 973.9)
