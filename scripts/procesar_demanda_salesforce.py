@@ -100,7 +100,76 @@ def procesar_casos_y_demanda_salesforce(file_path: str = None) -> bool:
     print(f"     Total Casos Nuevos (Inflow): {df_demanda['Casos_Nuevos'].sum():,}")
     print(f"     Total Casos Resueltos (Outflow): {df_demanda['Casos_Resueltos'].sum():,}")
 
+    # Sincronizar automáticamente con Neon PostgreSQL
+    sync_demanda_to_neon(df_demanda)
+
     return True
+
+
+def sync_demanda_to_neon(df_demanda: pd.DataFrame = None) -> bool:
+    """Sincroniza la matriz de demanda diaria en la tabla salesforce_bo_demanda de Neon PostgreSQL."""
+    if df_demanda is None or df_demanda.empty:
+        if os.path.exists(OUTPUT_DEMANDA_CSV):
+            df_demanda = pd.read_csv(OUTPUT_DEMANDA_CSV)
+        else:
+            return False
+
+    try:
+        import salesforce_live_engine as sle
+        from psycopg2.extras import execute_batch
+
+        conn = sle._get_neon_connection()
+        if not conn:
+            print("[*] Neon no disponible para sync de demanda (modo local activo).")
+            return False
+
+        cur = conn.cursor()
+        records = [
+            (str(r['Fecha']).strip(), str(r['grupo']).strip(), int(r.get('Casos_Nuevos', 0)), int(r.get('Casos_Resueltos', 0)), int(r.get('Balance_Neto', 0)))
+            for _, r in df_demanda.iterrows()
+        ]
+        query = """
+            INSERT INTO salesforce_bo_demanda (fecha, grupo, casos_nuevos, casos_resueltos, balance_neto, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (fecha, grupo) DO UPDATE SET
+                casos_nuevos = EXCLUDED.casos_nuevos,
+                casos_resueltos = EXCLUDED.casos_resueltos,
+                balance_neto = EXCLUDED.balance_neto,
+                updated_at = NOW();
+        """
+        execute_batch(cur, query, records, page_size=200)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"[✓] {len(records)} registros de demanda diaria sincronizados en Neon PostgreSQL.")
+        return True
+    except Exception as e:
+        print(f"[!] Error sincronizando demanda con Neon: {e}")
+        return False
+
+
+def load_demanda_from_neon() -> pd.DataFrame:
+    """Carga la demanda diaria desde Neon PostgreSQL con fallback local al CSV."""
+    try:
+        import salesforce_live_engine as sle
+        conn = sle._get_neon_connection()
+        if conn:
+            query = """
+                SELECT fecha as "Fecha", grupo, casos_nuevos as "Casos_Nuevos", 
+                       casos_resueltos as "Casos_Resueltos", balance_neto as "Balance_Neto"
+                FROM salesforce_bo_demanda
+                ORDER BY fecha, grupo;
+            """
+            df = pd.read_sql(query, conn)
+            conn.close()
+            if not df.empty:
+                df["Fecha"] = df["Fecha"].astype(str)
+                return df
+    except Exception:
+        pass
+    if os.path.exists(OUTPUT_DEMANDA_CSV):
+        return pd.read_csv(OUTPUT_DEMANDA_CSV)
+    return pd.DataFrame()
 
 
 if __name__ == '__main__':

@@ -20,6 +20,7 @@ data/*.png
 data/*.pkl
 log_ejecucion.txt
 scratch_media/
+scratch/
 scripts/implementation_plan.md
 
 # Archivos de datos esenciales para Salesforce B2B

@@ -27,9 +27,14 @@ sys.path.insert(0, BASE_DIR)
 import salesforce_engine as sfe
 
 
-def descargar_reporte_casos_2026(headless: bool = False):
+import salesforce_auth_manager as sam
+import procesar_demanda_salesforce as pds
+
+
+def descargar_reporte_casos_2026(headless: bool = True):
     print("=" * 70)
     print("INICIANDO DESCARGA AUTOMATIZADA DE CASOS AMC 2026 DE SALESFORCE")
+    print(f"Modo: {'Headless (Segundo Plano)' if headless else 'Visible (Interactivo)'}")
     print("=" * 70)
     
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -49,169 +54,119 @@ def descargar_reporte_casos_2026(headless: bool = False):
     print(f"[*] URL del reporte: {report_url}")
 
     with sync_playwright() as p:
-        print("[*] Iniciando navegador Chrome...")
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=PROFILE_DIR,
+        browser = p.chromium.launch(
             headless=headless,
-            viewport={"width": 1400, "height": 900},
-            accept_downloads=True,
-            args=["--start-maximized"]
+            args=["--disable-blink-features=AutomationControlled"]
         )
-        page = context.new_page() if not context.pages else context.pages[0]
+        context_kwargs = {
+            "viewport": {"width": 1600, "height": 1000},
+            "accept_downloads": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        if os.path.exists(STATE_PATH):
+            context_kwargs["storage_state"] = STATE_PATH
+
+        context = browser.new_context(**context_kwargs)
+        page = context.new_page()
         
         try:
             # 1. Navegar directamente al reporte
-            print("[*] Abriendo reporte en Salesforce...")
+            print("[*] 1. Accediendo al reporte en Salesforce...")
             page.goto(report_url, wait_until="domcontentloaded", timeout=45000)
             time.sleep(5)
             
-            # Verificar si pide login
+            # Verificar si pide login / verificación de identidad
             curr_url = page.url.lower()
-            if "ec=302" in curr_url or "login" in curr_url or "identity" in curr_url:
-                print("[!] Formulario de inicio de sesión detectado.")
-                try:
-                    if os.path.exists(CREDS_PATH):
-                        with open(CREDS_PATH, "r", encoding="utf-8") as f:
-                            creds = json.load(f)
-                        if page.locator("#username").is_visible(timeout=4000):
-                            val = page.locator("#username").input_value()
-                            if not val:
-                                page.fill("#username", creds["username"])
-                            page.click("#Login")
-                            time.sleep(3)
-                        if page.locator("#password").is_visible(timeout=4000):
-                            page.fill("#password", creds["password"])
-                            page.click("#Login")
-                            time.sleep(3)
-                except Exception as e_c:
-                    print(f"[*] Nota credenciales: {e_c}")
+            page_title = page.title().lower()
+            if "login" in curr_url or "ec=302" in curr_url or "identity" in curr_url or "iniciar sesión" in page_title:
+                print("[!] Sesión inactiva o desafío detectado. Autenticando...")
+                sam.asegurar_sesion_salesforce(page, context, report_url)
+                time.sleep(4)
 
-                print("[*] Esperando autenticación en pantalla...")
-                start_login_wait = time.time()
-                while time.time() - start_login_wait < 180:
-                    curr = page.url.lower()
-                    if ("/lightning/" in curr or "/one/one.app" in curr) and "ec=302" not in curr and "login" not in curr:
-                        print("[+] ¡Sesión autenticada con éxito!")
-                        break
-                    time.sleep(3)
+            # 2. Esperar a que cargue el visor de informe en su iframe
+            print("[*] 2. Esperando que compile y renderice el informe...")
+            report_frame = page.frame_locator("iframe[name*='builder'], iframe[src*='lightningReportApp']").first
+            mod_btn = report_frame.locator("button:has-text('Modificar'), button:has-text('Edit')").first
             
-            # Guardar estado de sesión
             try:
-                context.storage_state(path=STATE_PATH)
-            except Exception:
-                pass
-
-            print(f"[+] Vista de reporte cargando en: {page.url}")
-
-            # Esperar a que cargue la barra de herramientas del reporte (botón Modificar)
-            print("[*] Esperando que cargue la barra de acciones del reporte...")
-            try:
-                page.wait_for_selector("button:has-text('Modificar'), button:has-text('Edit')", timeout=30000)
+                mod_btn.wait_for(state="visible", timeout=60000)
                 print("[+] Barra de acciones del reporte cargada con éxito.")
-            except Exception:
-                print("[*] Continuando espera...")
-                time.sleep(5)
+            except Exception as e_w:
+                print(f"[*] Continuando tras espera de renderizado: {e_w}")
 
-            time.sleep(3)
-            page.screenshot(path=os.path.join(PROJECT_DIR, "data", "report_toolbar_ready.png"))
+            # 3. Localizar el botón desplegable [ ▾ ] junto a "Modificar"
+            print("[*] 3. Desplegando menú de acciones del reporte...")
+            arrow_btn = mod_btn.locator("xpath=following::button[1]")
+            arrow_btn.click()
+            time.sleep(1.2)
 
-            # 2. Localizar el botón dropdown de acciones [ v ] junto a "Modificar"
-            print("\n[*] Localizando menú de acciones [ ▾ ] junto a 'Modificar'...")
-            menu_clicked = False
-
-            # Selector prioritario 1: El botón hermano inmediato a la derecha de "Modificar"
-            try:
-                modificar_btn = page.locator("button:has-text('Modificar'), button:has-text('Edit')").first
-                if modificar_btn.is_visible(timeout=4000):
-                    # Buscar el botón de flecha junto a él
-                    arrow_btn = modificar_btn.locator("xpath=following::button[1]")
-                    if arrow_btn.is_visible(timeout=2000):
-                        print("[+] Botón desplegable [ ▾ ] localizado junto a 'Modificar'. Haciendo clic...")
-                        arrow_btn.click()
-                        menu_clicked = True
-            except Exception as e_btn1:
-                print(f"[*] Nota selector 1: {e_btn1}")
-
-            # Selector 2: Botón de flecha en el grupo de botones
-            if not menu_clicked:
-                try:
-                    candidates = [
-                        ".slds-button-group button:last-child",
-                        "button.slds-button_icon-border-filled",
-                        "button[title*='acciones'], button[title*='actions']",
-                        "button:has-text('Mostrar más acciones')"
-                    ]
-                    for cand in candidates:
-                        b = page.locator(cand).first
-                        if b.is_visible(timeout=2000):
-                            print(f"[+] Haciendo clic en selector alternativo: {cand}")
-                            b.click()
-                            menu_clicked = True
-                            break
-                except Exception as e_btn2:
-                    print(f"[*] Nota selector 2: {e_btn2}")
-
+            # 4. Clic en 'Exportar'
+            print("[*] 4. Abriendo modal de exportación...")
+            export_item = report_frame.locator("a:has-text('Exportar'), button:has-text('Exportar'), [role='menuitem']:has-text('Exportar'), lightning-menu-item:has-text('Exportar')").first
+            export_item.click()
             time.sleep(2)
 
-            # 3. Exportar
-            download_path = os.path.join(DATA_DIR, f"casos_amc_2026_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+            # 5. Modal de exportación: seleccionar "Solo detalles"
+            print("[*] 5. Configurando opciones de exportación (Solo detalles)...")
+            try:
+                details_radio = page.locator("input[value='details'], label:has-text('Solo detalles'), .details-radio, [data-record='details']").first
+                if details_radio.is_visible(timeout=3000):
+                    details_radio.click()
+                    time.sleep(0.5)
+                    print("[+] 'Solo detalles' seleccionado.")
+            except Exception as e_det:
+                print(f"[*] Nota selector de formato: {e_det}")
+
+            # 6. Disparar exportación y descargar archivo
+            download_path = os.path.join(DATA_DIR, f"casos_amc_2026_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
             export_success = False
 
-            # Buscar la opción Exportar en el menú desplegado
-            export_item = page.locator("lightning-menu-item:has-text('Export'), lightning-menu-item:has-text('Exportar'), a:has-text('Exportar'), span:has-text('Exportar')").first
-            
-            if export_item.is_visible(timeout=4000):
-                print("[+] Opción 'Exportar' localizada en el menú. Abriendo modal...")
-                export_item.click()
-                time.sleep(3)
+            modal_export_btn = page.locator("button[title='Exportar'], button.uiButton--brand:has-text('Exportar')").first
+            if not modal_export_btn.is_visible(timeout=4000):
+                modal_export_btn = page.locator("button.slds-button_brand:has-text('Exportar'), button:has-text('Exportar')").last
 
-                # Modal de exportación: seleccionar "Solo detalles"
-                try:
-                    details_radio = page.locator("input[value='details'], label:has-text('Solo detalles'), label:has-text('Details Only')").first
-                    if details_radio.is_visible(timeout=4000):
-                        print("[*] Seleccionando 'Solo detalles' (Details Only)...")
-                        details_radio.click()
-                        time.sleep(1)
-                except Exception as e_det:
-                    print(f"[*] Nota radio: {e_det}")
+            print("[*] 6. Disparando descarga del archivo CSV...")
 
-                print("[*] Iniciando descarga del archivo CSV...")
-                with page.expect_download(timeout=120000) as download_info:
-                    modal_export_btn = page.locator("button.slds-button_brand:has-text('Export'), button.slds-button_brand:has-text('Exportar')").first
-                    if modal_export_btn.is_visible(timeout=4000):
-                        modal_export_btn.click()
-                    else:
-                        page.locator("button:has-text('Exportar'), button:has-text('Export')").last.click()
-
+            # Intentar descarga capturando evento download en página o popup
+            try:
+                with page.expect_download(timeout=90000) as download_info:
+                    modal_export_btn.click(no_wait_after=True)
+                    print("[+] Solicitud de exportación enviada. Esperando descarga de Salesforce...")
                 download = download_info.value
                 download.save_as(download_path)
                 print(f"\n[✓] ¡ARCHIVO DESCARGADO EXITOSAMENTE!")
-                print(f"Ruta: {download_path}")
+                print(f"Ruta: {download_path} ({os.path.getsize(download_path)/1024:.1f} KB)")
                 export_success = True
-            else:
+            except Exception as e_down:
+                print(f"[*] Nota captura descarga directa: {e_down}")
+                # Si abrió en popup (desafío MFA de exportación)
+                for p_extra in context.pages:
+                    if p_extra != page and ("verification" in p_extra.url.lower() or "identity" in p_extra.url.lower()):
+                        print("[*] Desafío 2FA detectado en ventana de exportación. Resolviendo con Outlook MAPI...")
+                        sam.completar_desafio_mfa_si_es_necesario(p_extra)
+                        time.sleep(3)
+                        break
+
+            # Fallback interactivo si se ejecutó visible y la descarga requiere asistencia
+            if not export_success and not headless:
                 print("\n" + "=" * 70)
                 print("ASISTENCIA RÁPIDA: CLIC EN EXPORTAR")
                 print("=" * 70)
-                print("En la barra superior del reporte, haz clic en la flechita [ ▾ ] junto a 'Modificar'.")
-                print("Luego selecciona 'Exportar' ➔ 'Solo detalles' ➔ 'Exportar'.")
-                print("El script detectará automáticamente la descarga (esperando hasta 120s)...")
-                print("=" * 70)
+                print("Haz clic en 'Exportar' en la pantalla del navegador...")
                 try:
-                    with page.expect_download(timeout=120000) as download_info:
+                    with page.expect_download(timeout=60000) as download_info:
                         pass
                     download = download_info.value
                     download.save_as(download_path)
                     print(f"\n[✓] ¡Archivo capturado exitosamente!: {download_path}")
                     export_success = True
-                except Exception as e_wait:
-                    print(f"[!] Captura de control tomada en data/report_export_screen.png: {e_wait}")
-                    page.screenshot(path=os.path.join(PROJECT_DIR, "data", "report_export_screen.png"))
+                except Exception:
+                    pass
 
-            print("[*] Cerrando navegador...")
-            time.sleep(2)
-            context.close()
+            print("[*] Cerrando sesión del navegador...")
+            browser.close()
 
-            # 4. Procesar y consolidar la base de datos
+            # 7. Procesar y consolidar la base de datos
             if export_success and os.path.exists(download_path):
                 print("\n" + "=" * 70)
                 print("CONSOLIDANDO Y LIMPIANDO CASOS AMC 2026")
@@ -219,30 +174,27 @@ def descargar_reporte_casos_2026(headless: bool = False):
                 df_clean = sfe.load_and_clean_cases_data(file_path=download_path)
                 print(f"[✓] Base cases_amc_cleaned actualizada con {len(df_clean)} casos.")
 
-                try:
-                    import procesar_demanda_salesforce as pds
-                    pds.procesar_casos_y_demanda_salesforce(download_path)
-                    print("[✓] Matriz de demanda horaria 2026 actualizada con éxito.")
-                except Exception as e_p:
-                    print(f"[*] Nota demanda: {e_p}")
+                # Actualizar matriz de demanda y sincronizar a Neon PostgreSQL
+                pds.procesar_casos_y_demanda_salesforce(download_path)
+                print("[✓] Matriz de demanda horaria y diaria sincronizada en Neon PostgreSQL.")
 
                 print("\n" + "=" * 70)
                 print("¡EXTRACCIÓN Y ACTUALIZACIÓN 2026 COMPLETADA CON ÉXITO!")
                 print("=" * 70)
                 return True
             else:
-                print("[!] No se completó la descarga del archivo.")
+                print("[!] No se completó la descarga del archivo en este ciclo.")
                 return False
 
         except Exception as e:
-            print(f"[!] Error: {e}")
+            print(f"[!] Error durante el proceso de extracción: {e}")
             try:
-                page.screenshot(path=os.path.join(PROJECT_DIR, "data", "report_error_screen.png"))
-                context.close()
+                browser.close()
             except Exception:
                 pass
             return False
 
 
 if __name__ == "__main__":
-    descargar_reporte_casos_2026(headless=False)
+    is_visible = "--visible" in sys.argv
+    descargar_reporte_casos_2026(headless=not is_visible)
