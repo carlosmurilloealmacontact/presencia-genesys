@@ -38,6 +38,34 @@ CREATE TABLE IF NOT EXISTS turnos (
     hora_fin TEXT NOT NULL,
     PRIMARY KEY (bp, fecha)
 );
+
+CREATE TABLE IF NOT EXISTS turnos_detallados (
+    bp TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    documento TEXT,
+    nombre_agente TEXT,
+    servicio TEXT,
+    novedad TEXT,
+    horas_programadas REAL DEFAULT 8.0,
+    turno_ini TEXT,
+    turno_fin TEXT,
+    dialogo_ini TEXT,
+    dialogo_fin TEXT,
+    des_1_ini TEXT,
+    des_1_fin TEXT,
+    des_2_ini TEXT,
+    des_2_fin TEXT,
+    des_3_ini TEXT,
+    des_3_fin TEXT,
+    lunch_ini TEXT,
+    lunch_fin TEXT,
+    training_1_ini TEXT,
+    training_1_fin TEXT,
+    PRIMARY KEY (bp, fecha)
+);
+CREATE INDEX IF NOT EXISTS idx_td_fecha ON turnos_detallados(fecha);
+CREATE INDEX IF NOT EXISTS idx_td_bp ON turnos_detallados(bp);
+CREATE INDEX IF NOT EXISTS idx_td_servicio ON turnos_detallados(servicio);
 """
 
 
@@ -96,6 +124,52 @@ def guardar_turnos(conn: sqlite3.Connection, rows: list[dict]) -> None:
         ON CONFLICT(bp, fecha) DO UPDATE SET
             hora_inicio = excluded.hora_inicio,
             hora_fin = excluded.hora_fin
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def guardar_turnos_detallados(conn: sqlite3.Connection, rows: list[dict]) -> None:
+    """
+    Upsert de turnos detallados con pausas programadas y horas laboradas.
+    """
+    if not rows:
+        return
+    conn.executemany(
+        """
+        INSERT INTO turnos_detallados (
+            bp, fecha, documento, nombre_agente, servicio, novedad,
+            horas_programadas, turno_ini, turno_fin, dialogo_ini, dialogo_fin,
+            des_1_ini, des_1_fin, des_2_ini, des_2_fin, des_3_ini, des_3_fin,
+            lunch_ini, lunch_fin, training_1_ini, training_1_fin
+        )
+        VALUES (
+            :bp, :fecha, :documento, :nombre_agente, :servicio, :novedad,
+            :horas_programadas, :turno_ini, :turno_fin, :dialogo_ini, :dialogo_fin,
+            :des_1_ini, :des_1_fin, :des_2_ini, :des_2_fin, :des_3_ini, :des_3_fin,
+            :lunch_ini, :lunch_fin, :training_1_ini, :training_1_fin
+        )
+        ON CONFLICT(bp, fecha) DO UPDATE SET
+            documento = excluded.documento,
+            nombre_agente = excluded.nombre_agente,
+            servicio = excluded.servicio,
+            novedad = excluded.novedad,
+            horas_programadas = excluded.horas_programadas,
+            turno_ini = excluded.turno_ini,
+            turno_fin = excluded.turno_fin,
+            dialogo_ini = excluded.dialogo_ini,
+            dialogo_fin = excluded.dialogo_fin,
+            des_1_ini = excluded.des_1_ini,
+            des_1_fin = excluded.des_1_fin,
+            des_2_ini = excluded.des_2_ini,
+            des_2_fin = excluded.des_2_fin,
+            des_3_ini = excluded.des_3_ini,
+            des_3_fin = excluded.des_3_fin,
+            lunch_ini = excluded.lunch_ini,
+            lunch_fin = excluded.lunch_fin,
+            training_1_ini = excluded.training_1_ini,
+            training_1_fin = excluded.training_1_fin
         """,
         rows,
     )

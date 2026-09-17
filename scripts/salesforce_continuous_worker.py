@@ -142,7 +142,7 @@ def run_continuous_worker():
             except Exception as loop_err:
                 print(f"[{now_str}] Error en ciclo #{cycle_count}: {loop_err}")
 
-            time.sleep(30)
+            time.sleep(15)
 
 
 if __name__ == "__main__":

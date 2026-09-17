@@ -121,18 +121,18 @@ def extract_live_data(page):
                 next_btn = page.locator(".pagerControl.next, a:has-text('Siguiente'), a.next").first
                 if next_btn.is_visible(timeout=1000) and next_btn.get_attribute("aria-disabled") != "true":
                     next_btn.click()
-                    time.sleep(1.2)
+                    time.sleep(0.4)
                 else:
                     break
             except Exception:
                 break
 
-        # Regresar a la página inicial
+        # Regresar a la página inicial rápidamente
         try:
             first_btn = page.locator(".pagerControl.first, a:has-text('Primero'), a.first").first
-            if first_btn.is_visible(timeout=1000):
+            if first_btn.is_visible(timeout=500):
                 first_btn.click()
-                time.sleep(0.5)
+                time.sleep(0.2)
         except Exception:
             pass
     except Exception:

@@ -21,7 +21,7 @@ import sqlite3
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from db import get_connection, guardar_turnos
+from db import get_connection, guardar_turnos, guardar_turnos_detallados, SCHEMA
 from jerarquia import load_cedula_a_bp
 from config import CLOUD_EXPORT_PATH
 
@@ -77,8 +77,32 @@ def procesar_archivo_red(ruta: str, cedula_a_bp: dict) -> list[dict]:
     return rows
 
 
-def procesar_archivo_semanal(ruta: str, cedula_a_bp: dict) -> list[dict]:
-    """Procesa el formato exportado de turnos semanales (columnas Fecha, Documento, Turno_Ini, Turno_Fin, Novedad)."""
+def _clean_time(val):
+    if pd.isna(val):
+        return None
+    val_str = str(val).strip()
+    if not val_str or val_str in ("00:00:00", "0", "nan", "None", "-"):
+        return None
+    try:
+        # Si ya viene en formato HH:MM:SS
+        parts = val_str.split(":")
+        if len(parts) >= 2:
+            h, m = int(parts[0]), int(parts[1])
+            s = int(parts[2]) if len(parts) > 2 else 0
+            return f"{h:02d}:{m:02d}:{s:02d}"
+    except Exception:
+        pass
+    try:
+        dt = pd.to_datetime(val_str, errors="coerce")
+        if pd.notna(dt) and dt.strftime("%H:%M:%S") != "00:00:00":
+            return dt.strftime("%H:%M:%S")
+    except Exception:
+        pass
+    return None
+
+
+def procesar_archivo_semanal(ruta: str, cedula_a_bp: dict) -> tuple[list[dict], list[dict]]:
+    """Procesa el formato exportado de turnos semanales con pausas programadas y horas laboradas."""
     df = pd.read_excel(ruta)
     # Normalizar nombres de columnas
     cols_map = {c.lower().strip(): c for c in df.columns}
@@ -88,11 +112,27 @@ def procesar_archivo_semanal(ruta: str, cedula_a_bp: dict) -> list[dict]:
     col_ini = cols_map.get("turno_ini") or cols_map.get("hora inicio") or cols_map.get("horainicio")
     col_fin = cols_map.get("turno_fin") or cols_map.get("hora fin") or cols_map.get("horafin")
     col_nov = cols_map.get("novedad")
-
+    col_horas = cols_map.get("horas_laboradas") or cols_map.get("horas") or cols_map.get("horas laboradas")
     col_area = cols_map.get("cliente_area") or cols_map.get("area") or cols_map.get("cliente")
+    col_nombre = cols_map.get("nombre_agente") or cols_map.get("nombre")
+    col_serv = cols_map.get("servicio")
+
+    # Columnas de Pausas Programadas
+    col_diag_ini = cols_map.get("dialogo_ini")
+    col_diag_fin = cols_map.get("dialogo_fin")
+    col_d1_ini = cols_map.get("des_1_ini")
+    col_d1_fin = cols_map.get("des_1_fin")
+    col_d2_ini = cols_map.get("des_2_ini")
+    col_d2_fin = cols_map.get("des_2_fin")
+    col_d3_ini = cols_map.get("des_3_ini")
+    col_d3_fin = cols_map.get("des_3_fin")
+    col_lun_ini = cols_map.get("lunch_ini")
+    col_lun_fin = cols_map.get("lunch_fin")
+    col_tr1_ini = cols_map.get("training_1_ini")
+    col_tr1_fin = cols_map.get("training_1_fin")
 
     if not (col_doc and col_fecha and col_ini and col_fin):
-        return []
+        return [], []
 
     # Filtrar exclusivamente campañas de LATAM (LATAM MED y LATAM BOG)
     if col_area:
@@ -113,19 +153,56 @@ def procesar_archivo_semanal(ruta: str, cedula_a_bp: dict) -> list[dict]:
     df = df.dropna(subset=["h_ini", "h_fin"])
     df = df.drop_duplicates(subset=["bp", "fecha_str"], keep="last")
 
-    rows = [
-        {
-            "bp": str(r["bp"]).strip(),
-            "fecha": str(r["fecha_str"]).strip(),
-            "hora_inicio": str(r["h_ini"]).strip(),
-            "hora_fin": str(r["h_fin"]).strip(),
-        }
-        for _, r in df.iterrows()
-    ]
-    return rows
+    rows_turnos = []
+    rows_detallados = []
+
+    for _, r in df.iterrows():
+        bp_val = str(r["bp"]).strip()
+        f_val = str(r["fecha_str"]).strip()
+        h_ini_val = str(r["h_ini"]).strip()
+        h_fin_val = str(r["h_fin"]).strip()
+
+        rows_turnos.append({
+            "bp": bp_val,
+            "fecha": f_val,
+            "hora_inicio": h_ini_val,
+            "hora_fin": h_fin_val,
+        })
+
+        # Cálculo de horas programadas
+        try:
+            h_prog = float(r[col_horas]) if col_horas and pd.notna(r[col_horas]) else 8.0
+        except Exception:
+            h_prog = 8.0
+
+        rows_detallados.append({
+            "bp": bp_val,
+            "fecha": f_val,
+            "documento": str(r["Documento_str"]).strip(),
+            "nombre_agente": str(r[col_nombre]).strip() if col_nombre and pd.notna(r[col_nombre]) else "",
+            "servicio": str(r[col_serv]).strip() if col_serv and pd.notna(r[col_serv]) else "",
+            "novedad": str(r[col_nov]).strip() if col_nov and pd.notna(r[col_nov]) else "TUR",
+            "horas_programadas": h_prog,
+            "turno_ini": h_ini_val,
+            "turno_fin": h_fin_val,
+            "dialogo_ini": _clean_time(r[col_diag_ini]) if col_diag_ini else None,
+            "dialogo_fin": _clean_time(r[col_diag_fin]) if col_diag_fin else None,
+            "des_1_ini": _clean_time(r[col_d1_ini]) if col_d1_ini else None,
+            "des_1_fin": _clean_time(r[col_d1_fin]) if col_d1_fin else None,
+            "des_2_ini": _clean_time(r[col_d2_ini]) if col_d2_ini else None,
+            "des_2_fin": _clean_time(r[col_d2_fin]) if col_d2_fin else None,
+            "des_3_ini": _clean_time(r[col_d3_ini]) if col_d3_ini else None,
+            "des_3_fin": _clean_time(r[col_d3_fin]) if col_d3_fin else None,
+            "lunch_ini": _clean_time(r[col_lun_ini]) if col_lun_ini else None,
+            "lunch_fin": _clean_time(r[col_lun_fin]) if col_lun_fin else None,
+            "training_1_ini": _clean_time(r[col_tr1_ini]) if col_tr1_ini else None,
+            "training_1_fin": _clean_time(r[col_tr1_fin]) if col_tr1_fin else None,
+        })
+
+    return rows_turnos, rows_detallados
 
 
-def procesar_archivo(ruta: str, cedula_a_bp: dict) -> list[dict]:
+def procesar_archivo(ruta: str, cedula_a_bp: dict) -> tuple[list[dict], list[dict]]:
     """Detecta el formato del archivo y extrae los turnos."""
     print(f"Leyendo {ruta} ...")
     try:
@@ -133,20 +210,20 @@ def procesar_archivo(ruta: str, cedula_a_bp: dict) -> list[dict]:
         rows = procesar_archivo_red(ruta, cedula_a_bp)
         if rows:
             print(f"  Formato BD OPERACIÓN detectado: {len(rows)} turnos leídos.")
-            return rows
+            return rows, []
     except Exception:
         pass
 
     try:
         # Intentar como formato semanal exportado
-        rows = procesar_archivo_semanal(ruta, cedula_a_bp)
-        if rows:
-            print(f"  Formato Semanal detectado: {len(rows)} turnos leídos.")
-            return rows
+        rows_t, rows_d = procesar_archivo_semanal(ruta, cedula_a_bp)
+        if rows_t:
+            print(f"  Formato Semanal detectado: {len(rows_t)} turnos y {len(rows_d)} con pausas programadas.")
+            return rows_t, rows_d
     except Exception as e:
         print(f"  Error procesando {ruta}: {e}")
 
-    return []
+    return [], []
 
 
 def run(archivo_especifico: str = None):
@@ -155,17 +232,22 @@ def run(archivo_especifico: str = None):
     print(f"  {len(cedula_a_bp)} cedulas mapeadas.")
 
     todos_los_turnos = []
+    todos_los_detallados = []
 
     if archivo_especifico:
         if os.path.exists(archivo_especifico):
-            todos_los_turnos.extend(procesar_archivo(archivo_especifico, cedula_a_bp))
+            rt, rd = procesar_archivo(archivo_especifico, cedula_a_bp)
+            todos_los_turnos.extend(rt)
+            todos_los_detallados.extend(rd)
         else:
             print(f"ERROR: No se encontró el archivo especificado: {archivo_especifico}")
             return
     else:
         # 1. Intentar archivo de red si está disponible
         if os.path.exists(RUTA_RED_DEFAULT):
-            todos_los_turnos.extend(procesar_archivo(RUTA_RED_DEFAULT, cedula_a_bp))
+            rt, rd = procesar_archivo(RUTA_RED_DEFAULT, cedula_a_bp)
+            todos_los_turnos.extend(rt)
+            todos_los_detallados.extend(rd)
         else:
             print(f"Aviso: Ruta de red no accesible ({RUTA_RED_DEFAULT}).")
 
@@ -173,7 +255,9 @@ def run(archivo_especifico: str = None):
         if DIR_SEMANALES.exists():
             for f in sorted(DIR_SEMANALES.glob("*.xlsx")):
                 print(f"Procesando archivo complementario: {f.name}")
-                todos_los_turnos.extend(procesar_archivo(str(f), cedula_a_bp))
+                rt, rd = procesar_archivo(str(f), cedula_a_bp)
+                todos_los_turnos.extend(rt)
+                todos_los_detallados.extend(rd)
 
     if not todos_los_turnos:
         print("No se encontraron turnos para guardar.")
@@ -182,18 +266,25 @@ def run(archivo_especifico: str = None):
     # Guardar en presencia_master.db
     conn = get_connection()
     guardar_turnos(conn, todos_los_turnos)
+    if todos_los_detallados:
+        guardar_turnos_detallados(conn, todos_los_detallados)
     total_master = conn.execute("SELECT COUNT(*), MIN(fecha), MAX(fecha) FROM turnos").fetchone()
+    total_det = conn.execute("SELECT COUNT(*) FROM turnos_detallados").fetchone()[0] if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='turnos_detallados'").fetchone() else 0
     conn.close()
-    print(f"Guardado en presencia_master.db: {total_master[0]} registros acumulados ({total_master[1]} -> {total_master[2]}).")
+    print(f"Guardado en presencia_master.db: {total_master[0]} turnos básicos y {total_det} turnos detallados con pausas ({total_master[1]} -> {total_master[2]}).")
 
     # Sincronizar con presencia.db (usado por el visor local y Streamlit Cloud)
     cloud_db = Path(__file__).parent / CLOUD_EXPORT_PATH
     if cloud_db.exists():
         conn_cloud = sqlite3.connect(cloud_db)
+        conn_cloud.executescript(SCHEMA)
         guardar_turnos(conn_cloud, todos_los_turnos)
+        if todos_los_detallados:
+            guardar_turnos_detallados(conn_cloud, todos_los_detallados)
         total_cloud = conn_cloud.execute("SELECT COUNT(*), MIN(fecha), MAX(fecha) FROM turnos").fetchone()
+        total_c_det = conn_cloud.execute("SELECT COUNT(*) FROM turnos_detallados").fetchone()[0]
         conn_cloud.close()
-        print(f"Sincronizado en presencia.db: {total_cloud[0]} registros acumulados ({total_cloud[1]} -> {total_cloud[2]}).")
+        print(f"Sincronizado en presencia.db: {total_cloud[0]} turnos básicos y {total_c_det} turnos detallados con pausas ({total_cloud[1]} -> {total_cloud[2]}).")
 
 
 if __name__ == "__main__":

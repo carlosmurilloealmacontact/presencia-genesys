@@ -48,6 +48,15 @@ except ImportError:
     except ImportError:
         jb = None
 
+try:
+    import adherencia_pausas_engine as ape
+except ImportError:
+    try:
+        from scripts import adherencia_pausas_engine as ape
+    except ImportError:
+        ape = None
+
+
 
 # ── UTILIDADES DE FORMATO Y ESTILOS ──────────────────────────────────────────
 def estilo_ns_real(val, meta):
@@ -881,16 +890,20 @@ def render_subtab_niveles_servicio_unificado():
 # ── PILAR 3: PAUSAS, ADHERENCIA Y PRODUCTIVIDAD (UNIFICADO) ─────────────────
 def render_subtab_pausas_adherencia_productividad(render_tab_historico_fn=None):
     """
-    Unifica el análisis de pausas y cumplimiento de turno:
-    - Genesys Cloud: Pausas reglamentarias (Descanso, Baño, Diálogo, Lunch) y fuga en Available.
-    - Salesforce Omni-Channel: Productividad de casos y pausas marcadas en Omni.
+    Unifica el análisis de turnos, cumplimiento de horas laboradas, pausas y productividad:
+    - ⏱️ Cumplimiento de Horas de Turno (Horas Programadas vs Conexión Real, Brecha y Estado).
+    - ☕ Adherencia a Pausas Programadas Intradía (Puntualidad de inicio, duración real, excesos y no tomadas).
+    - 📊 Histórico y Fuga de Estados Genesys (Pausas de ley, baño, diálogo y tiempos de desconexión).
+    - 💬 Productividad & Casos Salesforce (Casos cerrados, SLA 24h y omnicanalidad).
     """
     st.markdown("### ⏸️ Pausas, Adherencia y Productividad — Agencias B2B")
-    st.caption("Seguimiento integral del uso de tiempo y productividad: **Genesys Cloud** (Turno & Pausas de Piso) + **Salesforce** (Casos Resueltos & Omni-Channel).")
+    st.caption("Seguimiento integral del uso de tiempo y productividad: **Genesys Cloud** (Turnos, Horas Cumplidas & Pausas Intradía) + **Salesforce** (Casos Resueltos & Omni-Channel).")
 
     SUB_PAUSAS = [
-        "📅 Adherencia y Pausas Genesys (Oficial)",
-        "💬 Productividad & Pausas Salesforce (Omni-Channel)"
+        "⏱️ Cumplimiento de Horas de Turno",
+        "☕ Adherencia a Pausas Programadas (Intradía)",
+        "📊 Histórico y Fuga de Estados Genesys",
+        "💬 Productividad & Casos Salesforce (Omni-Channel)"
     ]
     sel_sub_p = st.segmented_control(
         "Módulo de Cumplimiento",
@@ -904,13 +917,262 @@ def render_subtab_pausas_adherencia_productividad(render_tab_historico_fn=None):
 
     st.write("")
 
-    if sel_sub_p == "📅 Adherencia y Pausas Genesys (Oficial)":
+    if sel_sub_p == "⏱️ Cumplimiento de Horas de Turno":
+        if ape is None:
+            st.error("El motor analítico de turnos no está disponible.")
+            return
+
+        fechas_disp = ape.obtener_fechas_disponibles_turnos()
+        if not fechas_disp:
+            st.warning("⚠️ No se encontraron turnos detallados en la base de datos.")
+            return
+
+        c_f1, c_f2, c_f3, c_f4 = st.columns([1.2, 1.6, 1.6, 1.6])
+        with c_f1:
+            fecha_sel = st.selectbox("📅 Fecha a Auditar", options=fechas_disp, index=0, key="agb2b_turno_fecha")
+        with c_f2:
+            coord_sel = st.selectbox(
+                "👤 Coordinación",
+                options=["CARDONA RAMIREZ MARELYN", "RODRIGUEZ ANDRES", "Todos los Coordinadores"],
+                index=0,
+                key="agb2b_turno_coord"
+            )
+        with c_f3:
+            estado_sel = st.selectbox(
+                "🚦 Filtro Estado",
+                options=["Todos los Estados", "🟢 Cumple Jornada Completa", "🟡 Déficit Leve (< 1h)", "🔴 Déficit Severo (> 1h faltante)", "❌ Ausente / Sin Conexión"],
+                index=0,
+                key="agb2b_turno_est"
+            )
+        with c_f4:
+            search_asesor = st.text_input("🔍 Buscar Asesor / BP", key="agb2b_turno_search").strip().lower()
+
+        # Ejecución del motor
+        df_horas = ape.calcular_cumplimiento_horas_turno(fecha_sel, coordinador=coord_sel)
+        if df_horas.empty:
+            st.info(f"No hay registros de turnos o conexión para la fecha **{fecha_sel}** con los filtros aplicados.")
+            return
+
+        # Filtros de UI
+        if estado_sel != "Todos los Estados":
+            df_horas = df_horas[df_horas["Estado"] == estado_sel]
+        if search_asesor:
+            df_horas = df_horas[
+                df_horas["Asesor"].astype(str).str.lower().str.contains(search_asesor) |
+                df_horas["BP"].astype(str).str.lower().str.contains(search_asesor)
+            ]
+
+        if df_horas.empty:
+            st.warning("No hay registros que coincidan con la búsqueda de texto o estado.")
+            return
+
+        # KPIs superiores
+        total_asesores = len(df_horas)
+        pct_prom_cumpl = round(df_horas["% Cumplimiento"].mean(), 1)
+        cumplen_tot = int((df_horas["Estado"] == "🟢 Cumple Jornada Completa").sum())
+        deficit_tot = int(df_horas["Estado"].isin(["🟡 Déficit Leve (< 1h)", "🔴 Déficit Severo (> 1h faltante)"]).sum())
+        ausentes_tot = int((df_horas["Estado"] == "❌ Ausente / Sin Conexión").sum())
+        horas_deficit = round(abs(df_horas[df_horas["Brecha Horas"] < 0]["Brecha Horas"].sum()), 1)
+
+        kp1, kp2, kp3, kp4, kp5 = st.columns(5)
+        with kp1:
+            st.metric("Asesores Programados", total_asesores)
+        with kp2:
+            st.metric("% Cumplimiento Promedio", f"{pct_prom_cumpl}%", delta=f"{round(pct_prom_cumpl - 100, 1)}% vs 100%")
+        with kp3:
+            st.metric("🟢 Cumplen Jornada", cumplen_tot, delta=f"{round(cumplen_tot/max(1,total_asesores)*100, 1)}%")
+        with kp4:
+            st.metric("⚠️ En Déficit de Horas", deficit_tot, delta=f"-{horas_deficit} h faltantes", delta_color="inverse")
+        with kp5:
+            st.metric("❌ Sin Conexión", ausentes_tot)
+
+        st.write("")
+
+        # Gráficos ejecutivos
+        col_g1, col_g2 = st.columns([1, 1.4])
+        with col_g1:
+            st.markdown("##### 🎯 Distribución de Cumplimiento")
+            dist_estados = df_horas["Estado"].value_counts().reset_index()
+            dist_estados.columns = ["Estado", "Cantidad"]
+            fig_pie = px.pie(
+                dist_estados,
+                names="Estado",
+                values="Cantidad",
+                hole=0.45,
+                color="Estado",
+                color_discrete_map={
+                    "🟢 Cumple Jornada Completa": "#10b981",
+                    "🟡 Déficit Leve (< 1h)": "#f59e0b",
+                    "🔴 Déficit Severo (> 1h faltante)": "#ef4444",
+                    "❌ Ausente / Sin Conexión": "#64748b"
+                }
+            )
+            fig_pie.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        with col_g2:
+            st.markdown("##### 🚨 Top 10 Asesores con Mayor Déficit de Horas")
+            df_deficit = df_horas[df_horas["Brecha Horas"] < 0].sort_values("Brecha Horas").head(10).copy()
+            if not df_deficit.empty:
+                df_deficit["Horas Faltantes"] = df_deficit["Brecha Horas"].abs()
+                fig_bar_def = px.bar(
+                    df_deficit,
+                    x="Horas Faltantes",
+                    y="Asesor",
+                    orientation="h",
+                    text="Horas Faltantes",
+                    color="Horas Faltantes",
+                    color_continuous_scale="Reds"
+                )
+                fig_bar_def.update_traces(texttemplate="%{text:.2f} h", textposition="outside")
+                fig_bar_def.update_layout(
+                    height=280,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    yaxis=dict(autorange="reversed"),
+                    coloraxis_showscale=False
+                )
+                st.plotly_chart(fig_bar_def, use_container_width=True)
+            else:
+                st.success("🎉 ¡Excelente! Ningún asesor presenta déficit de horas en esta selección.")
+
+        st.write("")
+        st.markdown("##### 📋 Auditoría Detallada Asesor por Asesor")
+        st.caption("Muestra la jornada oficial programada contra el tiempo real de presencia segundo a segundo extraído de Genesys.")
+        
+        column_cfg_horas = {
+            "% Cumplimiento": st.column_config.ProgressColumn(
+                "% Cumplimiento",
+                help="Porcentaje de horas de conexión logradas vs horas de turno programadas",
+                format="%.1f%%",
+                min_value=0,
+                max_value=120
+            ),
+            "Horas Prog": st.column_config.NumberColumn("Horas Prog", format="%.2f h"),
+            "Horas Conectado": st.column_config.NumberColumn("Horas Conectado", format="%.2f h"),
+            "Horas Productivas": st.column_config.NumberColumn("Horas Prod", format="%.2f h"),
+            "Horas Pausas": st.column_config.NumberColumn("Horas Pausas", format="%.2f h"),
+            "Brecha Horas": st.column_config.NumberColumn("Brecha", format="%.2f h"),
+        }
+        st.dataframe(df_horas, column_config=column_cfg_horas, use_container_width=True, hide_index=True)
+        
+        csv_h = df_horas.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Descargar Reporte de Cumplimiento de Horas (CSV)",
+            data=csv_h,
+            file_name=f"cumplimiento_horas_{fecha_sel}.csv",
+            mime="text/csv",
+            key="btn_dl_cumpl_h"
+        )
+
+    elif sel_sub_p == "☕ Adherencia a Pausas Programadas (Intradía)":
+        if ape is None:
+            st.error("El motor analítico de pausas no está disponible.")
+            return
+
+        fechas_disp = ape.obtener_fechas_disponibles_turnos()
+        if not fechas_disp:
+            st.warning("⚠️ No se encontraron turnos detallados en la base de datos.")
+            return
+
+        c_p1, c_p2, c_p3, c_p4 = st.columns([1.2, 1.5, 1.5, 1.8])
+        with c_p1:
+            fecha_sel = st.selectbox("📅 Fecha a Auditar", options=fechas_disp, index=0, key="agb2b_pausa_fecha")
+        with c_p2:
+            coord_sel = st.selectbox(
+                "👤 Coordinación",
+                options=["CARDONA RAMIREZ MARELYN", "RODRIGUEZ ANDRES", "Todos los Coordinadores"],
+                index=0,
+                key="agb2b_pausa_coord"
+            )
+        with c_p3:
+            tipo_p_sel = st.selectbox(
+                "☕ Tipo de Pausa",
+                options=["Todas las Pausas", "Descanso 1 (Break)", "Descanso 2 (Break)", "Almuerzo (Lunch)", "Diálogo Diario (4DX)", "Capacitación (Training)"],
+                index=0,
+                key="agb2b_pausa_tipo"
+            )
+        with c_p4:
+            search_asesor_p = st.text_input("🔍 Buscar Asesor / BP", key="agb2b_pausa_search").strip().lower()
+
+        df_pausas = ape.calcular_adherencia_pausas_intradia(fecha_sel, coordinador=coord_sel)
+        if df_pausas.empty:
+            st.info(f"No hay registros de pausas programadas para la fecha **{fecha_sel}** con los filtros aplicados.")
+            return
+
+        if tipo_p_sel != "Todas las Pausas":
+            df_pausas = df_pausas[df_pausas["Tipo Pausa"] == tipo_p_sel]
+        if search_asesor_p:
+            df_pausas = df_pausas[
+                df_pausas["Asesor"].astype(str).str.lower().str.contains(search_asesor_p) |
+                df_pausas["BP"].astype(str).str.lower().str.contains(search_asesor_p)
+            ]
+
+        if df_pausas.empty:
+            st.warning("No hay pausas que coincidan con los filtros seleccionados.")
+            return
+
+        # Métricas de puntualidad
+        tot_p = len(df_pausas)
+        puntuales_p = int(df_pausas["Estado"].str.startswith("🟢").sum())
+        desfasadas_p = int(df_pausas["Estado"].str.startswith("🟡").sum())
+        excesos_p = int(df_pausas["Estado"].str.startswith("🔴").sum())
+        no_tomadas_p = int(df_pausas["Estado"].str.startswith("❌").sum())
+        pct_puntual = round(puntuales_p / max(1, tot_p) * 100, 1)
+
+        kp1, kp2, kp3, kp4, kp5 = st.columns(5)
+        with kp1:
+            st.metric("Pausas Programadas", tot_p)
+        with kp2:
+            st.metric("% Puntualidad & Adherencia", f"{pct_puntual}%", delta=f"{round(pct_puntual - 85.0, 1)}% vs Meta 85%")
+        with kp3:
+            st.metric("🟢 Puntuales en Tiempo", puntuales_p, delta=f"{round(puntuales_p/max(1,tot_p)*100, 1)}%")
+        with kp4:
+            st.metric("🟡 Desfasadas de Horario", desfasadas_p, delta="Salida anticipada / tardía", delta_color="inverse")
+        with kp5:
+            st.metric("🔴 Con Exceso de Tiempo", excesos_p, delta=f"{no_tomadas_p} no tomadas", delta_color="inverse")
+
+        st.write("")
+
+        # Visualización de adherencia por tipo de pausa
+        st.markdown("##### 📊 Adherencia por Tipo de Pausa")
+        df_p_grp = df_pausas.groupby(["Tipo Pausa", "Estado"]).size().reset_index(name="Cantidad")
+        fig_bar_p = px.bar(
+            df_p_grp,
+            x="Tipo Pausa",
+            y="Cantidad",
+            color="Estado",
+            barmode="stack",
+            color_discrete_map={
+                "🟢 Puntual y en tiempo": "#10b981",
+                "🟡 Desfasada en horario": "#f59e0b",
+                "🔴 Exceso de Tiempo": "#ef4444",
+                "❌ Pausa No Tomada en Ventana": "#64748b"
+            }
+        )
+        fig_bar_p.update_layout(height=290, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_bar_p, use_container_width=True)
+
+        st.write("")
+        st.markdown("##### 📋 Detalle Intradía de Pausas Programadas vs Reales")
+        st.caption("Tolerancia permitida de inicio: ±10 minutos. Evalúa si la persona salió a su franja y si excedió el tiempo reglamentario.")
+        st.dataframe(df_pausas, use_container_width=True, hide_index=True)
+
+        csv_p = df_pausas.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Descargar Reporte de Adherencia a Pausas (CSV)",
+            data=csv_p,
+            file_name=f"adherencia_pausas_{fecha_sel}.csv",
+            mime="text/csv",
+            key="btn_dl_pausas_p"
+        )
+
+    elif sel_sub_p == "📊 Histórico y Fuga de Estados Genesys":
         if render_tab_historico_fn:
             render_tab_historico_fn(coordinador_forzado="CARDONA RAMIREZ MARELYN", key_prefix="agb2b_pausas_")
         else:
             st.info("Cargando motor de pausas de Genesys...")
 
-    elif sel_sub_p == "💬 Productividad & Pausas Salesforce (Omni-Channel)":
+    elif sel_sub_p == "💬 Productividad & Casos Salesforce (Omni-Channel)":
         st.markdown("#### 🏆 Eficacia y Productividad en Salesforce")
         st.caption("Casos cerrados, cumplimiento de SLA 24h y pausas de los asesores de la coordinación de **Marelyn Cardona**.")
 
