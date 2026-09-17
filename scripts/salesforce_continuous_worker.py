@@ -12,6 +12,11 @@ import sys
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
 BASE_DIR = os.path.dirname(__file__)
 STATE_PATH = os.path.join(BASE_DIR, "..", "data", "salesforce_state.json")
 CONFIG_PATH = os.path.join(BASE_DIR, "salesforce_live_config.json")
@@ -57,7 +62,7 @@ def run_continuous_worker():
         try:
             page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
             time.sleep(5)
-            print(f"[✓] Conectado exitosamente. Título: {page.title()}")
+            print(f"[+] Conectado exitosamente. Título: {page.title()}")
         except Exception as e:
             print(f"[!] Advertencia al cargar página inicial: {e}")
 
@@ -76,6 +81,15 @@ def run_continuous_worker():
                 continue
 
             try:
+                # Asegurar que estamos en la pestaña "Resumen de retraso de colas" si aplica
+                try:
+                    tab_retraso = page.locator("a:has-text('Resumen de retraso de colas'), button:has-text('Resumen de retraso de colas'), [title*='retraso de colas']").first
+                    if tab_retraso.is_visible(timeout=1000):
+                        tab_retraso.click()
+                        time.sleep(1)
+                except Exception:
+                    pass
+
                 # Intentar pulsar botón de actualización nativo de Omni-Supervisor si existe
                 try:
                     btn_ref = page.locator("button[title*='Actualizar'], button[title*='Refresh'], button:has-text('Actualizar')").first
