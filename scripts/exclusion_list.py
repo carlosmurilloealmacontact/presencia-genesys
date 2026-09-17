@@ -91,3 +91,72 @@ def filtrar_df_exclusiones(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             mascara = mascara & (~df[col].astype(str).apply(es_persona_excluida))
     return df[mascara]
+
+
+# ── Estructura Organizacional Oficial ──────────────────────────────────────────
+ESTRUCTURA_GERENCIAS = {
+    "HEAD": {
+        "nombre": "JACOBO HERNANDEZ MARVIN GREGORIO",
+        "rol_label": "👑 Head of Operations",
+        "coordinaciones": [],
+    },
+    "GERENTES": [
+        {
+            "nombre": "RODRIGUEZ URIBE ANDRES MAURICIO",
+            "rol_label": "🏢 Gerente de Operaciones",
+            "area_label": "Agencias B2B & LUA Pasajeros Inbound",
+            "coordinaciones": [
+                "CARBONO PEDROZA YINEIDIS YESENIA",
+                "CARDONA RAMIREZ MARELYN"
+            ]
+        },
+        {
+            "nombre": "URREGO CASTAÑO ANDRES FELIPE",
+            "rol_label": "🚀 Gerente de Operaciones",
+            "area_label": "Ventas, HVC, Redes Sociales & LUA Especializado",
+            "coordinaciones": [
+                "ROJAS LEGUIZAMO ANDRES FELIPE",
+                "LOBO VERA LADY VANESSA",
+                "ALZATE ARROYAVE DANIEL FELIPE",
+                "MONSALVE HERRERA JOHN JAMES"
+            ]
+        },
+        {
+            "nombre": "ROLDAN DURANGO OSCAR DANIEL",
+            "rol_label": "🎯 Gerente de Operaciones",
+            "area_label": "BO Waivers, Calidad & Speech, Formación",
+            "coordinaciones": [
+                "PULGARIN VARGAS ELIANA LICETH",
+                "BETANCUR CASTRO ANA MARIA",
+                "ROLDAN DURANGO OSCAR DANIEL"
+            ]
+        }
+    ]
+}
+
+
+def detectar_nivel_directivo(email: str, nombre: str = ""):
+    """
+    Identifica si el usuario autenticado es Head of Operations o Gerente.
+    Retorna: (tipo, rol_label, lista_coordinaciones)
+    """
+    if not email and not nombre:
+        return None, None, None
+    norm_name = normalizar_texto(nombre)
+    tokens_name = set(w for w in norm_name.split() if len(w) > 2)
+    alias = email.split("@")[0] if "@" in email else email
+    alias_tokens = set(w for w in re.split(r"[._-]", normalizar_texto(alias)) if len(w) > 2)
+
+    # 1. Head of Operations
+    head_tokens = set(w for w in normalizar_texto(ESTRUCTURA_GERENCIAS["HEAD"]["nombre"]).split() if len(w) > 2)
+    if len(alias_tokens.intersection(head_tokens)) >= 2 or len(tokens_name.intersection(head_tokens)) >= 2:
+        return "HEAD", ESTRUCTURA_GERENCIAS["HEAD"]["rol_label"], []
+
+    # 2. Gerentes
+    for g in ESTRUCTURA_GERENCIAS["GERENTES"]:
+        g_tokens = set(w for w in normalizar_texto(g["nombre"]).split() if len(w) > 2)
+        score = max(len(alias_tokens.intersection(g_tokens)), len(tokens_name.intersection(g_tokens)))
+        if score >= 2:
+            return "GERENTE", f"{g['rol_label']} · {g['area_label']}", g["coordinaciones"]
+
+    return None, None, None

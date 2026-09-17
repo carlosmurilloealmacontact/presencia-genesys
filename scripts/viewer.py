@@ -22,7 +22,7 @@ from gtr_engine import render_tab_gtr, render_tab_gtr_historico, cargar_config_g
 from capacidad_engine import render_tab_capacidad
 from ausentismo_engine import render_tab_ausentismo
 from glosario_engine import render_tab_glosario
-from exclusion_list import es_usuario_bloqueado, es_persona_excluida, filtrar_df_exclusiones
+from exclusion_list import es_usuario_bloqueado, es_persona_excluida, filtrar_df_exclusiones, detectar_nivel_directivo
 
 try:
     from salesforce_b2b_engine import render_tab_salesforce_b2b
@@ -238,20 +238,36 @@ def _obtener_listas_lideres_db():
 if "filtros_lider_inicializados" not in st.session_state:
     st.session_state["filtros_lider_inicializados"] = True
     try:
-        coords_db, sups_db = _obtener_listas_lideres_db()
-        coord_match, sup_match = _detectar_lider_autenticado(current_email, current_name, coords_db, sups_db)
-        if coord_match:
-            st.session_state["coord_sel"] = [coord_match]
-            st.session_state["live_coord_sel"] = [coord_match]
-            st.session_state["aus_coord_sel"] = [coord_match]
-            st.toast(f"👋 Hola {current_name.split()[0]}! Filtramos tu coordinación ({coord_match}). Puedes cambiarlo o borrarlo cuando desees.", icon="🎯")
-        elif sup_match:
-            st.session_state["superv_sel"] = [sup_match]
-            st.session_state["live_superv_sel"] = [sup_match]
-            st.session_state["aus_sup_sel"] = [sup_match]
-            st.session_state["agb2b_live_live_superv_sel"] = [sup_match]
-            st.session_state["flt_sup"] = sup_match
-            st.toast(f"👋 Hola {current_name.split()[0]}! Filtramos tu equipo de supervisión ({sup_match}). Puedes cambiarlo o borrarlo cuando desees.", icon="🎯")
+        tipo_dir, rol_dir, coords_dir = detectar_nivel_directivo(current_email, current_name)
+        if tipo_dir == "HEAD":
+            st.session_state["rol_usuario_display"] = rol_dir
+            st.toast(f"👑 ¡Bienvenido Marvin Jacobo! Vista general y acceso global de operaciones cargado.", icon="👑")
+        elif tipo_dir == "GERENTE":
+            st.session_state["rol_usuario_display"] = rol_dir
+            if coords_dir:
+                st.session_state["coord_sel"] = coords_dir
+                st.session_state["live_coord_sel"] = coords_dir
+                st.session_state["aus_coord_sel"] = coords_dir
+            st.toast(f"🎯 ¡Hola {current_name.split()[0]}! Precargamos tus coordinaciones asignadas. Puedes ajustarlas o cambiarlas en los filtros.", icon="🎯")
+        else:
+            coords_db, sups_db = _obtener_listas_lideres_db()
+            coord_match, sup_match = _detectar_lider_autenticado(current_email, current_name, coords_db, sups_db)
+            if coord_match:
+                st.session_state["rol_usuario_display"] = f"📋 Coordinador(a) · {coord_match}"
+                st.session_state["coord_sel"] = [coord_match]
+                st.session_state["live_coord_sel"] = [coord_match]
+                st.session_state["aus_coord_sel"] = [coord_match]
+                st.toast(f"👋 Hola {current_name.split()[0]}! Filtramos tu coordinación ({coord_match}). Puedes cambiarlo o borrarlo cuando desees.", icon="🎯")
+            elif sup_match:
+                st.session_state["rol_usuario_display"] = f"👤 Supervisor(a) · {sup_match}"
+                st.session_state["superv_sel"] = [sup_match]
+                st.session_state["live_superv_sel"] = [sup_match]
+                st.session_state["aus_sup_sel"] = [sup_match]
+                st.session_state["agb2b_live_live_superv_sel"] = [sup_match]
+                st.session_state["flt_sup"] = sup_match
+                st.toast(f"👋 Hola {current_name.split()[0]}! Filtramos tu equipo de supervisión ({sup_match}). Puedes cambiarlo o borrarlo cuando desees.", icon="🎯")
+            else:
+                st.session_state["rol_usuario_display"] = "👤 Colaborador"
     except Exception:
         pass
 
@@ -1218,12 +1234,15 @@ with st.sidebar:
             f'<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:15px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">{img_alma_sb}{sep_sb}{img_latam_sb}</div>',
             unsafe_allow_html=True
         )
+    rol_actual = st.session_state.get("rol_usuario_display", "")
+    rol_badge_html = f'<div style="display:inline-block; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; padding:3px 8px; border-radius:10px; font-size:11px; font-weight:600; margin-top:6px; line-height:1.3;">{rol_actual}</div>' if rol_actual else ''
     st.markdown(
         f"""
         <div style="background:#f8fafc; border-radius:10px; padding:12px; border:1px solid #e2e8f0; margin-bottom:15px;">
             <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#64748b; font-weight:700; margin-bottom:4px;">Sesión Activa</div>
             <div style="font-size:13.5px; font-weight:700; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">👤 {current_name}</div>
             <div style="font-size:11.5px; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{current_email}</div>
+            {rol_badge_html}
         </div>
         """,
         unsafe_allow_html=True
