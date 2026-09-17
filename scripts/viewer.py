@@ -43,11 +43,11 @@ st.set_page_config(page_title="Radar Operacional | Almaexperience", page_icon="�
 
 import base64
 
-@st.cache_data
-def cargar_logos_base64():
-    base_assets = Path(__file__).parent.parent / "assets"
+def obtener_logos_marca():
+    base_assets = Path(__file__).resolve().parent.parent / "assets"
     p_alma = base_assets / "logo_almaexperience.png"
-    p_latam = base_assets / "logo_latam.svg"
+    p_latam_png = base_assets / "logo_latam.png"
+    p_latam_svg = base_assets / "logo_latam.svg"
     b64_alma, b64_latam = "", ""
     if p_alma.exists():
         try:
@@ -55,6 +55,7 @@ def cargar_logos_base64():
                 b64_alma = base64.b64encode(f.read()).decode("utf-8")
         except Exception:
             pass
+    p_latam = p_latam_png if p_latam_png.exists() else p_latam_svg
     if p_latam.exists():
         try:
             with open(p_latam, "rb") as f:
@@ -75,9 +76,9 @@ if auth_configurado:
     # 1. Validar inicio de sesión
     if not getattr(st.user, "is_logged_in", False):
         dominios_validos_str = ", ".join(DOMINIOS_CORPORATIVOS)
-        b64_alma, b64_latam = cargar_logos_base64()
+        b64_alma, b64_latam = obtener_logos_marca()
         logo_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="28" style="vertical-align: middle;" alt="Almaexperience">' if b64_alma else ''
-        logo_latam_html = f'<img src="data:image/svg+xml;base64,{b64_latam}" height="20" style="vertical-align: middle;" alt="LATAM Airlines">' if b64_latam else ''
+        logo_latam_html = f'<img src="data:image/png;base64,{b64_latam}" height="20" style="vertical-align: middle;" alt="LATAM Airlines">' if b64_latam else ''
         logos_badge = f'<div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 14px;">{logo_alma_html}<span style="color:#cbd5e1; font-size: 18px; font-weight: 300;">|</span>{logo_latam_html}</div>' if (b64_alma or b64_latam) else ''
         st.markdown(
             f"""
@@ -1113,10 +1114,10 @@ if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
 
 # ── BARRA LATERAL (PERFIL Y SESIÓN) ──────────────────────────────────────────
 with st.sidebar:
-    b64_alma_sb, b64_latam_sb = cargar_logos_base64()
+    b64_alma_sb, b64_latam_sb = obtener_logos_marca()
     if b64_alma_sb or b64_latam_sb:
         img_alma_sb = f'<img src="data:image/png;base64,{b64_alma_sb}" height="22" style="vertical-align: middle; max-width: 115px; object-fit: contain;" alt="Almaexperience">' if b64_alma_sb else ''
-        img_latam_sb = f'<img src="data:image/svg+xml;base64,{b64_latam_sb}" height="16" style="vertical-align: middle; max-width: 70px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam_sb else ''
+        img_latam_sb = f'<img src="data:image/png;base64,{b64_latam_sb}" height="16" style="vertical-align: middle; max-width: 70px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam_sb else ''
         sep_sb = '<span style="color:#cbd5e1; font-size:15px;">|</span>' if (b64_alma_sb and b64_latam_sb) else ''
         st.markdown(
             f'<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:15px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">{img_alma_sb}{sep_sb}{img_latam_sb}</div>',
@@ -1137,9 +1138,9 @@ with st.sidebar:
             st.logout()
 
 # ── BARRA SUPERIOR (BANNER UNIFICADO & LOGOTIPOS) ─────────────────────────────
-b64_alma, b64_latam = cargar_logos_base64()
-img_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="20" style="vertical-align: middle; max-width: 120px; object-fit: contain;" alt="Almaexperience">' if b64_alma else '<span style="font-weight:700; color:#054780; font-size:13px;">Almaexperience</span>'
-img_latam_html = f'<img src="data:image/svg+xml;base64,{b64_latam}" height="15" style="vertical-align: middle; max-width: 75px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam else '<span style="font-weight:700; color:#2a0088; font-size:13px;">LATAM</span>'
+b64_alma, b64_latam = obtener_logos_marca()
+img_alma_html = f'<img src="data:image/png;base64,{b64_alma}" height="22" style="vertical-align: middle; max-width: 120px; object-fit: contain;" alt="Almaexperience">' if b64_alma else '<span style="font-weight:700; color:#054780; font-size:13px;">Almaexperience</span>'
+img_latam_html = f'<img src="data:image/png;base64,{b64_latam}" height="16" style="vertical-align: middle; max-width: 80px; object-fit: contain;" alt="LATAM Airlines">' if b64_latam else '<span style="font-weight:700; color:#2a0088; font-size:13px;">LATAM</span>'
 
 st.markdown(
     f"""
