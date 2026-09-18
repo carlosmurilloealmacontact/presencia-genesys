@@ -90,6 +90,18 @@ def _obtener_token_vertex():
 
 # ── HERRAMIENTAS ANALÍTICAS LOCALES ──────────────────────────────────────────
 
+def normalizar_fecha(fecha_str: str) -> str:
+    """Normaliza fechas en formatos DD/MM/YYYY, DD-MM-YYYY a formato canónico YYYY-MM-DD."""
+    if not fecha_str:
+        return ""
+    fecha_str = str(fecha_str).strip()
+    m = re.match(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$", fecha_str)
+    if m:
+        dia, mes, anio = m.groups()
+        return f"{anio}-{int(mes):02d}-{int(dia):02d}"
+    return fecha_str
+
+
 def obtener_fechas_disponibles() -> str:
     """Devuelve las fechas más recientes con datos en la base de datos de presencia y Salesforce."""
     res = {"fechas_presencia": [], "fechas_turnos": [], "ultima_fecha_recomendada": ""}
@@ -114,6 +126,7 @@ def consultar_asesor(nombre_o_id: str, fecha: str = "") -> str:
     if not DB_PATH.exists():
         return json.dumps({"error": "Base de datos no encontrada."})
     
+    fecha = normalizar_fecha(fecha)
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
     
@@ -202,6 +215,7 @@ def consultar_equipo_supervisor(supervisor: str, fecha: str = "") -> str:
     if not DB_PATH.exists():
         return json.dumps({"error": "Base de datos no encontrada."})
         
+    fecha = normalizar_fecha(fecha)
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
     if not fecha:
@@ -268,6 +282,7 @@ def consultar_servicio_macro(servicio: str, fecha: str = "") -> str:
     if not DB_PATH.exists():
         return json.dumps({"error": "Base de datos no encontrada."})
 
+    fecha = normalizar_fecha(fecha)
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
     if not fecha:
@@ -355,6 +370,7 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "") -> str:
     if not DB_PATH.exists():
         return json.dumps({"error": "Base de datos no encontrada."})
 
+    fecha = normalizar_fecha(fecha)
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
     if not fecha:
@@ -531,30 +547,26 @@ def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -
             candidate = res_json.get("candidates", [{}])[0].get("content", {})
             parts = candidate.get("parts", [])
 
-            has_fc = False
-            for part in parts:
-                if "functionCall" in part:
-                    has_fc = True
-                    fc = part["functionCall"]
+            function_calls = [part["functionCall"] for part in parts if "functionCall" in part]
+            if function_calls:
+                body["contents"].append(candidate)
+                resp_parts = []
+                for fc in function_calls:
                     fn = fc.get("name")
                     fa = fc.get("args", {})
-                    
                     func = TOOLS_MAP.get(fn)
                     tool_output = func(fa) if func else json.dumps({"error": f"Herramienta {fn} no encontrada"})
-                    
-                    body["contents"].append(candidate)
-                    body["contents"].append({
-                        "role": "user",
-                        "parts": [{
-                            "functionResponse": {
-                                "name": fn,
-                                "response": {"result": tool_output}
-                            }
-                        }]
+                    resp_parts.append({
+                        "functionResponse": {
+                            "name": fn,
+                            "response": {"result": tool_output}
+                        }
                     })
-                    break
-
-            if not has_fc:
+                body["contents"].append({
+                    "role": "user",
+                    "parts": resp_parts
+                })
+            else:
                 text_parts = [p.get("text", "") for p in parts if "text" in p]
                 final_text = "\n".join(text_parts).strip()
                 return final_text if final_text else "No se obtuvo una respuesta detallada del modelo."
