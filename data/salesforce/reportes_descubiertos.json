@@ -1,0 +1,744 @@
+{
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009kOrm2AE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009kOrm2AE/view?queryScope=userFolders",
+    "nombre": "Copia de Messaging Session Type",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009kOrm2AE/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036krF2AQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036krF2AQ/view?queryScope=userFolders",
+    "nombre": "Messaging Session - Abandonado Cliente",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036krF2AQ/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jyR2AQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jyR2AQ/view?queryScope=userFolders",
+    "nombre": "Messaging Session - Abandonado/No Regist",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jyR2AQ/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jbp2AA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jbp2AA/view?queryScope=userFolders",
+    "nombre": "Messaging Session - Cliente no Registrad",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jbp2AA/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037Mq52AE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037Mq52AE/view?queryScope=userFolders",
+    "nombre": "Messaging Session - CnR Nombre BOT",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037Mq52AE/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jqL2AQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jqL2AQ/view?queryScope=userFolders",
+    "nombre": "Messaging Session - No Registrado/Cola",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000036jqL2AQ/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003BFgL2AW/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003BFgL2AW/view?queryScope=userFolders",
+    "nombre": "Messaging Session - Status Waiting",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003BFgL2AW/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wg8z2AA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wg8z2AA/view?queryScope=userFolders",
+    "nombre": "Messaging Session Abandono",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wg8z2AA/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wgKH2AY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wgKH2AY/view?queryScope=userFolders",
+    "nombre": "Messaging Session Abandono %",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wgKH2AY/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003CZOT2A4/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003CZOT2A4/view?queryScope=userFolders",
+    "nombre": "Messaging Session Alias interactions",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003CZOT2A4/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vD2b2AE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vD2b2AE/view?queryScope=userFolders",
+    "nombre": "Messaging Session AMC CORP",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vD2b2AE/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wg2X2AQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wg2X2AQ/view?queryScope=userFolders",
+    "nombre": "Messaging Session ASA",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002wg2X2AQ/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000033bMH2AY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000033bMH2AY/view?queryScope=userFolders",
+    "nombre": "Messaging Session Help Center",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000033bMH2AY/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vuXO2AY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vuXO2AY/view?queryScope=userFolders",
+    "nombre": "Messaging Session NNSS",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vuXO2AY/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003ZY9x2AG/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003ZY9x2AG/view?queryScope=userFolders",
+    "nombre": "Messaging Session NNSS < 100",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003ZY9x2AG/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003ZYEn2AO/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003ZYEn2AO/view?queryScope=userFolders",
+    "nombre": "Messaging Session NNSS = 100",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003ZYEn2AO/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vETJ2A2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vETJ2A2/view?queryScope=userFolders",
+    "nombre": "Messaging Session QUEUE",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vETJ2A2/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000004NoY52AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000004NoY52AK/view?queryScope=userFolders",
+    "nombre": "Messaging Session Type",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000004NoY52AK/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vw7l2AA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vw7l2AA/view?queryScope=userFolders",
+    "nombre": "Messaging Session Waiting Time",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002vw7l2AA/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002x9Vx2AI/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002x9Vx2AI/view?queryScope=userFolders",
+    "nombre": "Messaging Session Waiting Time (Q) >180s",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002x9Vx2AI/view?queryScope=userFolders",
+    "kw": "Messaging"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003atdl2AA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003atdl2AA/view?queryScope=userFolders",
+    "nombre": "AGENCIAS CHAT EX",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003atdl2AA/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001VYw52AG/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001VYw52AG/view?queryScope=userFolders",
+    "nombre": "AHT Chat",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001VYw52AG/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK00000A1QvZ2AV/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK00000A1QvZ2AV/view?queryScope=userFolders",
+    "nombre": "AMC AG - Chats Cerrados Equipo",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK00000A1QvZ2AV/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK00000A1R8T2AV/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK00000A1R8T2AV/view?queryScope=userFolders",
+    "nombre": "AMC CORP - Chats Cerrados Equipo",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK00000A1R8T2AV/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003VMDp2AO/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003VMDp2AO/view?queryScope=userFolders",
+    "nombre": "AMC_BA CHAT AGENCIAS",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003VMDp2AO/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003JXjJ2AW/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003JXjJ2AW/view?queryScope=userFolders",
+    "nombre": "AMC_BA CHAT CORPORATE",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003JXjJ2AW/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009YNTF2A4/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009YNTF2A4/view?queryScope=userFolders",
+    "nombre": "AMC_BA CHAT CORPORATE V2",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009YNTF2A4/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001anb72AA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001anb72AA/view?queryScope=userFolders",
+    "nombre": "Cantidade de respuestas Chat Transcript",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001anb72AA/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008m8MiEAI/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008m8MiEAI/view?queryScope=userFolders",
+    "nombre": "CHAT",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008m8MiEAI/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000028WO92AM/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000028WO92AM/view?queryScope=userFolders",
+    "nombre": "Chat - HELP CENTER GLOBAL",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000028WO92AM/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mClyEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mClyEAE/view?queryScope=userFolders",
+    "nombre": "Chat Base",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mClyEAE/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001tBbl2AE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001tBbl2AE/view?queryScope=userFolders",
+    "nombre": "Chat Body Text / Account",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001tBbl2AE/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mKlMEAU/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mKlMEAU/view?queryScope=userFolders",
+    "nombre": "Chat Cola + Gestionado",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mKlMEAU/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001T8Pp2AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001T8Pp2AK/view?queryScope=userFolders",
+    "nombre": "Chat DELTA",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001T8Pp2AK/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967OKEAY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967OKEAY/view?queryScope=userFolders",
+    "nombre": "Chat GSS",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967OKEAY/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967PDEAY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967PDEAY/view?queryScope=userFolders",
+    "nombre": "Chat GSS - Abandonados",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967PDEAY/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967OyEAI/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967OyEAI/view?queryScope=userFolders",
+    "nombre": "Chat GSS - Espera",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000967OyEAI/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096KyzEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096KyzEAE/view?queryScope=userFolders",
+    "nombre": "Chat GSS - Espera Total",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096KyzEAE/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096dDTEAY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096dDTEAY/view?queryScope=userFolders",
+    "nombre": "Chat GSS - Espera Total < 180",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096dDTEAY/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096KzdEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096KzdEAE/view?queryScope=userFolders",
+    "nombre": "Chat GSS - NNSS Hoy",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096KzdEAE/view?queryScope=userFolders",
+    "kw": "Chat"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQotEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQotEAE/view?queryScope=userFolders",
+    "nombre": "Sesiones con objetivos completados hoy",
+    "carpeta": "Un recuento de las sesiones implicadas con al menos un objetivo completado por nombre de objetivo y por bot hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQotEAE/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968hNEAQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968hNEAQ/view?queryScope=userFolders",
+    "nombre": "Sesiones con objetivos completados hoy",
+    "carpeta": "Un recuento de las sesiones implicadas con al menos un objetivo completado por nombre de objetivo y por bot hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968hNEAQ/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cl2AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cl2AK/view?queryScope=userFolders",
+    "nombre": "Sesiones con objetivos completados hoy",
+    "carpeta": "Un recuento de las sesiones implicadas con al menos un objetivo completado por nombre de objetivo y por bot hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cl2AK/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9E92AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9E92AK/view?queryScope=userFolders",
+    "nombre": "Sesiones con/sin implicación (30 días)",
+    "carpeta": "Sesiones con implicación frente a sesiones sin implicación entre todos los bots por día durante los últimos 30 días.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9E92AK/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9ED2A0/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9ED2A0/view?queryScope=userFolders",
+    "nombre": "Sesiones con/sin implicación hoy",
+    "carpeta": "Sesiones con implicación frente a sesiones sin implicación entre todos los bots por hora hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9ED2A0/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cv2AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cv2AK/view?queryScope=userFolders",
+    "nombre": "Sesiones finalizadas diálogo últ 30 días",
+    "carpeta": "Un recuento del número de sesiones finalizadas por el bot o el usuario con un tipo de motivo. Un recuento relativamente alto indica una oportunidad de mejorar el diseño del bot a no ser que el diálogo cierre la conversación.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cv2AK/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQoiEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQoiEAE/view?queryScope=userFolders",
+    "nombre": "Sesiones finalizadas por diálogo hoy",
+    "carpeta": "Un recuento del número de sesiones finalizadas por el bot o el usuario con un tipo de motivo. Un recuento relativamente alto indica una oportunidad de mejorar el diseño del bot a no ser que el diálogo cierre la conversación.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQoiEAE/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cg2AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cg2AK/view?queryScope=userFolders",
+    "nombre": "Sesiones finalizadas por diálogo hoy",
+    "carpeta": "Un recuento del número de sesiones finalizadas por el bot o el usuario con un tipo de motivo. Un recuento relativamente alto indica una oportunidad de mejorar el diseño del bot a no ser que el diálogo cierre la conversación.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cg2AK/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cb2AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cb2AK/view?queryScope=userFolders",
+    "nombre": "Sesiones implicadas los últimos 7 días",
+    "carpeta": "Las sesiones con/sin implicación por día durante los últimos 7 días. Con implicación, un usuario envía al menos un mensaje o hace clic en una opción o menú. Una transferencia de bot a bot cuenta como una única sesión implicada para el bot que la inicia.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cb2AK/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cp2AK/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cp2AK/view?queryScope=userFolders",
+    "nombre": "Sesiones objetivos completados (30 días)",
+    "carpeta": "Un recuento de las sesiones implicadas con al menos un objetivo completado por nombre de objetivo y por bot en los últimos 30 días.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9Cp2AK/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mNFOEA2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mNFOEA2/view?queryScope=userFolders",
+    "nombre": "Todas las sesiones de bot hoy",
+    "carpeta": "Todas las sesiones de bot por hora hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mNFOEA2/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQp5EAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQp5EAE/view?queryScope=userFolders",
+    "nombre": "Todas las sesiones de bot hoy",
+    "carpeta": "Todas las sesiones de bot por hora hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nQp5EAE/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968hyEAA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968hyEAA/view?queryScope=userFolders",
+    "nombre": "Todas las sesiones de bot hoy",
+    "carpeta": "Todas las sesiones de bot por hora hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968hyEAA/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9EC2A0/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9EC2A0/view?queryScope=userFolders",
+    "nombre": "Todas las sesiones de bot hoy",
+    "carpeta": "Todas las sesiones de bot por hora hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9EC2A0/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mNFeEAM/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mNFeEAM/view?queryScope=userFolders",
+    "nombre": "Todas las sesiones y con implicación hoy",
+    "carpeta": "Sesiones con implicación frente a las sesiones de bot en total entre todos los bots por hora hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mNFeEAM/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968heEAA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968heEAA/view?queryScope=userFolders",
+    "nombre": "Todas las sesiones y con implicación hoy",
+    "carpeta": "Sesiones con implicación frente a las sesiones de bot en total entre todos los bots por hora hoy.",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f00000968heEAA/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9EF2A0/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9EF2A0/view?queryScope=userFolders",
+    "nombre": "Todas sesiones bot los últimos 30 días",
+    "carpeta": "Todas las sesiones de bot al día durante los últimos 30 días",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000000Q9EF2A0/view?queryScope=userFolders",
+    "kw": "Sesiones"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG90EAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG90EAE/view?queryScope=userFolders",
+    "nombre": "Antiguedad Backlog AMC Corporate",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG90EAE/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG8vEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG8vEAE/view?queryScope=userFolders",
+    "nombre": "Backlog AMC Corporate",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG8vEAE/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG8rEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG8rEAE/view?queryScope=userFolders",
+    "nombre": "Backlog AMC Corporate (SubEstados)",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG8rEAE/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGgPEAU/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGgPEAU/view?queryScope=userFolders",
+    "nombre": "Backlog OUT Corporate BR",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGgPEAU/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096mYHEAY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096mYHEAY/view?queryScope=userFolders",
+    "nombre": "Base Contactos Corporate_10.04",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000096mYHEAY/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000008clpJ2AQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000008clpJ2AQ/view?queryScope=userFolders",
+    "nombre": "Casos Corporate Partner Care",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000008clpJ2AQ/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009WQBt2AO/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009WQBt2AO/view?queryScope=userFolders",
+    "nombre": "CHATS CORPORATE GTR AMCv2",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009WQBt2AO/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009MEyP2AW/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009MEyP2AW/view?queryScope=userFolders",
+    "nombre": "Completitud Action Plan - EEVV Corporate",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK000009MEyP2AW/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001YSfd2AG/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001YSfd2AG/view?queryScope=userFolders",
+    "nombre": "Contactos Portal Corporate Brasil",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001YSfd2AG/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003k96b2AA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003k96b2AA/view?queryScope=userFolders",
+    "nombre": "Copia de AMC_BA CHAT CORPORATE",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000003k96b2AA/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK0000093JQj2AM/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK0000093JQj2AM/view?queryScope=userFolders",
+    "nombre": "Copia de Informe CHATS CORPORATE GTR AMC",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVK0000093JQj2AM/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfgEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfgEAE/view?queryScope=userFolders",
+    "nombre": "GSS AMC Corporate - Chats below",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfgEAE/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfqEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfqEAE/view?queryScope=userFolders",
+    "nombre": "GSS AMC Corporate - Chats over 60",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfqEAE/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfNEAU/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfNEAU/view?queryScope=userFolders",
+    "nombre": "GSS AMC Corporate por equipo",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097AfNEAU/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008o5ReEAI/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008o5ReEAI/view?queryScope=userFolders",
+    "nombre": "GSS AMC Corporate Real Time Queue",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008o5ReEAI/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097Af2EAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097Af2EAE/view?queryScope=userFolders",
+    "nombre": "GSS AMC Corporate Real Time Queue",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000097Af2EAE/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SxoCEAS/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SxoCEAS/view?queryScope=userFolders",
+    "nombre": "GSS Interna Corporate Real Time Q",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SxoCEAS/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SxnxEAC/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SxnxEAC/view?queryScope=userFolders",
+    "nombre": "GSS Interna Corporate Real Time Q",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SxnxEAC/view?queryScope=userFolders",
+    "kw": "Corporate"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002VGP72AO/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002VGP72AO/view?queryScope=userFolders",
+    "nombre": "Casos Geral Remisiones",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002VGP72AO/view?queryScope=userFolders",
+    "kw": "Remision"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI00000399oj2AA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI00000399oj2AA/view?queryScope=userFolders",
+    "nombre": "2. Informe de Casos GTR AMC",
+    "carpeta": "Es el informe que se modifica para GTR de Almacontact para presentacion de cortes hora hora y se espera que pueda servir ademas para reportes consolidados",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI00000399oj2AA/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SofiEAC/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SofiEAC/view?queryScope=userFolders",
+    "nombre": "Copia de Informe de Chats GTR KON BR",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SofiEAC/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037jwL2AQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037jwL2AQ/view?queryScope=userFolders",
+    "nombre": "Informe CHATS CORPORATE GTR AMC",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037jwL2AQ/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000039Kdh2AE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000039Kdh2AE/view?queryScope=userFolders",
+    "nombre": "Informe CHATS CORPORATE GTR AMC_ALVARO",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000039Kdh2AE/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037VRx2AM/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037VRx2AM/view?queryScope=userFolders",
+    "nombre": "Informe Chats GTR ABANDONADOS 1/04/2025",
+    "carpeta": "Data descargable para la actualizacion de cortes horarios Latam AMC",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI0000037VRx2AM/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002u5tV2AQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002u5tV2AQ/view?queryScope=userFolders",
+    "nombre": "Informe Chats GTR ABANDONADOS 7/03/2025",
+    "carpeta": "Data descargable para la actualizacion de cortes horarios Latam AMC",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000002u5tV2AQ/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001dMRV2A2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001dMRV2A2/view?queryScope=userFolders",
+    "nombre": "Informe de Casos GTR AMC",
+    "carpeta": "Es el informe que se modifica para GTR de Almacontact para presentacion de cortes hora hora y se espera que pueda servir ademas para reportes consolidados",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001dMRV2A2/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mbPZEAY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mbPZEAY/view?queryScope=userFolders",
+    "nombre": "Informe de Chats Gtr Amc",
+    "carpeta": "Data descargable para la actualizacion de cortes horarios Latam AMC",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mbPZEAY/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001RYbJ2AW/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001RYbJ2AW/view?queryScope=userFolders",
+    "nombre": "Informe de Chats Gtr Amc",
+    "carpeta": "Data descargable para la actualizacion de cortes horarios Latam AMC",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001RYbJ2AW/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008t4ZJEAY/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008t4ZJEAY/view?queryScope=userFolders",
+    "nombre": "Informe de Chats GTR KON BR",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008t4ZJEAY/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008t6XnEAI/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008t6XnEAI/view?queryScope=userFolders",
+    "nombre": "Informe de Chats GTR KON BR DO",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008t6XnEAI/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SojQEAS/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SojQEAS/view?queryScope=userFolders",
+    "nombre": "simultaneidad TR GTR AMC",
+    "carpeta": "Data descargable para la actualizacion de cortes horarios Latam AMC",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008SojQEAS/view?queryScope=userFolders",
+    "kw": "GTR"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008lvl6EAA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008lvl6EAA/view?queryScope=userFolders",
+    "nombre": "Account History Report - Agencias",
+    "carpeta": "Historial de cambios agencias",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008lvl6EAA/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000088q3EEAQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000088q3EEAQ/view?queryScope=userFolders",
+    "nombre": "Agencias Canal OTAS",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f0000088q3EEAQ/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008tCYUEA2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008tCYUEA2/view?queryScope=userFolders",
+    "nombre": "Agencias Canal1",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008tCYUEA2/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008tCZtEAM/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008tCZtEAM/view?queryScope=userFolders",
+    "nombre": "Agencias Canal2",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008tCZtEAM/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nbQbEAI/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nbQbEAI/view?queryScope=userFolders",
+    "nombre": "Agencias holding E,P,S",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008nbQbEAI/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008oFIIEA2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008oFIIEA2/view?queryScope=userFolders",
+    "nombre": "Agencias Iata Cris",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008oFIIEA2/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008lnuLEAQ/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008lnuLEAQ/view?queryScope=userFolders",
+    "nombre": "Agencias NO IATA sin IATA Fake",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008lnuLEAQ/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mWv6EAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mWv6EAE/view?queryScope=userFolders",
+    "nombre": "Agencias no sync con CDP",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mWv6EAE/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mb92EAA/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mb92EAA/view?queryScope=userFolders",
+    "nombre": "Agencias no sync con CDP test",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mb92EAA/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG7yEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG7yEAE/view?queryScope=userFolders",
+    "nombre": "Antiguedad Backlog AMC Agencias",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG7yEAE/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mLDpEAM/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mLDpEAM/view?queryScope=userFolders",
+    "nombre": "AP: N° Agencias por EEVV",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mLDpEAM/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG7xEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG7xEAE/view?queryScope=userFolders",
+    "nombre": "Backlog AMC Agencias ESP",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mG7xEAE/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGDDEA2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGDDEA2/view?queryScope=userFolders",
+    "nombre": "Backlog AMC Agencias ING2",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGDDEA2/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mIMDEA2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mIMDEA2/view?queryScope=userFolders",
+    "nombre": "Backlog AMC Agencias PT",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mIMDEA2/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008maJpEAI/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008maJpEAI/view?queryScope=userFolders",
+    "nombre": "Backlog GSS Agencias",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008maJpEAI/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGNIEA2/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGNIEA2/view?queryScope=userFolders",
+    "nombre": "Backlog OUT Agencias BR",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mGNIEA2/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mT3yEAE/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mT3yEAE/view?queryScope=userFolders",
+    "nombre": "Backlog OUT Agencias BR com número",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00O5f000008mT3yEAE/view?queryScope=userFolders",
+    "kw": "Agencias"
+  },
+  "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001CEzV2AW/view?queryScope=userFolders": {
+    "id": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001CEzV2AW/view?queryScope=userFolders",
+    "nombre": "Carteira Agencias BR_JUN25",
+    "carpeta": "",
+    "url": "https://latamneworg.lightning.force.com/lightning/r/sObject/00OVI000001CEzV2AW/view?queryScope=userFolders",
+    "kw": "Agencias"
+  }
+}

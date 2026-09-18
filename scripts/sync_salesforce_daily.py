@@ -102,6 +102,28 @@ def ejecutar_sincronizacion_completa(headless: bool = True, solo_omni: bool = Fa
         except Exception as e:
             log_event(f"[!] Error procesando casos: {e}")
 
+    # 3. Chats Messaging B2B
+    log_event("[5/6] Descargando reporte de Chats B2B (Messaging Sessions)...")
+    try:
+        ruta_chats = sdc.descargar_reporte_chats(headless=headless)
+        if ruta_chats and os.path.exists(ruta_chats):
+            log_event(f"[✓] Reporte de Chats descargado ({os.path.getsize(ruta_chats)/1024:.1f} KB)")
+        else:
+            log_event("[!] No se descargó archivo nuevo de chats. Usando base existente.")
+    except Exception as e:
+        log_event(f"[!] Error durante descarga de Chats: {e}")
+
+    # 4. Consolidación de Cierre Autónomo B2B (Día de ayer)
+    log_event("[6/6] Consolidando Cierre Diario Autónomo Agencias B2B (Voz + Chat + Casos)...")
+    try:
+        import cierre_b2b_autonomo_engine as cba
+        from datetime import date, timedelta
+        ayer_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+        res_cierre = cba.consolidar_cierre_diario_autonomo(ayer_str)
+        log_event(f"[✓] Cierre oficial autónomo para {ayer_str} generado con éxito ({len(res_cierre)} servicios).")
+    except Exception as e:
+        log_event(f"[!] Error generando cierre autónomo: {e}")
+
     duracion = round(time.time() - inicio, 1)
     log_event("=" * 65)
     log_event(f"SINCRONIZACIÓN FINALIZADA EN {duracion} SEGUNDOS")

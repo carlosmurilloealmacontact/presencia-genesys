@@ -490,7 +490,7 @@ def descargar_reporte_chats(headless: bool = True, report_url: str = None) -> st
     Contiene las sesiones de mensajería para AG CHAT ES, AG CELULA REMISION y AG CORPORATE CHAT.
     """
     if not report_url:
-        report_url = "https://latamneworg.lightning.force.com/lightning/r/Report/00OVI0000037jwL2AQ/view"
+        report_url = "https://latamneworg.lightning.force.com/lightning/r/Report/00OVK00000APwkb2AD/view"
 
     print(f"[*] URL del reporte de Chats B2B: {report_url}")
 

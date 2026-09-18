@@ -324,8 +324,8 @@ def obtener_cierre_b2b_por_fecha(fecha_str: str = None) -> dict:
     if not data_all:
         return {}
 
-    if fecha_str and fecha_str in data_all:
-        return data_all[fecha_str]
+    if fecha_str:
+        return data_all.get(str(fecha_str).strip(), {})
 
     ultima_fecha = sorted(data_all.keys())[-1]
     return data_all[ultima_fecha]

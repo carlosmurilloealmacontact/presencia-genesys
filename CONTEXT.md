@@ -133,7 +133,8 @@ flowchart TD
 | `extract_turnos_api.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario - API Almaverso) |
 | `export_cloud.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario) |
 | `zendesk_hourly_worker.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[9/10]` (Cada hora) |
-| `sync_salesforce_daily.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[10/10]` (Diario) |
+| `sync_salesforce_daily.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[10/10]` (Diario - Casos, Omni, Chats y Cierre Autónomo) |
+| `cierre_b2b_autonomo_engine.py` | `scripts/` | 🟢 Automatizado | Invocado por `sync_salesforce_daily.py` (Cierre oficial B2B) |
 | `salesforce_omni_engine.py` | `scripts/` | 🟢 Indirecto | Invocado por `sync_salesforce_daily.py` |
 | `salesforce_b2b_engine.py` | `scripts/` | 🟢 Indirecto | Invocado por `sync_salesforce_daily.py` |
 | `b2b_scope_engine.py` | `scripts/` | 🟢 En Tiempo Real | Invocado por dashboards y motores |
@@ -148,6 +149,7 @@ flowchart TD
 ## 7. Inventario de Archivos Clave
 
 * **Visor Principal:** [`viewer.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/viewer.py) (Dashboard Streamlit de Producción).
+* **Motor de Cierre Diario Autónomo:** [`scripts/cierre_b2b_autonomo_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/cierre_b2b_autonomo_engine.py) (Consolidación 100% independiente de Voz Genesys API + Chats Salesforce + Casos).
 * **Definición Autoritativa de Ámbito:** [`scripts/b2b_scope_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/b2b_scope_engine.py) (Regla de Oro de Marely Cardona).
 * **Motores de Adherencia:**
   * [`scripts/adherencia_pausas_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/adherencia_pausas_engine.py) (Adherencia clásica + rescate unificado Omni y Casos).
@@ -156,8 +158,8 @@ flowchart TD
   * [`scripts/whatsapp_simultaneidad_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/whatsapp_simultaneidad_engine.py) (Simultaneidad WhatsApp con meta 3.0x).
 * **Automatización y Descargas:**
   * [`pipeline_pasos.bat`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/pipeline_pasos.bat) (Pipeline centralizado de 10 pasos con notificaciones Telegram).
-  * [`scripts/sync_salesforce_daily.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/sync_salesforce_daily.py) (Orquestador de sincronización diaria de Casos y Omni).
-  * [`scripts/salesforce_download_cases.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/salesforce_download_cases.py) (Descarga de Casos, Logins y Omni).
+  * [`scripts/sync_salesforce_daily.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/sync_salesforce_daily.py) (Orquestador de sincronización diaria de Casos, Omni, Chats y Cierre Autónomo).
+  * [`scripts/salesforce_download_cases.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/salesforce_download_cases.py) (Descarga headless de Casos, Omni y Chats `00OVK00000APwkb2AD`).
   * [`scripts/salesforce_auth_manager.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/salesforce_auth_manager.py) (Sesión Playwright + 2FA Outlook MAPI).
   * [`data/salesforce_config.json`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/data/salesforce_config.json) (URLs oficiales de reportes).
 * **Datos y Almacenamiento Salesforce:**
