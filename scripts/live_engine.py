@@ -223,6 +223,13 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
 
         now_utc = datetime.now(timezone.utc)
         mapa_aht = obtener_aht_hoy(token)
+        wsp_live = {}
+        try:
+            from whatsapp_simultaneidad_engine import obtener_simultaneidad_en_vivo
+            wsp_live = obtener_simultaneidad_en_vivo(token)
+        except Exception:
+            pass
+        mapa_wsp_agentes = wsp_live.get("agentes", {})
         filas = []
 
         for page_entities in paginas:
@@ -242,6 +249,9 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                     mod_date_str = pres.get("modifiedDate")
                     routing = u.get("routingStatus", {}).get("status", "OFF_QUEUE")
                     routing_start = u.get("routingStatus", {}).get("startTime")
+
+                    wsp_ag = mapa_wsp_agentes.get(uid, {})
+                    chats_wsp = wsp_ag.get("chats_activos", 0)
 
                     dur_seg = 0
                     hora_inicio_str = "—"
@@ -320,6 +330,12 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                     elif label == "Casos Backoffice" and not servicio_autorizado_casos_bo(meta_agente.get("servicio", "")):
                         alerta = f"🚨 Casos BO no autorizado en {meta_agente.get('servicio', '')}"
                         nivel_alerta = "danger"
+                    elif chats_wsp > 0:
+                        if chats_wsp > 1:
+                            alerta = f"💬 WSP ({chats_wsp}x) ({cronometro_llamada})"
+                        else:
+                            alerta = f"💬 WhatsApp ({cronometro_llamada})"
+                        nivel_alerta = "ok"
                     elif routing == "INTERACTING":
                         alerta = f"En llamada ({cronometro_llamada})"
                         nivel_alerta = "ok"
@@ -337,6 +353,7 @@ def obtener_presencia_en_vivo(token: str, agentes_map: dict, catalog: dict) -> p
                         "estado": label,
                         "sys_pres": sys_pres,
                         "routing": routing,
+                        "chats_wsp": chats_wsp,
                         "hora_inicio": hora_inicio_str,
                         "cronometro": cronometro,
                         "dur_min": round(min_dur, 1),
@@ -474,6 +491,8 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
     # ── 2. Métricas y KPIs de Piso (Filtrados) ───────────────────────────
     conectados = df_filtrado[df_filtrado["sys_pres"] != "Offline"]
     en_llamada = df_filtrado[(df_filtrado["sys_pres"] != "Offline") & (df_filtrado["routing"] == "INTERACTING")]
+    en_wsp = df_filtrado[df_filtrado["chats_wsp"] > 0]
+    tot_chats_wsp = int(df_filtrado["chats_wsp"].sum())
     llamadas_largas = en_llamada[en_llamada["dur_llamada_min"] >= umbral_llamada]
     disponibles = df_filtrado[(df_filtrado["estado"].isin(["Available", "On Queue"])) & (df_filtrado["routing"] == "IDLE")]
     en_pausas_regla = df_filtrado[df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"])]
@@ -488,15 +507,16 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
     ]
     todas_alertas = df_filtrado[df_filtrado["nivel_alerta"].isin(["danger", "warning"])]
 
-    k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
+    k1, k2, k3, k4, k5, k6, k7, k8 = st.columns(8)
 
     if "live_focos_activos" not in st.session_state:
         prev_foco = st.session_state.get("live_vista_rapida", "Solo Conectados")
         if isinstance(prev_foco, list):
             st.session_state["live_focos_activos"] = prev_foco
         elif prev_foco in (
-            "Todos", "Solo Conectados", "Solo Llamadas Activas", "Solo Llamadas Prolongadas",
-            "Solo Excesos de Breaks", "Solo En Cola", "Solo Pausas con Meta", "Solo Gestión"
+            "Todos", "Solo Conectados", "Solo Llamadas Activas", "Solo WhatsApp Activo",
+            "Solo Llamadas Prolongadas", "Solo Excesos de Breaks", "Solo En Cola",
+            "Solo Pausas con Meta", "Solo Gestión"
         ):
             st.session_state["live_focos_activos"] = [prev_foco]
         else:
@@ -551,103 +571,100 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
                 st.rerun(scope="fragment")
 
     pct_con = (len(conectados) / len(df_filtrado) * 100.0) if len(df_filtrado) > 0 else 0.0
+    llamadas_puras_voz = len(en_llamada[en_llamada["chats_wsp"] == 0])
 
     render_kpi_interactivo(k1, "Conectados", len(conectados), f"{pct_con:.0f}% del filtro", "#1baf7a", "Solo Conectados")
-    render_kpi_interactivo(k2, "En Interacción", len(en_llamada), "Llamadas en curso", "#185FA5", "Solo Llamadas Activas")
-    render_kpi_interactivo(k3, "En Cola Disponibles", len(disponibles), "Esperando contacto", "#0F825C", "Solo En Cola")
-    render_kpi_interactivo(k4, "En Pausas de Ley", len(en_pausas_regla), "Break, Baño, Pre Pausa", "#BA7517", "Solo Pausas con Meta")
-    render_kpi_interactivo(k5, "En Gestión / BO", len(en_gestion), "Backoffice, Autogestión", "#6347A6", "Solo Gestión")
-    render_kpi_interactivo(k6, "📞 Llamadas Largas", len(alertas_llamadas), f"> {umbral_llamada} min en curso", "#EA580C" if len(alertas_llamadas) > 0 else "#888", "Solo Llamadas Prolongadas")
-    render_kpi_interactivo(k7, "☕ Excesos Breaks", len(alertas_breaks), "Breaks y pausas excedidos", "#DC2626" if len(alertas_breaks) > 0 else "#888", "Solo Excesos de Breaks")
+    render_kpi_interactivo(k2, "📞 En Voz", llamadas_puras_voz, "Llamadas en curso", "#185FA5", "Solo Llamadas Activas")
+    render_kpi_interactivo(k3, "💬 WhatsApp", f"{tot_chats_wsp} chats", f"{len(en_wsp)} asesores activos", "#047857", "Solo WhatsApp Activo")
+    render_kpi_interactivo(k4, "En Cola", len(disponibles), "Esperando contacto", "#0F825C", "Solo En Cola")
+    render_kpi_interactivo(k5, "En Pausas de Ley", len(en_pausas_regla), "Break, Baño, Pre Pausa", "#BA7517", "Solo Pausas con Meta")
+    render_kpi_interactivo(k6, "En Gestión / BO", len(en_gestion), "Backoffice, Autogestión", "#6347A6", "Solo Gestión")
+    render_kpi_interactivo(k7, "📞 Llamadas Largas", len(alertas_llamadas), f"> {umbral_llamada} min en curso", "#EA580C" if len(alertas_llamadas) > 0 else "#888", "Solo Llamadas Prolongadas")
+    render_kpi_interactivo(k8, "☕ Excesos Breaks", len(alertas_breaks), "Breaks y pausas excedidos", "#DC2626" if len(alertas_breaks) > 0 else "#888", "Solo Excesos de Breaks")
 
     # Barra informativa cuando hay múltiples filtros de tarjeta activos
     TITULOS_FOCOS = {
         "Solo Conectados": "Conectados",
-        "Solo Llamadas Activas": "En Interacción",
+        "Solo Llamadas Activas": "En Voz",
+        "Solo WhatsApp Activo": "💬 En WhatsApp",
         "Solo En Cola": "En Cola Disponibles",
+        "Solo Pausas with Meta": "En Pausas de Ley",
         "Solo Pausas con Meta": "En Pausas de Ley",
         "Solo Gestión": "En Gestión / BO",
         "Solo Llamadas Prolongadas": "📞 Llamadas Largas",
         "Solo Excesos de Breaks": "☕ Excesos de Breaks",
-        "Todos": "Todos los Asesores",
+        "Todos": "Todos los Registros",
     }
-    if focos_activos != ["Solo Conectados"] and focos_activos != ["Todos"]:
-        col_inf, col_rst = st.columns([5.5, 1.5])
-        with col_inf:
-            etiquetas_activas = [
-                f"<span style='background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe; padding:2px 8px; border-radius:12px; font-size:11.5px; font-weight:600;'>{TITULOS_FOCOS.get(f, f)}</span>"
-                for f in focos_activos
-            ]
-            st.markdown(
-                f"<div style='margin: 4px 0 10px 0; font-size:12.5px; color:#334155;'><b>Filtro combinado activo ({len(focos_activos)} seleccionados):</b> " + " ".join(etiquetas_activas) + "</div>",
-                unsafe_allow_html=True
-            )
-        with col_rst:
-            if st.button("🧹 Quitar Filtros", key="btn_limpiar_focos_live", width="stretch", help="Restablece la vista a todos los asesores conectados"):
-                st.session_state["live_focos_activos"] = ["Solo Conectados"]
-                st.session_state["ms_live_focos_select"] = ["Solo Conectados"]
-                st.rerun(scope="fragment")
-
-    # ── 3. Cuadro de Alertas en Tiempo Real (Separado: Llamadas Largas vs Excesos de Breaks) ──
-    filtro_txt = " (en tu selección actual)" if (coord_sel or serv_sel or superv_sel or buscar_agente) else ""
-
-    hay_llamadas_largas = not alertas_llamadas.empty
-    hay_excesos_breaks = not alertas_breaks.empty
-
-    if hay_llamadas_largas and hay_excesos_breaks:
-        col_al_ll, col_al_br = st.columns(2)
-    elif hay_llamadas_largas:
-        col_al_ll, col_al_br = st.container(), None
-    elif hay_excesos_breaks:
-        col_al_ll, col_al_br = None, st.container()
-    else:
-        col_al_ll, col_al_br = None, None
-
-    if col_al_ll is not None and hay_llamadas_largas:
-        with col_al_ll:
-            items_ll = []
-            for _, r in alertas_llamadas.iterrows():
-                nom = str(r["agente"] or "").split(" - ")[-1]
-                stag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
-                items_ll.append(f"<b>{nom}</b>{stag}: 📞 {r['cronometro_llamada']}")
-            st.markdown(
-                f"""
-                <div style="background:#fff4eb; border:1px solid #fed7aa; border-left:4px solid #ea580c; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
-                    <b style="color:#9a3412; font-size:14px;">📞 {len(alertas_llamadas)} Llamada(s) Prolongada(s) > {umbral_llamada} min{filtro_txt}:</b>
-                    <div style="margin-top:5px; color:#7c2d12; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
-                        {" &nbsp;·&nbsp; ".join(items_ll)}
-                    </div>
+    if len(focos_activos) > 1 or (len(focos_activos) == 1 and focos_activos[0] != "Solo Conectados"):
+        tags_activos = " ".join([
+            f"<span style='background:#185fa5; color:#fff; padding:2px 8px; border-radius:10px; font-size:11px; margin-right:4px; font-weight:600;'>{TITULOS_FOCOS.get(f, f)}</span>"
+            for f in focos_activos
+        ])
+        st.markdown(
+            f"""
+            <div style="background:#e8f0fe; border-left:4px solid #185fa5; border-radius:6px; padding:6px 12px; margin:6px 0 10px 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+                <div style="font-size:12px; color:#185fa5;">
+                    <b>Filtro de visualización activo (Combinado):</b> {tags_activos}
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    if col_al_br is not None and hay_excesos_breaks:
-        with col_al_br:
-            items_br = []
-            for _, r in alertas_breaks.iterrows():
-                nom = str(r["agente"] or "").split(" - ")[-1]
-                stag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
-                items_br.append(f"<b>{nom}</b>{stag}: {r['alerta']}")
-            st.markdown(
-                f"""
-                <div style="background:#fee8e7; border:1px solid #f9c0bc; border-left:4px solid #dc2626; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
-                    <b style="color:#991b1b; font-size:14px;">☕ {len(alertas_breaks)} Exceso(s) de Breaks y Pausas{filtro_txt}:</b>
-                    <div style="margin-top:5px; color:#7f1d1d; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
-                        {" &nbsp;·&nbsp; ".join(items_br)}
-                    </div>
+    # ── 3. Bandeja Unificada de Alertas en Vivo (Llamadas Prolongadas y Excesos de Breaks) ──
+    filtro_txt = ""
+    if coord_sel:
+        filtro_txt += f" · Coord: {', '.join(coord_sel)}"
+    if serv_sel:
+        filtro_txt += f" · Servicio: {', '.join(serv_sel)}"
+    if superv_sel:
+        filtro_txt += f" · Sup: {', '.join(superv_sel)}"
+
+    if not alertas_llamadas.empty:
+        items_ll = []
+        for _, r in alertas_llamadas.sort_values(by="dur_llamada_seg", ascending=False).iterrows():
+            nom = r["agente"]
+            stag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
+            items_ll.append(f"<b>{nom}</b>{stag}: {r['cronometro_llamada']}")
+        st.markdown(
+            f"""
+            <div style="background:#fff4eb; border:1px solid #fed7aa; border-left:4px solid #ea580c; border-radius:8px; padding:10px 14px; margin-bottom:10px;">
+                <b style="color:#c2410c; font-size:14px;">📞 {len(alertas_llamadas)} Llamada(s) Prolongada(s) > {umbral_llamada} min{filtro_txt}:</b>
+                <div style="margin-top:5px; color:#9a3412; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
+                    {" &nbsp;·&nbsp; ".join(items_ll)}
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if not alertas_breaks.empty:
+        items_br = []
+        for _, r in alertas_breaks.sort_values(by="dur_seg", ascending=False).iterrows():
+            nom = r["agente"]
+            stag = f" <span style='color:#777;'>({r['servicio']})</span>" if not serv_sel else ""
+            items_br.append(f"<b>{nom}</b>{stag}: {r['alerta']}")
+        st.markdown(
+            f"""
+            <div style="background:#fee8e7; border:1px solid #f9c0bc; border-left:4px solid #dc2626; border-radius:8px; padding:10px 14px; margin-bottom:14px;">
+                <b style="color:#991b1b; font-size:14px;">☕ {len(alertas_breaks)} Exceso(s) de Breaks y Pausas{filtro_txt}:</b>
+                <div style="margin-top:5px; color:#7f1d1d; font-size:12.5px; line-height:1.6; max-height:120px; overflow-y:auto;">
+                    {" &nbsp;·&nbsp; ".join(items_br)}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # ── 4. Controles de Visualización de Tabla ───────────────────────────
     c_foco, c_orden = st.columns([1.8, 1.2])
     with c_foco:
         OPCIONES_FOCO = {
             "Solo Conectados": "🟢 Conectados (Línea Base)",
-            "Solo Llamadas Activas": "📞 En Interacción",
+            "Solo Llamadas Activas": "📞 En Voz (Interacción)",
+            "Solo WhatsApp Activo": "💬 En WhatsApp (Simultaneidad)",
             "Solo En Cola": "🟢 En Cola Disponibles",
+            "Solo Pausas with Meta": "☕ En Pausas de Ley",
             "Solo Pausas con Meta": "☕ En Pausas de Ley",
             "Solo Gestión": "📂 En Gestión / BO",
             "Solo Llamadas Prolongadas": "📞 Llamadas Largas (> umbral)",
@@ -675,6 +692,7 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
             "Ordenar por",
             options=[
                 "Nivel de Alerta y Duración",
+                "Más Chats WhatsApp Activos",
                 "Mayor AHT Hoy (seg)",
                 "Más Interacciones Hoy",
                 "Llamada más larga primero",
@@ -694,7 +712,9 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
         if f == "Solo Conectados":
             mascaras.append(df_filtrado["sys_pres"] != "Offline")
         elif f == "Solo Llamadas Activas":
-            mascaras.append((df_filtrado["sys_pres"] != "Offline") & (df_filtrado["routing"] == "INTERACTING"))
+            mascaras.append((df_filtrado["sys_pres"] != "Offline") & (df_filtrado["routing"] == "INTERACTING") & (df_filtrado["chats_wsp"] == 0))
+        elif f == "Solo WhatsApp Activo":
+            mascaras.append(df_filtrado["chats_wsp"] > 0)
         elif f == "Solo Llamadas Prolongadas":
             mascaras.append(
                 (df_filtrado["sys_pres"] != "Offline")
@@ -703,7 +723,7 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
             )
         elif f == "Solo En Cola":
             mascaras.append((df_filtrado["estado"].isin(["Available", "On Queue"])) & (df_filtrado["routing"] == "IDLE"))
-        elif f == "Solo Pausas con Meta":
+        elif f in ("Solo Pausas con Meta", "Solo Pausas with Meta"):
             mascaras.append(df_filtrado["estado"].isin(["Break", "Baño", "Descanso", "Pre Pausa", "Lunch", "CDR"]))
         elif f == "Solo Gestión":
             mascaras.append(
@@ -729,7 +749,9 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
         df_vista_final = df_filtrado[df_filtrado["sys_pres"] != "Offline"]
 
     # Ordenamiento de tabla
-    if orden_piso == "Mayor AHT Hoy (seg)":
+    if orden_piso == "Más Chats WhatsApp Activos":
+        df_vista_final = df_vista_final.sort_values(by="chats_wsp", ascending=False)
+    elif orden_piso == "Mayor AHT Hoy (seg)":
         df_vista_final = df_vista_final.sort_values(by="aht_seg", ascending=False, na_position="last")
     elif orden_piso == "Más Interacciones Hoy":
         df_vista_final = df_vista_final.sort_values(by="atendidas_hoy", ascending=False)
@@ -738,12 +760,11 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
     elif orden_piso == "Tiempo en Estado (mayor a menor)":
         df_vista_final = df_vista_final.sort_values(by="dur_seg", ascending=False)
     elif orden_piso == "Nombre del Asesor":
-        df_vista_final = df_vista_final.sort_values(by="agente", ascending=True)
+        df_vista_final = df_vista_final.sort_values(by="agente")
     else:
-        df_vista_final["_sort_alerta"] = df_vista_final["nivel_alerta"].map({"danger": 3, "warning": 2, "ok": 1, "offline": 0}).fillna(0)
-        df_vista_final = df_vista_final.sort_values(
-            by=["_sort_alerta", "dur_llamada_seg", "dur_seg"], ascending=[False, False, False]
-        ).drop(columns=["_sort_alerta"])
+        peso_alerta = {"danger": 3, "warning": 2, "offline": 1, "ok": 0}
+        df_vista_final["_peso"] = df_vista_final["nivel_alerta"].map(peso_alerta).fillna(0)
+        df_vista_final = df_vista_final.sort_values(by=["_peso", "dur_seg"], ascending=[False, False]).drop(columns=["_peso"])
 
     st.caption(f"Mostrando {len(df_vista_final)} asesores de {len(df_live)} totales")
 
@@ -760,7 +781,9 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
             return "background-color: #378add22; color: #185fa5; font-weight: 600;"
 
     def estilo_alerta_col(val):
-        if str(val).startswith("📞"):
+        if str(val).startswith("💬"):
+            return "background-color: #ecfdf5; color: #047857; font-weight: 700;"
+        elif str(val).startswith("📞"):
             return "background-color: #fff4eb; color: #c2410c; font-weight: 700;"
         elif str(val).startswith("🚨"):
             return "background-color: #fee8e7; color: #b3261e; font-weight: 700;"
@@ -778,6 +801,11 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
         elif val == "NOT_RESPONDING":
             return "background-color: #fce8e6; color: #c5221f; font-weight: 700;"
         return "color: gray;"
+
+    def estilo_chats_wsp(val):
+        if str(val) == "—" or not val:
+            return "color: #bbb;"
+        return "background-color: #ecfdf5; color: #047857; font-weight: 700;"
 
     def estilo_llamada(val):
         if str(val) == "—" or not val:
@@ -797,9 +825,12 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
             pass
         return "color: #185fa5; font-weight: 700;"
 
+    df_vista_final = df_vista_final.copy()
+    df_vista_final["chats_wsp_disp"] = df_vista_final["chats_wsp"].apply(lambda c: f"{c} 💬" if c > 0 else "—")
+
     tabla_vista = df_vista_final[[
         "agente", "servicio", "supervisor", "coordinador",
-        "estado", "routing", "cronometro_llamada", "atendidas_hoy", "aht_seg",
+        "estado", "routing", "chats_wsp_disp", "cronometro_llamada", "atendidas_hoy", "aht_seg",
         "hora_inicio", "cronometro", "alerta"
     ]].rename(columns={
         "agente": "Asesor",
@@ -808,6 +839,7 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
         "coordinador": "Coordinador",
         "estado": "Estado Actual",
         "routing": "Estado ACD",
+        "chats_wsp_disp": "Chats WSP",
         "cronometro_llamada": "Tiempo Llamada",
         "atendidas_hoy": "Interacciones Hoy",
         "aht_seg": "AHT Hoy (seg)",
@@ -820,6 +852,7 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
         tabla_vista.style
         .map(estilo_estado, subset=["Estado Actual"])
         .map(estilo_routing, subset=["Estado ACD"])
+        .map(estilo_chats_wsp, subset=["Chats WSP"])
         .map(estilo_llamada, subset=["Tiempo Llamada"])
         .map(estilo_aht, subset=["AHT Hoy (seg)"])
         .map(estilo_alerta_col, subset=["Alerta en Vivo"])

@@ -46,7 +46,7 @@ except Exception as _zd_err:
 try:
     from adherencia_pausas_engine import render_subtab_pausas_pasajeros
 except Exception as _adh_err:
-    def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
+    def render_subtab_pausas_pasajeros(render_tab_historico_fn=None, agentes_map=None):
         if render_tab_historico_fn:
             render_tab_historico_fn()
 
@@ -2152,7 +2152,7 @@ if seccion_activa in ("✈️ LATAM Pasajeros", "Analisis de Pausas y Adherencia
         sub_pasajeros = def_sub
 
     if sub_pasajeros == "📡 Pausas y Adherencia":
-        render_subtab_pausas_pasajeros(render_tab_asesores_historico)
+        render_subtab_pausas_pasajeros(render_tab_asesores_historico, agentes_map=cargar_agentes_map_base())
     elif sub_pasajeros == "🔴 Control de Estados (en Vivo)":
         render_tab_en_vivo(cargar_agentes_map_base())
     elif sub_pasajeros == "📞 Niveles de Servicio":

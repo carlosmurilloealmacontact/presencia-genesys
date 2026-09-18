@@ -983,7 +983,7 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
                 st.info("Sin datos de pausas disponibles.")
 
 
-def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
+def render_subtab_pausas_pasajeros(render_tab_historico_fn=None, agentes_map: dict = None):
     """
     Submódulo integral de Pausas, Adherencia y Horas de Turno para LATAM Pasajeros.
     Unifica en una sola vista el cumplimiento de turno y la disciplina de pausas.
@@ -993,7 +993,8 @@ def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
 
     SUB_PAUSAS_PASAJEROS = [
         "⚡ Auditoría Integral: Turnos & Pausas Unificadas",
-        "📊 Histórico y Fuga de Estados Genesys"
+        "📊 Histórico y Fuga de Estados Genesys",
+        "💬 Simultaneidad WhatsApp (Pasajeros)"
     ]
     sel_sub = st.segmented_control(
         "Módulo de Cumplimiento Pasajeros",
@@ -1014,3 +1015,20 @@ def render_subtab_pausas_pasajeros(render_tab_historico_fn=None):
             render_tab_historico_fn(key_prefix="pasajeros_pausas_hist_", excluir_b2b_y_cargo=True)
         else:
             st.info("Cargando motor de pausas de Genesys...")
+    elif sel_sub == "💬 Simultaneidad WhatsApp (Pasajeros)":
+        from live_engine import obtener_token_genesys
+        from whatsapp_simultaneidad_engine import render_panel_simultaneidad_whatsapp_historico
+        token = obtener_token_genesys()
+        if not token:
+            st.warning("⚠️ No se encontró token activo de Genesys Cloud.")
+        else:
+            col_f, col_c = st.columns([1.2, 2.5])
+            with col_f:
+                f_sel = st.date_input("Fecha de Auditoría", value=datetime.now().date(), key="wsp_hist_fecha_sel")
+            with col_c:
+                mapa_ag = agentes_map if agentes_map else {}
+                coords = sorted(list(set(v.get("coordinador", "") for v in mapa_ag.values() if v.get("coordinador"))))
+                c_sel = st.selectbox("Filtrar por Coordinador", options=["TODOS"] + coords, key="wsp_hist_coord_sel")
+
+            render_panel_simultaneidad_whatsapp_historico(token, f_sel, mapa_ag, coordinador_filtro=c_sel)
+

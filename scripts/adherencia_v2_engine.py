@@ -92,9 +92,12 @@ def render_tab_adherencia_v2(agentes_map: dict = None, current_email: str = ""):
             ambito_sel = "✈️ Pasajeros"
             
     with c_sel2:
+        opciones_modo = ["📅 Vista Diaria (Auditoría Intradía)", "📈 Tendencia Multidía (Consolidado)"]
+        if ambito_code == "PASAJEROS":
+            opciones_modo.append("💬 Simultaneidad WhatsApp")
         modo_sel = st.segmented_control(
             "Modo de Análisis",
-            options=["📅 Vista Diaria (Auditoría Intradía)", "📈 Tendencia Multidía (Consolidado)"],
+            options=opciones_modo,
             default="📅 Vista Diaria (Auditoría Intradía)",
             key="v2_lab_modo",
             label_visibility="collapsed"
@@ -109,8 +112,24 @@ def render_tab_adherencia_v2(agentes_map: dict = None, current_email: str = ""):
     # Enrutar según el modo seleccionado
     if modo_sel == "📅 Vista Diaria (Auditoría Intradía)":
         _render_vista_diaria(ambito_code, ambito_sel)
-    else:
+    elif modo_sel == "📈 Tendencia Multidía (Consolidado)":
         _render_vista_multidia(ambito_code, ambito_sel)
+    elif modo_sel == "💬 Simultaneidad WhatsApp":
+        from live_engine import obtener_token_genesys
+        from whatsapp_simultaneidad_engine import render_panel_simultaneidad_whatsapp_historico
+        token = obtener_token_genesys()
+        if not token:
+            st.warning("⚠️ No se encontró token activo de Genesys Cloud.")
+        else:
+            col_f, col_c = st.columns([1.2, 2.5])
+            with col_f:
+                f_sel = st.date_input("Fecha de Auditoría", value=datetime.now().date(), key="v2_wsp_fecha_sel")
+            with col_c:
+                mapa_ag = agentes_map if agentes_map else {}
+                coords = sorted(list(set(v.get("coordinador", "") for v in mapa_ag.values() if v.get("coordinador"))))
+                c_sel = st.selectbox("Filtrar por Coordinador", options=["TODOS"] + coords, key="v2_wsp_coord_sel")
+
+            render_panel_simultaneidad_whatsapp_historico(token, f_sel, mapa_ag, coordinador_filtro=c_sel)
 
 
 # ==============================================================================
