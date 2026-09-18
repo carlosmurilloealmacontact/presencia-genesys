@@ -353,11 +353,13 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
     return df_res
 
 
-def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, tolerancia_min: int = 10, ambito: str = "TODOS") -> pd.DataFrame:
+def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, tolerancia_min: int = 20, ambito: str = "TODOS") -> pd.DataFrame:
     """
     Audita franja a franja la puntualidad y duración de cada pausa programada:
     Descanso 1, Descanso 2, Almuerzo, Diálogo 4DX y Capacitaciones.
     Cruza el horario programado contra los eventos de presence_label en segments.
+    Tolerancia por defecto de inicio: 20 min (absorbe llamadas en curso de Inbound).
+    Reconoce Offline intradía para Almuerzo.
     """
     bp_to_coord, bp_to_superv = obtener_mapa_bp_jerarquia()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
@@ -404,7 +406,7 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
     tipos_pausas = [
         ("Descanso 1 (Break)", "des_1_ini", "des_1_fin", {"Break", "Baño", "Pre Pausa", "Descanso"}),
         ("Descanso 2 (Break)", "des_2_ini", "des_2_fin", {"Break", "Baño", "Pre Pausa", "Descanso"}),
-        ("Almuerzo (Lunch)", "lunch_ini", "lunch_fin", {"Lunch", "Almuerzo"}),
+        ("Almuerzo (Lunch)", "lunch_ini", "lunch_fin", {"Lunch", "Almuerzo", "Refeição (sólo BR)"}),
         ("Diálogo Diario (4DX)", "dialogo_ini", "dialogo_fin", {"Diálogo Diario / 4DX", "PCA- Diálogo"}),
         ("Capacitación (Training)", "training_1_ini", "training_1_fin", {"Cursos Adicionales", "Refuerzo Semanal", "Training"})
     ]
@@ -430,6 +432,10 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
                 continue
             if es_persona_excluida(nom):
                 continue
+        else:
+            # En ámbito TODOS, descartar registros de cuentas ajenas (Claro, Chec, Colmedica) que no operan en el conmutador
+            if sub_seg is None and not any(k in srv.upper() for k in ["AMC", "LATAM", "LUA", "VENTAS", "EQUIPAJES", "HVC", "DT", "AGY", "AGENCIA", "CORPORATE", "BO_", "RRSS", "WPP", "CHAT", "SOPORTE"]):
+                continue
 
         if coordinador and coordinador != "Todos los Coordinadores":
             if not coord_real or coordinador.upper() not in coord_real.upper():
@@ -452,10 +458,18 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
 
             tramo_real = None
             if sub_seg is not None and not sub_seg.empty:
-                candidatos = sub_seg[sub_seg["presence_label"].isin(labels_presencia)].copy()
+                if "Almuerzo" in label_pausa:
+                    # Incluye Lunch, Almuerzo y desconexiones Offline intradía (entre 15 y 90 min)
+                    candidatos = sub_seg[
+                        (sub_seg["presence_label"].isin(labels_presencia)) |
+                        ((sub_seg["presence_label"] == "Offline") & (sub_seg["duracion_min"] <= 90.0) & (sub_seg["duracion_min"] >= 15.0))
+                    ].copy()
+                else:
+                    candidatos = sub_seg[sub_seg["presence_label"].isin(labels_presencia)].copy()
+
                 if not candidatos.empty:
                     candidatos["distancia"] = (candidatos["t_ini_min"] - prog_ini_min).abs()
-                    cercanos = candidatos[candidatos["distancia"] <= 90].sort_values("distancia")
+                    cercanos = candidatos[candidatos["distancia"] <= 120].sort_values("distancia")
                     if not cercanos.empty:
                         tramo_real = cercanos.iloc[0]
 
@@ -511,7 +525,7 @@ def calcular_auditoria_integral_unificada(fecha: str, coordinador: str = None, s
     Retorna (df_unificado, df_pausas_detalle).
     """
     df_horas = calcular_cumplimiento_horas_turno(fecha, coordinador=coordinador, supervisor=supervisor, servicio=servicio, ambito=ambito)
-    df_pausas = calcular_adherencia_pausas_intradia(fecha, coordinador=coordinador, supervisor=supervisor, servicio=servicio, tolerancia_min=10, ambito=ambito)
+    df_pausas = calcular_adherencia_pausas_intradia(fecha, coordinador=coordinador, supervisor=supervisor, servicio=servicio, tolerancia_min=20, ambito=ambito)
 
     if df_horas.empty:
         return pd.DataFrame(), df_pausas
