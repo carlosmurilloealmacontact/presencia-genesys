@@ -641,6 +641,47 @@ def obtener_metricas_gtr_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFra
                     "sl_denominator": tot_ent
                 }])
                 df_agg = pd.concat([df_agg, fila_b2b], ignore_index=True) if not df_agg.empty else fila_b2b
+
+        # Homologación y distribución de métricas para AGY N1 ESP CHAT y AGY N3 ESP CHAT desde Salesforce Chat
+        ag_chat_row = df_agg[df_agg["servicio"] == "AG CHAT ES"] if not df_agg.empty else pd.DataFrame()
+        if not ag_chat_row.empty:
+            r_chat = ag_chat_row.iloc[0]
+            ent_chat = r_chat.get("trafico_real", 0) or 0
+            aten_chat = r_chat.get("tHandle_count", 0) or 0
+            aht_chat = r_chat.get("aht_real_seg", 1223)
+            ns_chat = r_chat.get("ns_real", np.nan)
+            sl_num_chat = r_chat.get("sl_numerator", 0)
+            sl_den_chat = r_chat.get("sl_denominator", 0)
+            th_sum_chat = r_chat.get("tHandle_sum", 0.0)
+        else:
+            ent_chat = sum(cierres_dict[f].get("AG CHAT ES", {}).get("entrante", 0) for f in fechas_sel if f in cierres_dict)
+            aten_chat = sum(cierres_dict[f].get("AG CHAT ES", {}).get("atendido", 0) for f in fechas_sel if f in cierres_dict)
+            sl_num_chat = sum(cierres_dict[f].get("AG CHAT ES", {}).get("atendido_ns", 0) for f in fechas_sel if f in cierres_dict)
+            sl_den_chat = ent_chat
+            aht_chat = round(np.mean([cierres_dict[f].get("AG CHAT ES", {}).get("aht_real", 1223) for f in fechas_sel if f in cierres_dict])) if fechas_sel else 1223
+            ns_chat = round(sl_num_chat / ent_chat * 100.0, 1) if ent_chat > 0 else np.nan
+            th_sum_chat = aht_chat * aten_chat * 1000.0
+
+        for srv_subchat, factor in [("AGY N1 ESP CHAT", 0.53), ("AGY N3 ESP CHAT", 0.47)]:
+            tiene_ns = False
+            if not df_agg.empty and srv_subchat in df_agg["servicio"].values:
+                val_ns = df_agg.loc[df_agg["servicio"] == srv_subchat, "ns_real"].values[0]
+                tiene_ns = pd.notna(val_ns) and val_ns > 0
+
+            if not tiene_ns:
+                if not df_agg.empty and srv_subchat in df_agg["servicio"].values:
+                    df_agg = df_agg[df_agg["servicio"] != srv_subchat]
+                fila_sub = pd.DataFrame([{
+                    "servicio": srv_subchat,
+                    "trafico_real": int(round(ent_chat * factor)),
+                    "aht_real_seg": aht_chat,
+                    "ns_real": ns_chat,
+                    "tHandle_sum": th_sum_chat * factor,
+                    "tHandle_count": int(round(aten_chat * factor)),
+                    "sl_numerator": int(round(sl_num_chat * factor)),
+                    "sl_denominator": int(round(sl_den_chat * factor))
+                }])
+                df_agg = pd.concat([df_agg, fila_sub], ignore_index=True)
     except Exception:
         pass
 
