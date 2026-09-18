@@ -14,9 +14,9 @@ Características Principales:
    - Exclusión de contingencias generales
    - Cruce jerárquico Socio Maestro
    - Comprobación estricta de reincidencia (>=2 días de desvío para calificar como Infractor)
-3. Doble Visualización:
-   - Vista Operativa (Supervisores): Scatter Plot 4 cuadrantes, tabla semáforo, ficha forense por asesor.
-   - Vista Gerencial (Dirección): FTEs perdidos, impacto en horas, Pareto de concentración por supervisor y evolución por ciclos.
+3. Causa Raíz Explícita y Forense de Pausas:
+   - Motivo sintético e inmediato en la tabla principal (ej: Sobre-pausa en Baño/Break vs Baja conexión).
+   - Desglose forense de pausas (Baño, Break, Almuerzo, Coaching/4DX) día por día con semáforos de tolerancia.
 """
 
 import os
@@ -53,7 +53,8 @@ def _get_db():
 def cargar_universo_base_outliers(fecha_min: str = "2026-08-01", fecha_max: str = "2026-09-30") -> pd.DataFrame:
     """
     Carga y consolida en memoria el universo diario de turnos y presencia real
-    cruzando turnos_detallados con segments para todo el personal operativo.
+    cruzando turnos_detallados con segments para todo el personal operativo,
+    desglosando las pausas específicas (Baño, Break, Almuerzo, Coaching).
     """
     if not DB_PRESENCIA.exists():
         return pd.DataFrame()
@@ -67,6 +68,10 @@ def cargar_universo_base_outliers(fecha_min: str = "2026-08-01", fecha_max: str 
         COALESCE(t.horas_programadas, 8.0) AS horas_programadas,
         COALESCE(s.min_conectado, 0.0) AS min_conectado,
         COALESCE(s.min_pausas, 0.0) AS min_pausas,
+        COALESCE(s.min_break, 0.0) AS min_break,
+        COALESCE(s.min_bano, 0.0) AS min_bano,
+        COALESCE(s.min_lunch, 0.0) AS min_lunch,
+        COALESCE(s.min_coaching, 0.0) AS min_coaching,
         COALESCE(s.coordinador, '') AS coordinador,
         COALESCE(s.jefe_inmediato, '') AS jefe_inmediato
     FROM turnos_detallados t
@@ -76,6 +81,10 @@ def cargar_universo_base_outliers(fecha_min: str = "2026-08-01", fecha_max: str 
             fecha,
             SUM(CASE WHEN presence_label != 'Offline' THEN duracion_min ELSE 0.0 END) AS min_conectado,
             SUM(CASE WHEN presence_label IN ('Break', 'Baño', 'Almuerzo', 'Pre Pausa', 'Pausa Activa', 'Personal') THEN duracion_min ELSE 0.0 END) AS min_pausas,
+            SUM(CASE WHEN presence_label IN ('Break', 'Pre Pausa', 'Pausa Activa') THEN duracion_min ELSE 0.0 END) AS min_break,
+            SUM(CASE WHEN presence_label = 'Baño' THEN duracion_min ELSE 0.0 END) AS min_bano,
+            SUM(CASE WHEN presence_label IN ('Lunch', 'Almuerzo', 'Refeição (sólo BR)') THEN duracion_min ELSE 0.0 END) AS min_lunch,
+            SUM(CASE WHEN presence_label IN ('Feedback', 'Reunión Equipo', 'PCA - Feedback', 'PCA- Diálogo', 'Diálogo Diario / 4DX', 'Refuerzo Semanal', 'Cursos Adicionales') THEN duracion_min ELSE 0.0 END) AS min_coaching,
             MAX(coordinador) AS coordinador,
             MAX(jefe_inmediato) AS jefe_inmediato
         FROM segments
@@ -95,12 +104,16 @@ def cargar_universo_base_outliers(fecha_min: str = "2026-08-01", fecha_max: str 
     if df.empty:
         return df
 
-    # Limpieza de nombres y servicios
+    # Limpieza y coerción numérica
     df["nombre_agente"] = df["nombre_agente"].astype(str).str.strip()
     df["servicio"] = df["servicio"].astype(str).str.strip()
     df["horas_programadas"] = pd.to_numeric(df["horas_programadas"], errors="coerce").fillna(8.0)
     df["min_conectado"] = pd.to_numeric(df["min_conectado"], errors="coerce").fillna(0.0)
     df["min_pausas"] = pd.to_numeric(df["min_pausas"], errors="coerce").fillna(0.0)
+    df["min_break"] = pd.to_numeric(df["min_break"], errors="coerce").fillna(0.0)
+    df["min_bano"] = pd.to_numeric(df["min_bano"], errors="coerce").fillna(0.0)
+    df["min_lunch"] = pd.to_numeric(df["min_lunch"], errors="coerce").fillna(0.0)
+    df["min_coaching"] = pd.to_numeric(df["min_coaching"], errors="coerce").fillna(0.0)
 
     # Filtrar exclusiones estándar LATAM
     df = df[df["servicio"].apply(es_servicio_latam)]
@@ -135,25 +148,25 @@ def cargar_universo_base_outliers(fecha_min: str = "2026-08-01", fecha_max: str 
     df["ciclo_4dx"] = df.apply(etiquetar_ciclo_4dx, axis=1)
     df["mes_anio"] = df["dt"].dt.strftime("%Y-%m")
 
-    # 3. Métricas directas de cumplimiento
+    # 3. Métricas de adherencia y sobrepausa
     df["min_programados"] = df["horas_programadas"] * 60.0
     df["pct_adherencia"] = np.where(
         df["min_programados"] > 0,
         (df["min_conectado"] / df["min_programados"]) * 100.0,
         0.0
-    )
-    df["pct_adherencia"] = df["pct_adherencia"].clip(lower=0.0, upper=150.0)
-    df["min_productivo"] = np.maximum(0.0, df["min_conectado"] - df["min_pausas"])
+    ).clip(0.0, 150.0)
 
-    # Minutos de sobre-pausa (asumiendo estándar de descanso/almuerzo de 60m para turnos >= 6h)
-    cuota_pausa_esperada = np.where(df["horas_programadas"] >= 7.0, 60.0, 30.0)
-    df["min_exceso_pausa"] = np.maximum(0.0, df["min_pausas"] - cuota_pausa_esperada)
+    # Excesos de pausas específicas
+    # Tolerancia estándar: Baño 20m, Break 35m, Lunch 45m
+    df["exceso_bano"] = np.maximum(0.0, df["min_bano"] - 20.0)
+    df["exceso_break"] = np.maximum(0.0, df["min_break"] - 35.0)
+    df["cuota_pausa_esperada"] = np.where(df["horas_programadas"] >= 7.0, 60.0, 30.0)
+    df["min_exceso_pausa"] = np.maximum(0.0, df["min_pausas"] - df["cuota_pausa_esperada"])
 
     # Horas perdidas de conexión
     df["horas_perdidas"] = np.maximum(0.0, (df["min_programados"] - df["min_conectado"]) / 60.0)
 
-    # ── FILTRO ANTI-FALSOS POSITIVOS NIVEL 1 (Muestra Mínima Diaria) ───────────
-    # Si fue programado menos de 3h o estuvo conectado menos de 30m, se marca muestra insuficiente
+    # Filtro de muestra válida diaria
     df["muestra_valida"] = (df["horas_programadas"] >= 3.0) & (df["min_conectado"] >= 30.0)
 
     return df
@@ -170,23 +183,23 @@ def calcular_outliers_intra_servicio(df_sub: pd.DataFrame) -> pd.DataFrame:
     df_res = df_sub.copy()
     df_res["es_outlier_adherencia"] = False
     df_res["es_outlier_pausas"] = False
+    df_res["es_outlier_bano"] = False
     df_res["es_outlier_dia"] = False
     df_res["es_outlier_extremo"] = False
 
-    # Agrupamos por servicio para calcular percentiles relativos
     for srv, g in df_res.groupby("servicio"):
         g_val = g[g["muestra_valida"]]
         if len(g_val) < 5:
             continue
 
-        # 1. Adherencia (Outlier por abajo: cola izquierda)
+        # 1. Adherencia (Outlier por abajo)
         q1_adh = g_val["pct_adherencia"].quantile(0.25)
         q3_adh = g_val["pct_adherencia"].quantile(0.75)
         iqr_adh = q3_adh - q1_adh
         lim_inf_adh = max(0.0, q1_adh - (1.5 * iqr_adh))
         lim_ext_adh = max(0.0, q1_adh - (3.0 * iqr_adh))
 
-        # 2. Pausas (Outlier por arriba: cola derecha)
+        # 2. Pausas Totales (Outlier por arriba)
         q1_pau = g_val["min_pausas"].quantile(0.25)
         q3_pau = g_val["min_pausas"].quantile(0.75)
         iqr_pau = q3_pau - q1_pau
@@ -194,14 +207,15 @@ def calcular_outliers_intra_servicio(df_sub: pd.DataFrame) -> pd.DataFrame:
         lim_ext_pau = q3_pau + (3.0 * iqr_pau)
 
         idx = g.index
-        # Marcado condicional
         cond_adh = (df_res.loc[idx, "muestra_valida"]) & (df_res.loc[idx, "pct_adherencia"] < lim_inf_adh)
         cond_pau = (df_res.loc[idx, "muestra_valida"]) & (df_res.loc[idx, "min_pausas"] > lim_sup_pau)
+        cond_bano = (df_res.loc[idx, "muestra_valida"]) & (df_res.loc[idx, "min_bano"] > 25.0)
         cond_ext = (df_res.loc[idx, "pct_adherencia"] < lim_ext_adh) | (df_res.loc[idx, "min_pausas"] > lim_ext_pau)
 
         df_res.loc[idx, "es_outlier_adherencia"] = cond_adh
         df_res.loc[idx, "es_outlier_pausas"] = cond_pau
-        df_res.loc[idx, "es_outlier_dia"] = cond_adh | cond_pau
+        df_res.loc[idx, "es_outlier_bano"] = cond_bano
+        df_res.loc[idx, "es_outlier_dia"] = cond_adh | cond_pau | cond_bano
         df_res.loc[idx, "es_outlier_extremo"] = cond_ext
 
     return df_res
@@ -209,8 +223,7 @@ def calcular_outliers_intra_servicio(df_sub: pd.DataFrame) -> pd.DataFrame:
 
 def consolidar_infractores_periodo(df_eval: pd.DataFrame, min_dias_reincidencia: int = 2) -> pd.DataFrame:
     """
-    Agrupa por asesor para validar reincidencia (filtro compuerta 5).
-    Clasifica en los 4 Arquetipos Operativos.
+    Agrupa por asesor para validar reincidencia y genera el motivo de alerta explícito.
     """
     if df_eval.empty:
         return pd.DataFrame()
@@ -224,49 +237,77 @@ def consolidar_infractores_periodo(df_eval: pd.DataFrame, min_dias_reincidencia:
         dias_desvio_extremo=("es_outlier_extremo", "sum"),
         dias_desvio_adh=("es_outlier_adherencia", "sum"),
         dias_desvio_pau=("es_outlier_pausas", "sum"),
+        dias_desvio_bano=("es_outlier_bano", "sum"),
         pct_adh_prom=("pct_adherencia", "mean"),
         min_pau_prom=("min_pausas", "mean"),
+        min_break_prom=("min_break", "mean"),
+        min_bano_prom=("min_bano", "mean"),
+        min_lunch_prom=("min_lunch", "mean"),
         min_exceso_pau_total=("min_exceso_pausa", "sum"),
         horas_perdidas_total=("horas_perdidas", "sum"),
     ).reset_index()
 
-    # Redondeos ejecutivos
     grp["pct_adh_prom"] = grp["pct_adh_prom"].round(1)
     grp["min_pau_prom"] = grp["min_pau_prom"].round(1)
+    grp["min_break_prom"] = grp["min_break_prom"].round(1)
+    grp["min_bano_prom"] = grp["min_bano_prom"].round(1)
+    grp["min_lunch_prom"] = grp["min_lunch_prom"].round(1)
     grp["min_exceso_pau_total"] = grp["min_exceso_pau_total"].round(0)
     grp["horas_perdidas_total"] = grp["horas_perdidas_total"].round(1)
 
-    def clasificar_arquetipo(row):
+    def clasificar_arquetipo_y_motivo(row):
         d_desv = row["dias_desvio"]
         d_eval = row["dias_evaluados"]
         adh = row["pct_adh_prom"]
         pau = row["min_pau_prom"]
+        bano = row["min_bano_prom"]
+        brk = row["min_break_prom"]
+        perd = row["horas_perdidas_total"]
 
         if d_eval == 0:
-            return "Muestra Insuficiente", "#94a3b8", "⚪"
+            return "Muestra Insuficiente", "#94a3b8", "⚪", "Sin conexión representativa en el periodo"
 
-        # Infractor Confirmado: supera el umbral de reincidencia
+        # Determinación de Causas Raíz específicas
+        causas = []
+        if adh < 75.0:
+            causas.append(f"Baja conexión ({adh:.1f}%, -{perd:.1f}h)")
+        elif adh < 85.0:
+            causas.append(f"Conexión deficiente ({adh:.1f}%)")
+
+        if bano >= 25.0 and brk >= 40.0:
+            causas.append(f"Sobre-pausa severa en Baño ({bano:.0f}m) y Break ({brk:.0f}m)")
+        elif bano >= 25.0:
+            causas.append(f"Exceso en Baño (prom. {bano:.0f}m/día)")
+        elif brk >= 45.0:
+            causas.append(f"Exceso en Break (prom. {brk:.0f}m/día)")
+        elif pau >= 75.0:
+            causas.append(f"Exceso general en pausas (prom. {pau:.0f}m/día)")
+
+        motivo_texto = " + ".join(causas) if causas else "Desvío atípico intra-servicio"
+
+        # 1. Infractor Confirmado: supera el umbral de reincidencia
         if d_desv >= min_dias_reincidencia:
-            if d_desv >= 4 or row["dias_desvio_extremo"] >= 2:
-                return "Infractor Crítico (Alto Riesgo)", "#dc2626", "🚨"
-            return "Infractor Reincidente", "#ea580c", "🛑"
+            if d_desv >= 4 or row["dias_desvio_extremo"] >= 2 or adh < 65.0:
+                return "Infractor Crítico (Alto Riesgo)", "#dc2626", "🚨", f"🛑 Reincidente {d_desv} días: {motivo_texto}"
+            return "Infractor Reincidente", "#ea580c", "🛑", f"⚠️ Reincidente {d_desv} días: {motivo_texto}"
 
-        # 1 solo evento aislado: En observación
+        # 2. Un solo evento aislado
         if d_desv == 1:
-            return "En Observación (Alerta Preventiva)", "#f59e0b", "🟡"
+            return "En Observación (Alerta Preventiva)", "#f59e0b", "🟡", f"Incidencia aislada (1 día): {motivo_texto}"
 
-        # Sin desvíos estadísticos:
+        # 3. Sin desvíos
         if adh >= 92.0 and pau <= 65.0:
-            return "Top Performer (Alta Disciplina)", "#16a34a", "🟢"
+            return "Top Performer (Alta Disciplina)", "#16a34a", "🟢", "Operación ejemplar (adherencia y pausas en norma)"
         elif adh >= 85.0:
-            return "Cumplidor Estándar", "#2563eb", "🔵"
+            return "Cumplidor Estándar", "#2563eb", "🔵", "Desempeño dentro de parámetros esperados"
         else:
-            return "Rendimiento Moderado", "#64748b", "🔘"
+            return "Rendimiento Moderado", "#64748b", "🔘", "Sin infracciones estadísticas en el periodo"
 
-    arqs = grp.apply(clasificar_arquetipo, axis=1)
-    grp["arquetipo"] = [a[0] for a in arqs]
-    grp["color"] = [a[1] for a in arqs]
-    grp["icono"] = [a[2] for a in arqs]
+    res_diag = grp.apply(clasificar_arquetipo_y_motivo, axis=1)
+    grp["arquetipo"] = [r[0] for r in res_diag]
+    grp["color"] = [r[1] for r in res_diag]
+    grp["icono"] = [r[2] for r in res_diag]
+    grp["motivo_alerta"] = [r[3] for r in res_diag]
 
     grp["tasa_infraccion_pct"] = np.where(
         grp["dias_evaluados"] > 0,
@@ -289,7 +330,7 @@ def render_panel_outliers():
                         🎯 Detector de Outliers e Infracciones Operativas
                     </h2>
                     <p style="color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;">
-                        Laboratorio Privado • Blindaje estadístico anti-falsos positivos (IQR intra-servicio), auditoría multitemporal y matriz 4DX
+                        Laboratorio Privado • Blindaje estadístico anti-falsos positivos (IQR intra-servicio), causas raíz explícitas y auditoría multitemporal
                     </p>
                 </div>
                 <div style="text-align: right; background: #334155; padding: 6px 14px; border-radius: 8px; border: 1px solid #475569;">
@@ -444,10 +485,10 @@ def render_panel_outliers():
                 "supervisor": True,
                 "servicio": True,
                 "dias_desvio": True,
-                "dias_programados": True,
-                "horas_perdidas_total": True,
+                "motivo_alerta": True,
                 "pct_adh_prom": ":.1f%",
-                "min_pau_prom": ":.1f min"
+                "min_bano_prom": ":.1f min",
+                "min_break_prom": ":.1f min"
             },
             labels={
                 "pct_adh_prom": "% Adherencia Promedio (Conexión / Turno)",
@@ -462,13 +503,16 @@ def render_panel_outliers():
         fig_scatter.update_layout(margin=dict(l=20, r=20, t=30, b=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_scatter, use_container_width=True)
 
-        st.markdown("#### 📋 Expediente de Infractores Reincidentes")
+        # ── TABLA PRINCIPAL: EXPEDIENTE DE INFRACTORES CON MOTIVO EXPLÍCITO ───
+        st.markdown("#### 📋 Expediente de Infractores Reincidentes (Con Motivo Explícito)")
+        st.caption("Esta tabla detalla la causa raíz de la infracción sin necesidad de abrir la ficha individual.")
+
         df_infractores = df_resumen[df_resumen["dias_desvio"] >= min_reincidencia_requerida].copy()
 
         if not df_infractores.empty:
             cols_show = [
-                "icono", "nombre_agente", "supervisor", "servicio", "dias_desvio",
-                "dias_programados", "pct_adh_prom", "min_pau_prom", "horas_perdidas_total", "arquetipo"
+                "icono", "nombre_agente", "supervisor", "servicio", "motivo_alerta",
+                "dias_desvio", "pct_adh_prom", "min_bano_prom", "min_break_prom", "horas_perdidas_total"
             ]
             st.dataframe(
                 df_infractores[cols_show].rename(columns={
@@ -476,12 +520,12 @@ def render_panel_outliers():
                     "nombre_agente": "Asesor",
                     "supervisor": "Supervisor Inmediato",
                     "servicio": "Servicio",
+                    "motivo_alerta": "🎯 Causa Raíz / Motivo de Alerta",
                     "dias_desvio": "Días Desvío",
-                    "dias_programados": "Días Turno",
-                    "pct_adh_prom": "% Adherencia",
-                    "min_pau_prom": "Min Pausa/Día",
-                    "horas_perdidas_total": "Horas Perdidas",
-                    "arquetipo": "Diagnóstico"
+                    "pct_adh_prom": "% Adh.",
+                    "min_bano_prom": "Baño Prom.",
+                    "min_break_prom": "Break Prom.",
+                    "horas_perdidas_total": "Hrs Perdidas"
                 }),
                 use_container_width=True,
                 hide_index=True
@@ -489,54 +533,104 @@ def render_panel_outliers():
         else:
             st.success("🎉 ¡Excelente noticia! No se detectaron infractores reincidentes en el periodo y filtros seleccionados.")
 
+        # ── FICHA FORENSE INDIVIDUAL CON DETALLE DE PAUSAS DÍA POR DÍA ────────
         st.markdown("---")
-        st.markdown("#### 🔍 Ficha Forense del Asesor (Auditoría Día a Día)")
+        st.markdown("#### 🔍 Ficha Forense del Asesor (Auditoría Día a Día & Desglose de Pausas)")
         asesores_lista = df_resumen["nombre_agente"].tolist()
-        sel_asesor_forense = st.selectbox("Seleccione un asesor para auditar su detalle diario:", asesores_lista, index=0)
+        sel_asesor_forense = st.selectbox("Seleccione un asesor para auditar su detalle de pausas y conexión:", asesores_lista, index=0)
 
         df_asesor_dias = df_outliers_dia[df_outliers_dia["nombre_agente"] == sel_asesor_forense].sort_values("fecha")
         if not df_asesor_dias.empty:
-            c_f1, c_f2 = st.columns([1.2, 2.8])
-            with c_f1:
-                sup_asesor = df_asesor_dias["jefe_inmediato"].iloc[0] or "No registrado"
-                srv_asesor = df_asesor_dias["servicio"].iloc[0]
-                tot_desv = df_asesor_dias["es_outlier_dia"].sum()
-                tot_perd = df_asesor_dias["horas_perdidas"].sum()
-                st.markdown(
-                    f"""
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
-                        <h4 style="margin: 0 0 6px 0; color: #0f172a;">👤 {sel_asesor_forense}</h4>
-                        <div style="font-size: 12px; color: #64748b;"><b>Supervisor:</b> {sup_asesor}</div>
-                        <div style="font-size: 12px; color: #64748b;"><b>Servicio:</b> {srv_asesor}</div>
-                        <hr style="margin: 8px 0; border: 0; border-top: 1px solid #e2e8f0;">
-                        <div style="font-size: 13px; color: #dc2626;"><b>Días en Infracción:</b> {tot_desv} jornadas</div>
-                        <div style="font-size: 13px; color: #475569;"><b>Horas Perdidas:</b> {tot_perd:.1f} hrs</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            with c_f2:
-                df_forense_tbl = df_asesor_dias[[
-                    "fecha", "horas_programadas", "min_conectado", "min_pausas", "pct_adherencia", "es_outlier_dia"
-                ]].copy()
-                df_forense_tbl["min_conectado"] = df_forense_tbl["min_conectado"].round(0).astype(int)
-                df_forense_tbl["min_pausas"] = df_forense_tbl["min_pausas"].round(0).astype(int)
-                df_forense_tbl["pct_adherencia"] = df_forense_tbl["pct_adherencia"].round(1)
-                df_forense_tbl["Estado Día"] = df_forense_tbl["es_outlier_dia"].map({True: "🛑 Infracción Atípica", False: "🟢 Conforme"})
+            sup_asesor = df_asesor_dias["jefe_inmediato"].iloc[0] or "No registrado"
+            srv_asesor = df_asesor_dias["servicio"].iloc[0]
+            tot_desv = df_asesor_dias["es_outlier_dia"].sum()
+            tot_perd = df_asesor_dias["horas_perdidas"].sum()
+            prom_adh = df_asesor_dias["pct_adherencia"].mean()
+            prom_bano = df_asesor_dias["min_bano"].mean()
+            prom_break = df_asesor_dias["min_break"].mean()
+            prom_lunch = df_asesor_dias["min_lunch"].mean()
 
-                st.dataframe(
-                    df_forense_tbl[[
-                        "fecha", "horas_programadas", "min_conectado", "min_pausas", "pct_adherencia", "Estado Día"
-                    ]].rename(columns={
-                        "fecha": "Fecha",
-                        "horas_programadas": "Horas Prog.",
-                        "min_conectado": "Min Conectado",
-                        "min_pausas": "Min Pausas",
-                        "pct_adherencia": "% Adherencia"
-                    }),
-                    use_container_width=True,
-                    hide_index=True
+            # Tarjetas de auditoría de pausas del asesor seleccionado
+            c_af1, c_af2, c_af3, c_af4 = st.columns(4)
+            with c_af1:
+                st.metric(
+                    "🚽 Baño / Necesidades",
+                    f"{prom_bano:.0f} min/día",
+                    f"{prom_bano - 20.0:+.0f} min vs límite (20m)" if prom_bano > 20 else "Dentro de norma",
+                    delta_color="inverse" if prom_bano > 20 else "normal"
                 )
+            with c_af2:
+                st.metric(
+                    "☕ Break / Descanso",
+                    f"{prom_break:.0f} min/día",
+                    f"{prom_break - 35.0:+.0f} min vs límite (35m)" if prom_break > 35 else "Dentro de norma",
+                    delta_color="inverse" if prom_break > 35 else "normal"
+                )
+            with c_af3:
+                st.metric(
+                    "🍽️ Almuerzo / Lunch",
+                    f"{prom_lunch:.0f} min/día",
+                    "Programado" if prom_lunch > 0 else "Sin registro",
+                )
+            with c_af4:
+                st.metric(
+                    "📉 Conexión Neta",
+                    f"{prom_adh:.1f}%",
+                    f"-{tot_perd:.1f} hrs no prestadas",
+                    delta_color="inverse" if prom_adh < 85 else "normal"
+                )
+
+            st.markdown(f"**Expediente Día a Día de `{sel_asesor_forense}` (Supervisor: {sup_asesor} | {srv_asesor}):**")
+
+            # Diagnóstico explícito por día
+            def diagnosticar_dia(row):
+                if not row["muestra_valida"]:
+                    return "⚪ Turno no representativo (<3h)"
+                if not row["es_outlier_dia"]:
+                    return "🟢 Conforme"
+
+                fallas = []
+                if row["min_bano"] > 25.0:
+                    fallas.append(f"Exceso Baño ({int(row['min_bano'])}m)")
+                if row["min_break"] > 40.0:
+                    fallas.append(f"Exceso Break ({int(row['min_break'])}m)")
+                if row["pct_adherencia"] < 75.0:
+                    fallas.append(f"Baja conexión ({row['pct_adherencia']:.1f}%)")
+                elif row["es_outlier_adherencia"]:
+                    fallas.append(f"Adherencia bajo norma ({row['pct_adherencia']:.1f}%)")
+
+                return "🛑 " + (" + ".join(fallas) if fallas else "Desvío estadístico del servicio")
+
+            df_asesor_dias["Diagnóstico del Día"] = df_asesor_dias.apply(diagnosticar_dia, axis=1)
+
+            cols_tbl = [
+                "fecha", "horas_programadas", "min_conectado", "min_bano", "min_break", "min_lunch", "min_coaching",
+                "pct_adherencia", "Diagnóstico del Día"
+            ]
+
+            df_show_forense = df_asesor_dias[cols_tbl].copy()
+            df_show_forense["min_conectado"] = df_show_forense["min_conectado"].round(0).astype(int)
+            df_show_forense["min_bano"] = df_show_forense["min_bano"].round(0).astype(int)
+            df_show_forense["min_break"] = df_show_forense["min_break"].round(0).astype(int)
+            df_show_forense["min_lunch"] = df_show_forense["min_lunch"].round(0).astype(int)
+            df_show_forense["min_coaching"] = df_show_forense["min_coaching"].round(0).astype(int)
+            df_show_forense["pct_adherencia"] = df_show_forense["pct_adherencia"].round(1)
+
+            st.dataframe(
+                df_show_forense.rename(columns={
+                    "fecha": "Fecha",
+                    "horas_programadas": "Horas Prog.",
+                    "min_conectado": "Min Conexión",
+                    "min_bano": "Baño (m)",
+                    "min_break": "Break (m)",
+                    "min_lunch": "Almuerzo (m)",
+                    "min_coaching": "Coaching/4DX (m)",
+                    "pct_adherencia": "% Adh.",
+                    "Diagnóstico del Día": "📋 Veredicto de la Jornada"
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 2: VISTA GERENCIAL
@@ -559,7 +653,7 @@ def render_panel_outliers():
                         <li>Equivalente a <b>{round(horas_perdidas_infractores / 8.0, 1)} turnos completos</b> perdidos.</li>
                     </ul>
                     <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 10px 12px; border-radius: 6px; font-size: 12px; color: #991b1b; margin-top: 10px;">
-                        💡 <b>Recomendación 4DX:</b> Focalizar compromisos 1 a 1 en los 3 supervisores con mayor concentración de reincidencia.
+                        💡 <b>Recomendación 4DX:</b> Focalizar compromisos 1 a 1 en los supervisores con mayor concentración de reincidencia en la gráfica contigua.
                     </div>
                 </div>
                 """,
