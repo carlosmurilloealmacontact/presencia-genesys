@@ -1259,40 +1259,48 @@ def consultar_cumplimiento_turnos_y_pausas(agente_o_supervisor: str, fecha: str 
 
 
 def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_coordinador: str = "") -> str:
-    """Consulta el Nivel de Servicio (% NS, llamadas/chats ofrecidos, atendidos, abandono y AHT) de las colas de Genesys Cloud."""
+    """Consulta el Nivel de Servicio (% NS, llamadas/chats ofrecidos, atendidos, abandono y AHT) de las colas de Genesys Cloud TANTO EN TIEMPO REAL (HOY EN VIVO) COMO HISTÓRICO."""
     try:
         try:
             from scripts.live_engine import obtener_token_genesys
-            from scripts.gtr_engine import obtener_metricas_gtr_historico_api, formatear_segundos_mm_ss
+            from scripts.gtr_engine import obtener_metricas_gtr_api, obtener_metricas_gtr_historico_api, formatear_segundos_mm_ss
         except ImportError:
             from live_engine import obtener_token_genesys
-            from gtr_engine import obtener_metricas_gtr_historico_api, formatear_segundos_mm_ss
+            from gtr_engine import obtener_metricas_gtr_api, obtener_metricas_gtr_historico_api, formatear_segundos_mm_ss
     except Exception as e:
         return json.dumps({"error": f"Error importando módulos de GTR / Genesys: {e}"})
-
-
-    fecha = normalizar_fecha(fecha)
-    if not fecha:
-        fecha = "2026-09-17"
 
     token = obtener_token_genesys()
     if not token:
         return json.dumps({"error": "No se pudo obtener token de Genesys Cloud para consultar Nivel de Servicio."})
 
-    df_hist, err = obtener_metricas_gtr_historico_api(token, fecha, fecha, "P1D")
-    if err or df_hist is None or df_hist.empty:
+    f_clean = str(fecha or "").strip().lower()
+    es_en_vivo = f_clean in ["", "hoy", "today", "en vivo", "tiempo real", "actual", "ahora", "ahora mismo"] or "vivo" in f_clean or "real" in f_clean
+
+    if es_en_vivo:
+        df_calc_raw, err, hora_corte = obtener_metricas_gtr_api(token)
+        fecha_reporte = f"En Vivo Hoy ({hora_corte})"
+    else:
+        fecha_normalizada = normalizar_fecha(fecha)
+        if not fecha_normalizada:
+            fecha_normalizada = "2026-09-17"
+        df_calc_raw, err = obtener_metricas_gtr_historico_api(token, fecha_normalizada, fecha_normalizada, "P1D")
+        fecha_reporte = fecha_normalizada
+
+    if err or df_calc_raw is None or df_calc_raw.empty:
         return json.dumps({"error": f"No se obtuvieron métricas de colas de Genesys: {err or 'Sin datos'}"})
 
     servicios_filtro = []
     persona_oficial = ""
     if supervisor_o_coordinador:
         conn = sqlite3.connect(str(DB_PATH))
-        persona_oficial = resolver_supervisor(conn, supervisor_o_coordinador, fecha)
+        f_lookup = fecha_normalizada if (not es_en_vivo and 'fecha_normalizada' in locals()) else "2026-09-17"
+        persona_oficial = resolver_supervisor(conn, supervisor_o_coordinador, f_lookup)
         c = conn.cursor()
         c.execute("""
             SELECT DISTINCT servicio FROM segments
             WHERE fecha=? AND (coordinador=? OR jefe_inmediato=?)
-        """, (fecha, persona_oficial, persona_oficial))
+        """, (f_lookup, persona_oficial, persona_oficial))
         servicios_filtro = [r[0] for r in c.fetchall() if r[0]]
         if any("LUA AMC" in s for s in servicios_filtro):
             servicios_filtro.append("Soporte LUA AMC")
@@ -1301,7 +1309,7 @@ def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_c
     if servicio:
         servicios_filtro = [servicio]
 
-    df_calc = df_hist.copy()
+    df_calc = df_calc_raw.copy()
     if servicios_filtro:
         mask = pd.Series(False, index=df_calc.index)
         for sf in servicios_filtro:
@@ -1310,8 +1318,9 @@ def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_c
 
     if df_calc.empty:
         return json.dumps({
-            "fecha": fecha,
-            "mensaje": f"No se encontraron colas con tráfico para los filtros especificados en la fecha {fecha}."
+            "fecha": fecha_reporte,
+            "es_tiempo_real": es_en_vivo,
+            "mensaje": f"No se encontraron colas con tráfico para los filtros especificados en {fecha_reporte}."
         })
 
     df_ns = df_calc.groupby("servicio").agg({
@@ -1361,7 +1370,8 @@ def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_c
         })
 
     return json.dumps({
-        "fecha": fecha,
+        "fecha": fecha_reporte,
+        "es_tiempo_real": es_en_vivo,
         "coordinador_o_supervisor": persona_oficial if persona_oficial else (servicio if servicio else "Consolidado General"),
         "resumen_consolidado": {
             "nivel_de_servicio_global": f"{ns_ponderado}%",
@@ -1534,13 +1544,13 @@ TOOLS_DECLARATIONS = [
     },
     {
         "name": "consultar_nivel_servicio",
-        "description": "Consulta los NIVELES DE SERVICIO (% NS, SLA contractual 75.3% / 80%, llamadas/chats ofrecidos, atendidos, porcentaje de abandono y AHT) de las colas de atención de Genesys Cloud. Permite filtrar por servicio (ej. 'LUA AMC', 'VENTAS') o por coordinador/supervisor (ej. 'Yineidis Carbono', 'David Jaramillo').",
+        "description": "Consulta los NIVELES DE SERVICIO (% NS, SLA contractual 75.3% / 80%, llamadas/chats ofrecidos, atendidos, porcentaje de abandono y AHT) de las colas de atención de Genesys Cloud TANTO EN TIEMPO REAL (EN VIVO HOY / EN ESTE MOMENTO) COMO HISTÓRICOS. Si preguntan por nivel de servicio ahora, en vivo, hoy, en este momento, o de ayer: SIEMPRE llama a esta herramienta. Permite consultar el consolidado global de todos los servicios, o filtrar por servicio (ej. 'LUA AMC', 'CORPORATE PYME') o por coordinador/supervisor (ej. 'Yineidis Carbono', 'David Jaramillo').",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "servicio": {"type": "STRING", "description": "Nombre del servicio o campaña a evaluar, ej. 'LUA AMC' o 'VENTAS AMC'"},
-                "supervisor_o_coordinador": {"type": "STRING", "description": "Nombre del coordinador o supervisor cuyos servicios se desean evaluar, ej. 'Yineidis Carbono'"},
-                "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD (ej. 2026-09-17)"}
+                "servicio": {"type": "STRING", "description": "Nombre opcional del servicio o campaña a evaluar, ej. 'LUA AMC' o 'VENTAS AMC'. Dejar vacío para consolidado global de todos los servicios."},
+                "supervisor_o_coordinador": {"type": "STRING", "description": "Nombre opcional del coordinador o supervisor cuyos servicios se desean evaluar, ej. 'Yineidis Carbono'"},
+                "fecha": {"type": "STRING", "description": "Fecha opcional YYYY-MM-DD (ej. '2026-09-17') o 'hoy' / 'en vivo' / 'ahora' para tiempo real."}
             }
         }
     },
@@ -1660,13 +1670,15 @@ Si te preguntan quién eres, cómo te llamas o qué haces, preséntate con orgul
 
 REGLAS TEMPORALES Y OPERATIVAS CLAVE:
 1. DISTINCIÓN TEMPORAL CRÍTICA: ¿TIEMPO REAL vs HISTÓRICO?
-   - **TIEMPO REAL (EN VIVO AHORA MISMO)**:
-     * Si el usuario pregunta por el estado ACTUAL: **"ahora"**, **"en este momento"**, **"en vivo"**, **"en este instante"**, **"actualmente"**, **"ya"**, **"quién está en break en este momento"**, **"cuántos disponibles hay ahora"**, **"cómo está el equipo de David en vivo"**:
+   - **TIEMPO REAL (EN VIVO AHORA MISMO / HOY)**:
+     * Si el usuario pregunta por el estado ACTUAL de agentes: **"ahora"**, **"en este momento"**, **"en vivo"**, **"en este instante"**, **"actualmente"**, **"ya"**, **"quién está en break en este momento"**, **"cuántos disponibles hay ahora"**, **"cómo está el equipo de David en vivo"**:
        👉 DEBES LLAMAR INMEDIATAMENTE A `consultar_presencia_tiempo_real(filtro_busqueda=..., estado_presencia=...)`.
-       NUNCA vayas a buscar fecha histórica de ayer cuando la pregunta sea explícitamente en tiempo real o en vivo.
+     * Si el usuario pregunta por el **NIVEL DE SERVICIO (% NS), SLA, LLAMADAS O TRÁFICO EN TIEMPO REAL / HOY / EN ESTE MOMENTO**:
+       👉 DEBES LLAMAR INMEDIATAMENTE A `consultar_nivel_servicio(fecha="hoy", servicio=...)`.
+       ⚠️ NUNCA digas que no tienes capacidad para ver el nivel de servicio en tiempo real o que solo ves histórico. Tienes conexión directa a la API de Genesys Cloud en vivo hoy con métricas intradía por cola.
    - **HISTÓRICO / REGISTROS PASADOS**:
      * El año operativo histórico de la base de datos de Genesys/presencia es **2026** (agosto y septiembre de 2026). La fecha de referencia activa y más reciente cerrada es **2026-09-17**.
-     * Si el usuario dice "ayer", "17 de sep", "17 de septiembre", "cómo le fue a...", "cuántos faltaron ayer": llama a las herramientas históricas (`consultar_equipo_supervisor`, `consultar_cumplimiento_turnos_y_pausas`, `consultar_asesor`, `consultar_ausentismos`).
+     * Si el usuario dice "ayer", "17 de sep", "17 de septiembre", "cómo le fue a...", "cuántos faltaron ayer": llama a las herramientas históricas (`consultar_equipo_supervisor`, `consultar_cumplimiento_turnos_y_pausas`, `consultar_asesor`, `consultar_ausentismos`, o `consultar_nivel_servicio(fecha='2026-09-17')`).
 
 2. DISTINCIÓN CRÍTICA ENTRE PLATAFORMAS (ZENDESK vs GENESYS vs SALESFORCE):
    - **ZENDESK SUPPORT (BACK OFFICE)**:
@@ -1674,8 +1686,8 @@ REGLAS TEMPORALES Y OPERATIVAS CLAVE:
        👉 DEBES LLAMAR INMEDIATAMENTE A `consultar_zendesk_backoffice`.
        NUNCA vayas a Salesforce ni a Genesys para casos de Back Office BO LUA.
    - **GENESYS CLOUD (VOZ, WHATSAPP, PRESENCIA, ADHERENCIA Y TRÁFICO)**:
-     * Si el usuario pregunta por: **"NIVEL DE SERVICIO"**, **"% NS"**, **"SLA"**, **"TRÁFICO"**, **"LLAMADAS ATENDIDAS"**, **"ABANDONO"**, **"AHT"**:
-       👉 Llama a `consultar_nivel_servicio`.
+     * Si el usuario pregunta por: **"NIVEL DE SERVICIO"**, **"% NS"**, **"SLA"**, **"TRÁFICO"**, **"LLAMADAS ATENDIDAS"**, **"ABANDONO"**, **"AHT"** (sea en TIEMPO REAL HOY o HISTÓRICO):
+       👉 Llama SIEMPRE a `consultar_nivel_servicio`. Si es para hoy o en vivo usa `fecha='hoy'`.
      * Si el usuario pregunta por: **"PUNTUALIDAD"**, **"HORA DE CONEXIÓN"**, **"CUMPLIMIENTO DE TURNOS"**, **"CUMPLIMIENTO DE PAUSAS"**, **"TARDANZAS"**, **"QUIÉN LLEGÓ TARDE"**, **"EXCESOS DE BREAK O ALMUERZO"**:
        👉 Llama a `consultar_cumplimiento_turnos_y_pausas(agente_o_supervisor=..., fecha=...)`.
      * Si el usuario pregunta por: **"PAUSAS EN GENERAL"**, **"ASISTENCIA"**, **"AUSENCIAS"**, **"TIEMPOS EN AVAILABLE"**:
