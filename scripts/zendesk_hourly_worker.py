@@ -89,22 +89,42 @@ def recalcular_demanda():
 def sincronizar_git():
     """Realiza commit y push silencioso de los datos para mantener actualizado Streamlit Cloud."""
     try:
-        res = subprocess.run(
-            ["git", "status", "--porcelain", "data/zendesk", "data/salesforce_live_status.json"],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=15
-        )
-        if res.stdout.strip():
-            subprocess.run(["git", "add", "data/zendesk", "data/salesforce_live_status.json"], cwd=str(PROJECT_ROOT), capture_output=True, timeout=15)
+        # 1. Agregar de forma segura las carpetas y archivos de datos existentes
+        rutas = ["data/zendesk/"]
+        sf_state = PROJECT_ROOT / "data" / "salesforce_state.json"
+        if sf_state.exists():
+            rutas.append("data/salesforce_state.json")
+
+        for r in rutas:
+            subprocess.run(["git", "add", r], cwd=str(PROJECT_ROOT), capture_output=True, timeout=15)
+
+        # 2. Verificar si hay cambios en el stage listos para commit
+        chk = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=str(PROJECT_ROOT), timeout=10)
+        if chk.returncode != 0:  # Hay cambios en stage
             ts = get_colombia_now().strftime("%Y-%m-%d %H:%M")
-            subprocess.run(["git", "commit", "-m", f"Auto-sync Zendesk/Salesforce [{ts}]"], cwd=str(PROJECT_ROOT), capture_output=True, timeout=15)
-            push_res = subprocess.run(["git", "push", "origin", "main"], cwd=str(PROJECT_ROOT), capture_output=True, timeout=40)
-            if push_res.returncode == 0:
-                print("  [GIT] ✅ Cambios sincronizados y subidos a origin/main para Streamlit Cloud.")
+            c_res = subprocess.run(
+                ["git", "commit", "-m", f"Auto-sync Zendesk/Salesforce [{ts}]"],
+                cwd=str(PROJECT_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if c_res.returncode == 0:
+                push_res = subprocess.run(
+                    ["git", "push", "origin", "main"],
+                    cwd=str(PROJECT_ROOT),
+                    capture_output=True,
+                    text=True,
+                    timeout=45
+                )
+                if push_res.returncode == 0:
+                    print(f"  [GIT] ✅ Cambios sincronizados y subidos a origin/main para Streamlit Cloud ({ts}).")
+                else:
+                    print(f"  [GIT] [WARN] Push retornó error: {push_res.stderr.strip()[:200]}")
             else:
-                print(f"  [GIT] [WARN] Push retornó código {push_res.returncode}.")
+                print(f"  [GIT] [WARN] Commit falló: {c_res.stderr.strip()[:200]}")
+        else:
+            print("  [GIT] ℹ️ Sin cambios en datos para sincronizar con Streamlit Cloud.")
     except Exception as e:
         print(f"  [GIT] [WARN] Sincronización git omitida: {e}")
 
@@ -254,6 +274,19 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
     - Sincronización continua de Git.
     - Blindado contra interrupciones o fallos de red.
     """
+    # Evitar múltiples instancias concurrentes del demonio
+    pid_actual = os.getpid()
+    try:
+        chk_zd = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*zendesk_hourly_worker*' -and $_.ProcessId -ne {pid_actual} }} | Select-Object -ExpandProperty ProcessId"],
+            capture_output=True, text=True, timeout=5
+        )
+        if chk_zd.stdout.strip():
+            print(f"  [AVISO] Ya existe otra instancia activa de zendesk_hourly_worker (PID {chk_zd.stdout.strip().splitlines()[0]}). Saliendo para evitar colisiones.")
+            return
+    except Exception:
+        pass
+
     print(f"🚀 Iniciando Demonio Híbrido Autónomo:")
     print(f"   • Zendesk Fast Sync: cada {intervalo_fast_segundos // 60} min (Backlog en tiempo real + Productividad hoy)")
     print(f"   • Zendesk Full Sync: cada {ciclos_para_full * (intervalo_fast_segundos // 60)} min (Dump profundo, Tipologías, Demanda Inflow/Outflow)")
