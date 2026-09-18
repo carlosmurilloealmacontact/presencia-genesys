@@ -104,6 +104,15 @@ except Exception as _fb_err:
     def render_panel_gestion_feedback(*args, **kwargs):
         st.error(f"Error cargando panel de feedback: {_fb_err}")
 
+try:
+    from outlier_engine import render_panel_outliers
+except ImportError:
+    try:
+        from scripts.outlier_engine import render_panel_outliers
+    except ImportError:
+        def render_panel_outliers(*args, **kwargs):
+            st.info("Módulo de Outliers no disponible.")
+
 # ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
 try:
     auth_configurado = "auth" in st.secrets
@@ -1277,6 +1286,7 @@ if es_carlos:
     SECCIONES_APP.append("🤖 Copiloto 4DX")
     SECCIONES_APP.append("🧪 Capacidad 2.0 (Lab)")
     SECCIONES_APP.append("🧪 Adherencia & Pausas 2.0 (Lab)")
+    SECCIONES_APP.append("🎯 Detector de Outliers (Lab)")
 
 if current_email in ADMINS_AUTORIZADOS or not auth_configurado:
     SECCIONES_APP.append("📊 Estadísticas de Usabilidad")
@@ -2199,6 +2209,12 @@ elif seccion_activa == "🧪 Capacidad 2.0 (Lab)":
 
 elif seccion_activa == "🧪 Adherencia & Pausas 2.0 (Lab)":
     render_tab_adherencia_v2(cargar_agentes_map_base(), current_email)
+
+elif seccion_activa == "🎯 Detector de Outliers (Lab)":
+    if es_carlos:
+        render_panel_outliers()
+    else:
+        st.warning("🔒 Este módulo se encuentra actualmente en fase de pruebas exclusivas para Carlos Murillo.")
 
 elif seccion_activa == "📊 Estadísticas de Usabilidad":
     st.markdown(
