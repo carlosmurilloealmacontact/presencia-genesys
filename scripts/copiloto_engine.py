@@ -9,14 +9,17 @@ from datetime import datetime
 from pathlib import Path
 import pandas as pd
 import streamlit as st
+import sys
 
+VERTEX_ERROR = ""
 try:
     from google import genai
     from google.genai import types
     from google.oauth2 import service_account
     VERTEX_AVAILABLE = True
-except Exception:
+except Exception as _ve:
     VERTEX_AVAILABLE = False
+    VERTEX_ERROR = str(_ve)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "data" / "presencia.db"
@@ -31,7 +34,7 @@ MODEL_NAME = "gemini-2.5-flash"
 def _obtener_cliente_vertex():
     """Inicializa el cliente oficial de Google GenAI con Vertex AI (soporta Streamlit Cloud secrets y local)."""
     if not VERTEX_AVAILABLE:
-        return None, "La librería `google-genai` no está disponible en este entorno de Python."
+        return None, f"La librería `google-genai` no está instalada en el contenedor ({VERTEX_ERROR}). Streamlit Cloud necesita reiniciar para instalarla desde requirements.txt."
     
     # 1. Soporte para Streamlit Cloud vía st.secrets["gcp_service_account"]
     if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
