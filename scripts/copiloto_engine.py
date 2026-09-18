@@ -31,21 +31,33 @@ MODEL_NAME = "gemini-2.5-flash"
 def _obtener_cliente_vertex():
     """Inicializa el cliente oficial de Google GenAI con Vertex AI (soporta Streamlit Cloud secrets y local)."""
     if not VERTEX_AVAILABLE:
-        return None
-    try:
-        # 1. Soporte para Streamlit Cloud vía st.secrets["gcp_service_account"]
-        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-            sa_info = dict(st.secrets["gcp_service_account"])
+        return None, "La librería `google-genai` no está disponible en este entorno de Python."
+    
+    # 1. Soporte para Streamlit Cloud vía st.secrets["gcp_service_account"]
+    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+        try:
+            sa_raw = st.secrets["gcp_service_account"]
+            if isinstance(sa_raw, str):
+                sa_info = json.loads(sa_raw)
+            else:
+                sa_info = dict(sa_raw)
             creds = service_account.Credentials.from_service_account_info(
                 sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
-            return genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION, credentials=creds)
+            client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION, credentials=creds)
+            return client, None
+        except Exception as err_sa:
+            return None, f"Error leyendo `[gcp_service_account]` en Streamlit Secrets: {err_sa}"
 
-        # 2. Fallback local / Application Default Credentials
-        return genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    # 2. Fallback local / Application Default Credentials
+    try:
+        client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+        return client, None
     except Exception as e:
-        print(f"Error inicializando cliente Vertex AI: {e}")
-        return None
+        return None, (
+            "Faltan las credenciales de Google Cloud en Streamlit Cloud. "
+            "Debes agregar el bloque `[gcp_service_account]` en los Secrets de la aplicación en share.streamlit.io (Settings > Secrets)."
+        )
 
 
 def obtener_fechas_disponibles() -> str:
@@ -395,14 +407,16 @@ REGLAS CRÍTICAS:
 - Regla de Oro de Marely Cardona: Quienes están bajo supervisión de Marely Cardona pertenecen exclusivamente a Agencias B2B (Corporativo/Pyme). Están blindados y separados de LATAM Pasajeros.
 - Formato de respuesta: Responde siempre de manera ejecutiva, clara, cordial y profesional. Usa viñetas estructuradas, negritas para métricas clave y tablas Markdown cuando presentes listados o comparativos.
 - Si una persona no tiene login en Genesys pero tiene casos en Salesforce, aclara explícitamente que fue RESCATADO por actividad en Salesforce.
+- Manejo de fechas relativas: Si el usuario pregunta por "ayer", "hoy" o una fecha relativa sin especificar fecha exacta (YYYY-MM-DD), ejecuta primero 'obtener_fechas_disponibles' para usar la fecha más reciente de datos disponibles (por ejemplo 2026-09-17).
+- Búsqueda por áreas/campañas: Si el usuario pregunta por "ventas", evalúa los servicios que coincidan como 'CHAT VENTAS AMC', 'VENTAS AMC', 'Ventas AMC' o 'WPP VENTAS AMC'.
 """
 
 
 def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -> str:
     """Ejecuta una consulta contra Vertex AI utilizando las herramientas locales y el historial de chat."""
-    client = _obtener_cliente_vertex()
+    client, error_msg = _obtener_cliente_vertex()
     if not client:
-        return "⚠️ Error: No se pudo conectar con Vertex AI. Verifica las credenciales de Google Cloud o el entorno local."
+        return f"⚠️ {error_msg}"
 
     try:
         # Formatear contenidos
@@ -452,6 +466,15 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
         """,
         unsafe_allow_html=True
     )
+
+    # Validar conexión con Vertex AI
+    client_test, client_err = _obtener_cliente_vertex()
+    if not client_test:
+        st.warning(
+            f"⚙️ **Configuración requerida en Streamlit Cloud:**\n\n"
+            f"{client_err}\n\n"
+            "👉 Para solucionarlo: Entra a tu consola de **Streamlit Cloud** (share.streamlit.io) ➔ **Settings** ➔ **Secrets** y pega las credenciales de `[gcp_service_account]`."
+        )
 
     # Inicializar historial en session_state
     if "copiloto_chat_history" not in st.session_state:
