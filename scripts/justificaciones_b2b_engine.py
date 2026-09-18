@@ -491,7 +491,17 @@ def generar_justificacion_automatica_avanzada(datos_m: dict, observacion_manual:
             partes.append(f"El AHT cerró favorable en {int(aht_real)}s ({abs(dif_aht)}s por debajo de meta).")
 
     elif sobredemanda >= 10.0:
-        partes.append(f"Pérdida de NNSS por sobredemanda del {sobredemanda:.2f}% con una contestación del {contestacion:.1f}%.")
+        pct_atendido_vs_fcst = round((atendidas / forecast * 100.0), 1) if forecast > 0 else 0.0
+        dif_atendido_fcst = atendidas - int(round(forecast))
+        pct_mas_fcst = round(pct_atendido_vs_fcst - 100.0, 1)
+        canal_nom = str(datos_m.get("canal", "")).upper()
+        tipo_unidad = "chats" if "CHAT" in canal_nom else ("casos" if "CASO" in canal_nom else "llamadas")
+
+        if atendidas > forecast and forecast > 0:
+            partes.append(f"Pérdida de NNSS por sobredemanda del {sobredemanda:.2f}% (demanda superó el 110% de la capacidad programada), logrando contestar el {pct_atendido_vs_fcst:.1f}% del forecast (+{pct_mas_fcst:.1f}% por encima de lo presupuestado, +{dif_atendido_fcst} {tipo_unidad}).")
+        else:
+            partes.append(f"Pérdida de NNSS por sobredemanda del {sobredemanda:.2f}% (demanda superó el 110% de la capacidad programada).")
+
         if dif_aht <= -15:
             partes.append(f"El AHT cerró favorable con una duración de {int(aht_real)}s lo que representa {abs(dif_aht)}s por debajo de la meta.")
         elif dif_aht >= 20:

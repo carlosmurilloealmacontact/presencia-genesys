@@ -873,56 +873,59 @@ def _render_tabla_html_con_texto_completo(df_disp: pd.DataFrame):
         plat = str(r.get("Plataforma", ""))
         just = str(r.get("Justificación Operativa", ""))
 
-        filas_html.append(f"""
-        <tr style="background: {bg}; border-bottom: 1px solid #e2e8f0; border-left: {border_left};">
-            <td style="padding: 9px 10px; vertical-align: top; white-space: nowrap;">
-                <div style="font-weight: 700; color: #0f172a; font-size: 12px;">{srv}</div>
-                <div style="font-size: 10px; color: #64748b;">{plat}</div>
-            </td>
-            <td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_canal}</td>
-            <td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_est}</td>
-            <td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{ent:,}</td>
-            <td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{aten:,}</td>
-            <td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: {col_aband}; vertical-align: top; white-space: nowrap;">{aband:.1f}%</td>
-            <td style="padding: 9px 8px; text-align: right; vertical-align: top; white-space: nowrap;">
-                <div style="font-weight: 700; font-size: 12.5px; color: {col_ns};">{ns_real:.1f}%</div>
-                <div style="font-size: 9.5px; color: #64748b;">Meta {ns_meta:.0f}% ({dif_ns:+.1f}pp)</div>
-            </td>
-            <td style="padding: 9px 8px; text-align: right; vertical-align: top; white-space: nowrap;">
-                <div style="font-weight: 700; font-size: 12px; color: {col_aht};">{aht_real}s</div>
-                <div style="font-size: 9.5px; color: #64748b;">Meta {meta_aht}s ({desv_aht:+.1f}%)</div>
-            </td>
-            <td style="padding: 9px 8px; text-align: right; font-size: 11.5px; color: #475569; vertical-align: top; white-space: nowrap;">{asa}s</td>
-            <td style="padding: 9px 12px; vertical-align: top; min-width: 320px; white-space: normal; word-break: break-word; line-height: 1.45; font-size: 11.5px; color: #1e293b;">
-                {just}
-            </td>
-        </tr>
-        """)
+        filas_html.append(
+            f'<tr style="background: {bg}; border-bottom: 1px solid #e2e8f0; border-left: {border_left};">'
+            f'<td style="padding: 9px 10px; vertical-align: top; white-space: nowrap;">'
+            f'<div style="font-weight: 700; color: #0f172a; font-size: 12px;">{srv}</div>'
+            f'<div style="font-size: 10px; color: #64748b;">{plat}</div>'
+            f'</td>'
+            f'<td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_canal}</td>'
+            f'<td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_est}</td>'
+            f'<td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{ent:,}</td>'
+            f'<td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{aten:,}</td>'
+            f'<td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: {col_aband}; vertical-align: top; white-space: nowrap;">{aband:.1f}%</td>'
+            f'<td style="padding: 9px 8px; text-align: right; vertical-align: top; white-space: nowrap;">'
+            f'<div style="font-weight: 700; font-size: 12.5px; color: {col_ns};">{ns_real:.1f}%</div>'
+            f'<div style="font-size: 9.5px; color: #64748b;">Meta {ns_meta:.0f}% ({dif_ns:+.1f}pp)</div>'
+            f'</td>'
+            f'<td style="padding: 9px 8px; text-align: right; vertical-align: top; white-space: nowrap;">'
+            f'<div style="font-weight: 700; font-size: 12px; color: {col_aht};">{aht_real}s</div>'
+            f'<div style="font-size: 9.5px; color: #64748b;">Meta {meta_aht}s ({desv_aht:+.1f}%)</div>'
+            f'</td>'
+            f'<td style="padding: 9px 8px; text-align: right; font-size: 11.5px; color: #475569; vertical-align: top; white-space: nowrap;">{asa}s</td>'
+            f'<td style="padding: 9px 12px; vertical-align: top; min-width: 340px; white-space: normal; word-break: break-word; line-height: 1.45; font-size: 11.5px; color: #1e293b;">'
+            f'{just}'
+            f'</td>'
+            f'</tr>'
+        )
 
-    tabla_completa = f"""
-    <div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white; margin-bottom: 1.2rem;">
-        <table style="width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px;">
-            <thead>
-                <tr style="background: #0f172a; color: #f8fafc; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px;">
-                    <th style="padding: 10px 10px;">Servicio</th>
-                    <th style="padding: 10px 6px; text-align: center;">Canal</th>
-                    <th style="padding: 10px 6px; text-align: center;">Estado SLA</th>
-                    <th style="padding: 10px 8px; text-align: right;">Ent</th>
-                    <th style="padding: 10px 8px; text-align: right;">Aten</th>
-                    <th style="padding: 10px 8px; text-align: right;">% Aban</th>
-                    <th style="padding: 10px 8px; text-align: right;">% NS Real (Meta)</th>
-                    <th style="padding: 10px 8px; text-align: right;">AHT (Meta)</th>
-                    <th style="padding: 10px 8px; text-align: right;">ASA</th>
-                    <th style="padding: 10px 12px; min-width: 320px;">📋 Justificación Operativa (Causa Raíz)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {''.join(filas_html)}
-            </tbody>
-        </table>
-    </div>
-    """
-    st.markdown(tabla_completa, unsafe_allow_html=True)
+    tabla_completa = (
+        '<div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white; margin-bottom: 1.2rem;">'
+        '<table style="width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; font-size: 12px;">'
+        '<thead>'
+        '<tr style="background: #0f172a; color: #f8fafc; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px;">'
+        '<th style="padding: 10px 10px;">Servicio</th>'
+        '<th style="padding: 10px 6px; text-align: center;">Canal</th>'
+        '<th style="padding: 10px 6px; text-align: center;">Estado SLA</th>'
+        '<th style="padding: 10px 8px; text-align: right;">Ent</th>'
+        '<th style="padding: 10px 8px; text-align: right;">Aten</th>'
+        '<th style="padding: 10px 8px; text-align: right;">% Aban</th>'
+        '<th style="padding: 10px 8px; text-align: right;">% NS Real (Meta)</th>'
+        '<th style="padding: 10px 8px; text-align: right;">AHT (Meta)</th>'
+        '<th style="padding: 10px 8px; text-align: right;">ASA</th>'
+        '<th style="padding: 10px 12px; min-width: 340px;">📋 Justificación Operativa (Causa Raíz)</th>'
+        '</tr>'
+        '</thead>'
+        '<tbody>'
+        + "".join(filas_html) +
+        '</tbody>'
+        '</table>'
+        '</div>'
+    )
+    if hasattr(st, "html"):
+        st.html(tabla_completa)
+    else:
+        st.markdown(tabla_completa, unsafe_allow_html=True)
 
 
 @st.fragment(run_every=30)
