@@ -1283,7 +1283,7 @@ es_carlos = (
 )
 
 if es_carlos:
-    SECCIONES_APP.append("🤖 Copiloto 4DX")
+    SECCIONES_APP.append("🐙 Rocco Copiloto")
     SECCIONES_APP.append("🧪 Capacidad 2.0 (Lab)")
     SECCIONES_APP.append("🧪 Adherencia & Pausas 2.0 (Lab)")
     SECCIONES_APP.append("🎯 Detector de Outliers (Lab)")
@@ -1315,6 +1315,26 @@ with st.sidebar:
         """,
         unsafe_allow_html=True
     )
+    if es_carlos:
+        st.markdown(
+            """
+            <div style="background: linear-gradient(135deg, #3b0764 0%, #1e1b4b 100%); border: 1px solid #a855f7; border-radius: 10px; padding: 10px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span style="font-size: 18px;">🐙</span>
+                    <div>
+                        <div style="font-size: 12px; font-weight: 700; color: #ffffff;">Rocco Copiloto</div>
+                        <div style="font-size: 10px; color: #c084fc;">● En vivo & Voz</div>
+                    </div>
+                </div>
+                <div style="font-size: 11px; color: #cbd5e1; margin-bottom: 8px;">Inteligencia Operativa disponible por texto o voz.</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("🐙 Hablar con Rocco", key="btn_rocco_sidebar_modal", use_container_width=True, type="primary"):
+            from copiloto_engine import modal_copiloto_rocco
+            modal_copiloto_rocco()
+
     if auth_configurado and getattr(st.user, "is_logged_in", False):
         if st.button("🚪 Cerrar Sesión", key="btn_logout_sidebar", use_container_width=True, type="secondary"):
             st.logout()
@@ -2242,7 +2262,7 @@ elif seccion_activa == "📊 Estadísticas de Usabilidad":
     with tab_feedback:
         render_panel_gestion_feedback(current_email)
 
-elif seccion_activa == "🤖 Copiloto 4DX":
+elif seccion_activa in ("🐙 Rocco Copiloto", "🤖 Copiloto 4DX"):
     if es_carlos:
         render_tab_copiloto(cargar_agentes_map_base(), current_email)
     else:
@@ -2250,3 +2270,12 @@ elif seccion_activa == "🤖 Copiloto 4DX":
 
 elif seccion_activa == "📚 Glosario & Guía":
     render_tab_glosario(secciones_disponibles=SECCIONES_APP)
+
+# ── BOTÓN FLOTANTE OMNIPRESENTE DE ROCCO (DISPONIBLE EN TODAS LAS PANTALLAS) ──
+if es_carlos:
+    try:
+        from copiloto_engine import render_boton_flotante_rocco
+        render_boton_flotante_rocco()
+    except Exception:
+        pass
+

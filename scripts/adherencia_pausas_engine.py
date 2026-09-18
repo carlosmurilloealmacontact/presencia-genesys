@@ -318,9 +318,12 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
     bp_to_coord, bp_to_superv = obtener_mapa_bp_jerarquia()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
-    bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
+    dt_fec = pd.to_datetime(fecha)
+    fecha_sig = (dt_fec + timedelta(days=1)).strftime("%Y-%m-%d")
     sf_activity = obtener_actividad_salesforce_por_fecha(fecha)
+    sf_activity_sig = obtener_actividad_salesforce_por_fecha(fecha_sig)
     omni_activity = obtener_presencia_omni_por_fecha(fecha)
+    omni_activity_sig = obtener_presencia_omni_por_fecha(fecha_sig)
 
     with _get_db() as conn:
         query_turnos = """
@@ -337,9 +340,6 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
         df_t = pd.read_sql_query(query_turnos, conn, params=params_t)
         if df_t.empty:
             return pd.DataFrame()
-
-        dt_fec = pd.to_datetime(fecha)
-        fecha_sig = (dt_fec + timedelta(days=1)).strftime("%Y-%m-%d")
 
         query_seg = """
             SELECT agente, presence_label, system_presence, inicio, fin, duracion_min, servicio, coordinador, jefe_inmediato, fecha
@@ -452,10 +452,46 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
             h_ult = "--"
 
         # Rescate y validación de presencia en Salesforce (Omni-Channel Chat y Casos Back Office):
-        omni_act = omni_activity.get(bp)
-        act_sf = sf_activity.get(bp)
+        omni_act_today = omni_activity.get(bp)
+        omni_act_next = omni_activity_sig.get(bp) if es_trasnocho else None
 
-        if h_conectado == 0.0 and omni_act:
+        if es_trasnocho and (omni_act_today or omni_act_next):
+            m_con1 = float(omni_act_today.get("minutos_conexion", 0.0)) if omni_act_today else 0.0
+            m_con2 = float(omni_act_next.get("minutos_conexion", 0.0)) if omni_act_next else 0.0
+            m_pau1 = float(omni_act_today.get("minutos_pausa", 0.0)) if omni_act_today else 0.0
+            m_pau2 = float(omni_act_next.get("minutos_pausa", 0.0)) if omni_act_next else 0.0
+            h_ini_om = omni_act_today.get("h_inicio_omni") if (omni_act_today and omni_act_today.get("h_inicio_omni") not in ("--", None)) else (omni_act_next.get("h_inicio_omni", "--") if omni_act_next else "--")
+            h_fin_om = f"{omni_act_next.get('h_fin_omni', '--')} (+1d)" if (omni_act_next and omni_act_next.get("h_fin_omni") not in ("--", None)) else (omni_act_today.get("h_fin_omni", "--") if omni_act_today else "--")
+            omni_act = {
+                "h_inicio_omni": h_ini_om,
+                "h_fin_omni": h_fin_om,
+                "minutos_conexion": m_con1 + m_con2,
+                "minutos_pausa": m_pau1 + m_pau2,
+                "tramos_pausas": (omni_act_today.get("tramos_pausas", []) if omni_act_today else []) + (omni_act_next.get("tramos_pausas", []) if omni_act_next else [])
+            }
+        else:
+            omni_act = omni_act_today
+
+        act_sf_today = sf_activity.get(bp)
+        act_sf_next = sf_activity_sig.get(bp) if es_trasnocho else None
+
+        if es_trasnocho and (act_sf_today or act_sf_next):
+            c_cnt1 = int(act_sf_today.get("casos_count", 0)) if act_sf_today else 0
+            c_cnt2 = int(act_sf_next.get("casos_count", 0)) if act_sf_next else 0
+            dur1 = float(act_sf_today.get("duracion_horas", 0.0)) if act_sf_today else 0.0
+            dur2 = float(act_sf_next.get("duracion_horas", 0.0)) if act_sf_next else 0.0
+            p_caso = act_sf_today.get("primer_caso") if (act_sf_today and act_sf_today.get("primer_caso") not in ("--", None)) else (act_sf_next.get("primer_caso", "--") if act_sf_next else "--")
+            u_caso = f"{act_sf_next.get('ultimo_caso', '--')} (+1d)" if (act_sf_next and act_sf_next.get("ultimo_caso") not in ("--", None)) else (act_sf_today.get("ultimo_caso", "--") if act_sf_today else "--")
+            act_sf = {
+                "casos_count": c_cnt1 + c_cnt2,
+                "duracion_horas": dur1 + dur2,
+                "primer_caso": p_caso,
+                "ultimo_caso": u_caso
+            }
+        else:
+            act_sf = act_sf_today
+
+        if h_conectado == 0.0 and omni_act and (omni_act.get("minutos_conexion", 0) > 0 or omni_act.get("h_inicio_omni") != "--"):
             h_pri = omni_act["h_inicio_omni"]
             h_ult = f"{omni_act['h_fin_omni']} (Omni)"
             m_con = float(omni_act.get("minutos_conexion", 0.0))
@@ -543,6 +579,7 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
     bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
     omni_activity = obtener_presencia_omni_por_fecha(fecha)
+    omni_activity_sig = obtener_presencia_omni_por_fecha((pd.to_datetime(fecha) + timedelta(days=1)).strftime("%Y-%m-%d"))
 
     with _get_db() as conn:
         query_turnos = """
@@ -723,23 +760,35 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
                     estado_p = "🟡 Desfasada en horario"
                 else:
                     estado_p = "🟢 Puntual y en tiempo"
-            elif bp in omni_activity and omni_activity[bp].get("tramos_pausas"):
-                omni_act = omni_activity[bp]
+            elif (bp in omni_activity or (es_trasnocho and bp in omni_activity_sig)):
+                tramos_tot = []
+                if bp in omni_activity:
+                    for p in omni_activity[bp].get("tramos_pausas", []):
+                        tramos_tot.append((p, fecha))
+                if es_trasnocho and bp in omni_activity_sig:
+                    for p in omni_activity_sig[bp].get("tramos_pausas", []):
+                        tramos_tot.append((p, fecha_sig))
+
                 candidatos_omni = []
-                for p in omni_act.get("tramos_pausas", []):
+                for p, p_fec in tramos_tot:
                     p_ini_m = _time_to_minutes(p["inicio"])
                     p_fin_m = _time_to_minutes(p["fin"])
                     p_dur_m = float(p.get("duracion_min", 0.0))
-                    dist = abs(p_ini_m - prog_ini_min)
-                    if dist <= 120:
-                        candidatos_omni.append((dist, p_ini_m, p_fin_m, p_dur_m, p["inicio"], p["fin"]))
+
+                    p_dt_ini = pd.to_datetime(f"{p_fec} {p['inicio']}:00")
+                    dist_m = abs((p_dt_ini - dt_prog_ini).total_seconds() / 60.0)
+
+                    if dist_m <= 120:
+                        s_plus = " (+1d)" if (es_trasnocho and p_fec == fecha_sig) else ""
+                        candidatos_omni.append((dist_m, p_ini_m, p_fin_m, p_dur_m, f"{p['inicio']}{s_plus}", p['fin'], p_dt_ini))
+
                 if candidatos_omni:
                     candidatos_omni.sort(key=lambda x: x[0])
                     best_c = candidatos_omni[0]
                     real_ini_min = best_c[1]
                     real_fin_min = best_c[2]
                     real_dur_min = float(best_c[3])
-                    desvio_ini_min = int(round(real_ini_min - prog_ini_min))
+                    desvio_ini_min = int(round((best_c[6] - dt_prog_ini).total_seconds() / 60.0))
                     exceso_dur_min = int(round(real_dur_min - prog_dur_min))
                     hora_real_str = f"{best_c[4]} - {best_c[5]} (Omni)"
                     if abs(desvio_ini_min) <= tolerancia_min and exceso_dur_min <= 3:

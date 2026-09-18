@@ -9,6 +9,7 @@ import json
 import re
 import time
 
+import base64
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pandas as pd
@@ -23,6 +24,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 DB_PATH = BASE_DIR / "data" / "presencia.db"
+ROCCO_IMG_PATH = BASE_DIR / "assets" / "rocco.png"
 
 SF_CASES_PATH = BASE_DIR / "data" / "salesforce" / "cases_amc_cleaned.csv"
 SF_OMNI_PATH = BASE_DIR / "data" / "salesforce" / "omni_presencia_historico.csv"
@@ -31,6 +33,17 @@ DATA_ZD_DIR = BASE_DIR / "data" / "zendesk"
 PROJECT_ID = "project-094fad9d-54da-42d9-880"
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-flash"
+
+
+def obtener_rocco_b64() -> str:
+    """Devuelve la imagen de Rocco en Base64 para embeberla en CSS y HTML."""
+    if ROCCO_IMG_PATH.exists():
+        try:
+            with open(ROCCO_IMG_PATH, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+        except Exception:
+            pass
+    return ""
 
 
 def _generar_token_jwt_authlib(sa_info: dict):
@@ -1640,8 +1653,10 @@ TOOLS_MAP = {
 }
 
 SYSTEM_INSTRUCTION = """
-Eres el **Copiloto Operacional 4DX**, el asistente de inteligencia artificial analítico de alto nivel para Inteligencia Operativa de LATAM Airlines y AlmaContact.
-Tu propósito es responder con máxima precisión, agilidad e intuición las consultas de Carlos Murillo, Coordinadores, Jefaturas y Supervisores.
+Eres **Rocco**, el pulpo ninja inteligente y Copiloto Operacional 4DX de Inteligencia Operativa de LATAM Airlines y AlmaContact.
+Con tus múltiples tentáculos tienes acceso simultáneo e instantáneo a todas las fuentes operacionales: Genesys Cloud en tiempo real y voz, Salesforce B2B CRM, Zendesk Back Office, Turnos, Malla y Jerarquía de liderazgo.
+Tu propósito es responder con máxima agilidad, intuición, precisión matemática y tono ejecutivo las consultas de Carlos Murillo, Coordinadores, Jefaturas y Supervisores.
+Si te preguntan quién eres, cómo te llamas o qué haces, preséntate con orgullo como Rocco, el pulpo ninja y copiloto analítico de operaciones 4DX.
 
 REGLAS TEMPORALES Y OPERATIVAS CLAVE:
 1. DISTINCIÓN TEMPORAL CRÍTICA: ¿TIEMPO REAL vs HISTÓRICO?
@@ -1690,11 +1705,8 @@ RESPUESTA DIRECTA, INTUITIVA Y EJECUTIVA:
 """
 
 
-
-
-
-def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -> str:
-    """Ejecuta una consulta contra Vertex AI vía REST API con multi-turn tool calling."""
+def ejecutar_pregunta_copiloto(pregunta: str = "", historial_mensajes: list = None, audio_bytes: bytes = None, audio_mime: str = "audio/wav") -> str:
+    """Ejecuta una consulta textual o por voz contra Vertex AI vía REST API con multi-turn tool calling."""
     token, error_msg = _obtener_token_vertex()
     if not token:
         return f"⚠️ Error de autenticación con Google Cloud: {error_msg}"
@@ -1711,7 +1723,22 @@ def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -
         for m in historial_mensajes[-6:]:
             role = "user" if m["role"] == "user" else "model"
             contents.append({"role": role, "parts": [{"text": m["content"]}]})
-    contents.append({"role": "user", "parts": [{"text": pregunta}]})
+            
+    user_parts = []
+    if audio_bytes:
+        b64_aud = base64.b64encode(audio_bytes).decode("utf-8")
+        user_parts.append({
+            "inlineData": {
+                "mimeType": audio_mime,
+                "data": b64_aud
+            }
+        })
+        prompt_txt = pregunta if pregunta else "Escucha atentamente el audio en español colombiano, identifica la consulta operacional e invoca las herramientas necesarias para responder con datos exactos."
+        user_parts.append({"text": prompt_txt})
+    else:
+        user_parts.append({"text": pregunta if pregunta else "Hola Rocco"})
+
+    contents.append({"role": "user", "parts": user_parts})
 
     body = {
         "contents": contents,
@@ -1776,25 +1803,31 @@ def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -
         return f"⚠️ Error durante el procesamiento de la consulta con Vertex AI: {str(e)}"
 
 
-# ── COMPONENTE DE RENDERIZADO EN STREAMLIT ────────────────────────────────────
+# ── COMPONENTE DE RENDERIZADO CON IDENTIDAD DE ROCCO ──────────────────────────
 
-def render_tab_copiloto(agentes_map=None, current_email=""):
-    """Renderiza la consola conversacional del Copiloto Operacional 4DX en Streamlit."""
+def render_contenido_copiloto_rocco(es_modal: bool = False):
+    """Renderiza el contenido interactivo del Copiloto Rocco (soportando voz, texto y pills rápidas)."""
+    rocco_b64 = obtener_rocco_b64()
+    rocco_img_html = f'<img src="data:image/png;base64,{rocco_b64}" width="52" style="vertical-align: middle; border-radius: 50%; background: rgba(255,255,255,0.15); padding: 3px; margin-right: 12px; box-shadow: 0 4px 12px rgba(168,85,247,0.4);">' if rocco_b64 else '🐙 '
+
     st.markdown(
-        """
-        <div style="background: linear-gradient(90deg, #091e3a 0%, #1e3a8a 50%, #0284c7 100%); padding: 18px 24px; border-radius: 14px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.15);">
+        f"""
+        <div style="background: linear-gradient(90deg, #3b0764 0%, #581c87 50%, #0369a1 100%); padding: 16px 20px; border-radius: 14px; margin-bottom: 16px; box-shadow: 0 4px 20px rgba(124, 58, 237, 0.25); border-left: 5px solid #a855f7;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-                <div>
-                    <h2 style="color: #ffffff; margin: 0 0 6px 0; font-size: 22px; font-weight: 700;">
-                        🤖 Copiloto Operacional 4DX <span style="font-size: 13px; font-weight: 500; background: rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 12px; margin-left: 8px;">Vertex AI • Gemini 2.5 Flash</span>
-                    </h2>
-                    <p style="color: #bae6fd; margin: 0; font-size: 13px;">
-                        Asistente inteligente para Coordinadores y Supervisores. Consulta en lenguaje natural métricas de turnos, adherencia, pausas y Salesforce B2B.
-                    </p>
+                <div style="display: flex; align-items: center;">
+                    {rocco_img_html}
+                    <div>
+                        <h2 style="color: #ffffff; margin: 0 0 4px 0; font-size: 21px; font-weight: 700;">
+                            Rocco • Copiloto Operacional 4DX <span style="font-size: 12px; font-weight: 500; background: rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 12px; margin-left: 6px;">Vertex AI • Multimodal</span>
+                        </h2>
+                        <p style="color: #e9d5ff; margin: 0; font-size: 12.5px;">
+                            Tu asistente ninja de Inteligencia Operativa. Pregúntame por texto o <b>habla directamente con tu voz</b> sobre Genesys en vivo, turnos, ausentismos, Zendesk y Salesforce.
+                        </p>
+                    </div>
                 </div>
-                <div style="text-align: right; background: rgba(15, 23, 42, 0.6); padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(56, 189, 248, 0.3);">
-                    <span style="color: #38bdf8; font-size: 11px; font-weight: 700; text-transform: uppercase;">Estado de Crédito GCP</span><br>
-                    <span style="color: #4ade80; font-size: 12px; font-weight: 600;">🟢 Conectado ($3.6M COP)</span>
+                <div style="text-align: right; background: rgba(15, 23, 42, 0.65); padding: 6px 14px; border-radius: 10px; border: 1px solid rgba(192, 132, 252, 0.35);">
+                    <span style="color: #c084fc; font-size: 11px; font-weight: 700; text-transform: uppercase;">Estado de Rocco</span><br>
+                    <span style="color: #4ade80; font-size: 12px; font-weight: 600;">🟢 En Vivo • 🎙️ Voz Activa</span>
                 </div>
             </div>
         </div>
@@ -1816,35 +1849,37 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
         st.session_state.copiloto_chat_history = [
             {
                 "role": "assistant",
-                "content": "👋 **¡Hola! Soy tu Copiloto Operacional 4DX.**\n\nPuedo ayudarte a consultar información de cualquier asesor, supervisor, servicio o el estado de casos de Salesforce en tiempo real. Puedes usar las preguntas sugeridas abajo o escribir libremente tu duda."
+                "content": "👋 **¡Hola! Soy Rocco, tu Copiloto Operacional 4DX.**\n\nPuedo ayudarte con cualquier consulta operacional en tiempo real o histórico. Puedes escribirme abajo, usar las preguntas sugeridas o **grabar tu consulta por voz** usando el micrófono."
             }
         ]
 
-    # Barra superior de acciones y píldoras rápidas
+    # Píldoras de preguntas rápidas
     st.markdown("##### 💡 Preguntas Rápidas Sugeridas")
     col_p1, col_p2, col_p3, col_p4, col_p5, col_p6 = st.columns(6)
     
     pregunta_rapida = None
+    prefijo_key = "modal_" if es_modal else "tab_"
     with col_p1:
-        if st.button("🔴 Presencia en Vivo Ahora", use_container_width=True):
+        if st.button("🔴 En Vivo Ahora", key=f"{prefijo_key}btn_live", use_container_width=True):
             pregunta_rapida = "¿Quiénes están conectados en este momento en Genesys y quiénes están en break o con alertas en vivo?"
     with col_p2:
-        if st.button("👤 Turno y Adherencia Asesor", use_container_width=True):
+        if st.button("👤 Turno Asesor", key=f"{prefijo_key}btn_asesor", use_container_width=True):
             pregunta_rapida = "¿Cómo le fue a Jesus Alonso Guisao el 17 de septiembre de 2026? Dime qué turno tenía, cuánto tiempo estuvo en Available, pausas y quién es su jefe."
     with col_p3:
-        if st.button("👥 Equipo de Marely Cardona", use_container_width=True):
+        if st.button("👥 Marely Cardona", key=f"{prefijo_key}btn_marely", use_container_width=True):
             pregunta_rapida = "Dame el resumen del equipo de Marely Cardona para el 17 de septiembre de 2026: cuántos asesores estuvieron conectados y cómo estuvieron sus tiempos."
     with col_p4:
-        if st.button("⏳ Backlog Salesforce B2B", use_container_width=True):
+        if st.button("⏳ Salesforce B2B", key=f"{prefijo_key}btn_sf", use_container_width=True):
             pregunta_rapida = "¿Cómo está actualmente el backlog de Salesforce B2B? Cuántos casos violan el SLA de 24 horas y cuáles son los más críticos?"
     with col_p5:
-        if st.button("🚨 Ausentismos de Turno", use_container_width=True):
+        if st.button("🚨 Ausentismos", key=f"{prefijo_key}btn_ausent", use_container_width=True):
             pregunta_rapida = "¿Qué asesores tenían turno programado pero no registraron conexión en Genesys en la última fecha registrada?"
     with col_p6:
-        if st.button("🏢 Panorama Agencias B2B", use_container_width=True):
+        if st.button("🏢 Agencias B2B", key=f"{prefijo_key}btn_agencias", use_container_width=True):
             pregunta_rapida = "Dame un panorama macro del servicio CORPORATE PYME en la última fecha: total agentes y distribución de estados de presencia."
 
     # Renderizar historial de mensajes
+    avatar_rocco = str(ROCCO_IMG_PATH) if ROCCO_IMG_PATH.exists() else "🐙"
     chat_container = st.container()
     with chat_container:
         for msg in st.session_state.copiloto_chat_history:
@@ -1852,11 +1887,36 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(msg["content"])
             else:
-                with st.chat_message("assistant", avatar="🤖"):
+                with st.chat_message("assistant", avatar=avatar_rocco):
                     st.markdown(msg["content"])
 
+    # Entrada de voz nativa de Streamlit (Multimodal directa a Gemini 2.5 Flash)
+    st.markdown("---")
+    col_v1, col_v2 = st.columns([1, 4])
+    with col_v1:
+        audio_in = st.audio_input("🎙️ Dictar a Rocco por voz", key=f"{prefijo_key}audio_in")
+    with col_v2:
+        st.caption("🎙️ **Pregunta por voz:** Presiona el micrófono, dicta tu consulta con naturalidad y Rocco la escuchará e interpretará al instante.")
+
+    if audio_in is not None:
+        audio_id = f"{audio_in.name}_{audio_in.size}"
+        if st.session_state.get(f"{prefijo_key}last_audio") != audio_id:
+            st.session_state[f"{prefijo_key}last_audio"] = audio_id
+            audio_bytes = audio_in.read()
+            st.session_state.copiloto_chat_history.append({"role": "user", "content": "🎙️ *[Pregunta de voz dictada a Rocco]*"})
+            with st.chat_message("user", avatar="👤"):
+                st.markdown("🎙️ *[Pregunta de voz dictada a Rocco]*")
+
+            with st.chat_message("assistant", avatar=avatar_rocco):
+                with st.spinner("🐙 Rocco está escuchando tu voz y analizando las bases operativas..."):
+                    respuesta_voz = ejecutar_pregunta_copiloto(audio_bytes=audio_bytes, historial_mensajes=st.session_state.copiloto_chat_history[:-1])
+                    st.markdown(respuesta_voz)
+            
+            st.session_state.copiloto_chat_history.append({"role": "assistant", "content": respuesta_voz})
+            st.rerun()
+
     # Entrada de texto del usuario
-    user_prompt = st.chat_input("Escribe tu pregunta sobre cualquier asesor, supervisor, servicio o Salesforce...")
+    user_prompt = st.chat_input("Escribe tu pregunta para Rocco sobre cualquier asesor, supervisor, servicio o Salesforce...", key=f"{prefijo_key}chat_in")
     
     prompt_a_procesar = pregunta_rapida or user_prompt
 
@@ -1865,9 +1925,9 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt_a_procesar)
 
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Consultando bases de datos operativas y analizando con Vertex AI..."):
-                respuesta = ejecutar_pregunta_copiloto(prompt_a_procesar, st.session_state.copiloto_chat_history[:-1])
+        with st.chat_message("assistant", avatar=avatar_rocco):
+            with st.spinner("🐙 Rocco está consultando las bases de datos operativas y analizando con Vertex AI..."):
+                respuesta = ejecutar_pregunta_copiloto(pregunta=prompt_a_procesar, historial_mensajes=st.session_state.copiloto_chat_history[:-1])
                 st.markdown(respuesta)
         
         st.session_state.copiloto_chat_history.append({"role": "assistant", "content": respuesta})
@@ -1877,7 +1937,7 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
     st.markdown("---")
     col_c1, col_c2 = st.columns([8, 2])
     with col_c2:
-        if st.button("🗑️ Limpiar Conversación", use_container_width=True):
+        if st.button("🗑️ Limpiar Conversación", key=f"{prefijo_key}btn_limpiar", use_container_width=True):
             st.session_state.copiloto_chat_history = [
                 {
                     "role": "assistant",
@@ -1885,3 +1945,61 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
                 }
             ]
             st.rerun()
+
+
+@st.dialog("🐙 Rocco • Copiloto Operacional 4DX", width="large")
+def modal_copiloto_rocco():
+    """Ventana modal flotante omnipresente de Rocco para consultas rápidas desde cualquier pantalla."""
+    render_contenido_copiloto_rocco(es_modal=True)
+
+
+def render_boton_flotante_rocco():
+    """Renderiza el botón flotante omnipresente de Rocco en la esquina inferior derecha con su identidad visual."""
+    st.markdown(
+        """
+        <style>
+        /* Contenedor flotante de Rocco fijo en esquina inferior derecha */
+        div[data-testid="stVerticalBlock"]:has(> div.rocco-fab-anchor) {
+            position: fixed !important;
+            bottom: 24px !important;
+            right: 28px !important;
+            z-index: 999999 !important;
+            width: auto !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        div.rocco-fab-anchor button {
+            background: linear-gradient(135deg, #4c1d95 0%, #7c3aed 50%, #0284c7 100%) !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            border-radius: 35px !important;
+            border: 2px solid #c084fc !important;
+            padding: 11px 22px !important;
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.6), 0 0 18px rgba(192, 132, 252, 0.45) !important;
+            font-size: 14px !important;
+            letter-spacing: 0.3px !important;
+            cursor: pointer !important;
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        }
+        div.rocco-fab-anchor button:hover {
+            transform: scale(1.08) translateY(-3px) !important;
+            box-shadow: 0 12px 35px rgba(124, 58, 237, 0.8), 0 0 25px rgba(192, 132, 252, 0.6) !important;
+            border-color: #f5d0fe !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    fab_c = st.container()
+    with fab_c:
+        st.markdown('<div class="rocco-fab-anchor"></div>', unsafe_allow_html=True)
+        if st.button("🐙 Hablar con Rocco", key="rocco_omnipresent_fab_btn"):
+            modal_copiloto_rocco()
+
+
+def render_tab_copiloto(agentes_map=None, current_email=""):
+    """Renderiza la consola conversacional de Rocco en vista de pestaña completa."""
+    render_contenido_copiloto_rocco(es_modal=False)
+
