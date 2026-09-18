@@ -14,6 +14,7 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 import requests
+import sqlite3
 import pandas as pd
 from dotenv import load_dotenv, find_dotenv
 
@@ -207,9 +208,51 @@ def run_extraction(start_date: str, end_date: str):
     raw_shifts = fetch_shifts_range(start_date, end_date, token)
     print(f"   {len(raw_shifts)} registros descargados desde la API.")
 
-    print("4. Parseando y normalizando turnos...")
-    rows_turnos, rows_detallados = parse_api_shifts(raw_shifts, cedula_a_bp)
-    print(f"   {len(rows_turnos)} turnos válidos con hora inicio/fin y {len(rows_detallados)} turnos detallados.")
+    print("4. Auditando diferencias contra turnos existentes y normalizando...")
+    try:
+        from audit_turnos_engine import (
+            inicializar_tabla_auditoria,
+            cargar_turnos_db_para_comparar,
+            auditar_diferencias,
+            DB_MASTER,
+            DB_PRESENCIA as DB_PRESENCIA_LOCAL
+        )
+        inicializar_tabla_auditoria()
+        conn_p = sqlite3.connect(DB_PRESENCIA_LOCAL) if DB_PRESENCIA_LOCAL.exists() else get_connection()
+        exist_t, exist_d = cargar_turnos_db_para_comparar(conn_p, start_date, end_date)
+        conn_p.close()
+
+        rows_turnos, rows_detallados, rows_auditoria = auditar_diferencias(raw_shifts, cedula_a_bp, exist_t, exist_d)
+        print(f"   {len(rows_turnos)} turnos con horario, {len(rows_detallados)} detallados.")
+        
+        if rows_auditoria:
+            c_hor = sum(1 for r in rows_auditoria if r["tipo_cambio"] == "CAMBIO_HORARIO")
+            c_nov = sum(1 for r in rows_auditoria if r["tipo_cambio"] == "CAMBIO_NOVEDAD")
+            c_pau = sum(1 for r in rows_auditoria if "PAUSA" in r["tipo_cambio"])
+            c_nue = sum(1 for r in rows_auditoria if r["tipo_cambio"] == "TURNO_NUEVO")
+            print(f"   [Auditoría WFM] {len(rows_auditoria)} cambios detectados:")
+            print(f"   -> Horarios: {c_hor} | Novedades: {c_nov} | Pausas: {c_pau} | Nuevos: {c_nue}")
+
+            for db_f in (DB_MASTER, DB_PRESENCIA_LOCAL):
+                if db_f.exists():
+                    with sqlite3.connect(db_f) as c_db:
+                        c_db.executemany("""
+                            INSERT INTO auditoria_cambios_turnos (
+                                fecha_auditoria, bp, documento, nombre_agente, servicio,
+                                fecha_turno, tipo_cambio, campo_modificado, valor_anterior,
+                                valor_nuevo, impacto_adherencia, origen
+                            ) VALUES (
+                                :fecha_auditoria, :bp, :documento, :nombre_agente, :servicio,
+                                :fecha_turno, :tipo_cambio, :campo_modificado, :valor_anterior,
+                                :valor_nuevo, :impacto_adherencia, :origen
+                            )
+                        """, rows_auditoria)
+                        c_db.commit()
+        else:
+            print("   [Auditoría WFM] 0 modificaciones detectadas (malla idéntica a DB).")
+    except Exception as e_audit:
+        print(f"   [Aviso Auditoría] No se pudo auditar diferencias ({e_audit}), procediendo con parseo estándar.")
+        rows_turnos, rows_detallados = parse_api_shifts(raw_shifts, cedula_a_bp)
 
     print("5. Guardando en bases de datos SQLite...")
     sync_turnos_databases(rows_turnos, rows_detallados)

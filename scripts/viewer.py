@@ -113,6 +113,12 @@ except ImportError:
         def render_panel_outliers(*args, **kwargs):
             st.info("Módulo de Outliers no disponible.")
 
+try:
+    from audit_turnos_engine import render_panel_auditoria_turnos
+except Exception as _at_err:
+    def render_panel_auditoria_turnos(*args, **kwargs):
+        st.error(f"Error cargando módulo de Auditoría de Turnos: {_at_err}")
+
 # ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
 try:
     auth_configurado = "auth" in st.secrets
@@ -2264,9 +2270,15 @@ elif seccion_activa == "📊 Estadísticas de Usabilidad":
         """,
         unsafe_allow_html=True
     )
-    tab_audit, tab_feedback = st.tabs(["📊 Usabilidad & Accesos", "📬 Bandeja de Feedback & Incidencias"])
+    tab_audit, tab_turnos, tab_feedback = st.tabs([
+        "📊 Usabilidad & Accesos",
+        "🔄 Auditoría de Cambios de Turno (WFM)",
+        "📬 Bandeja de Feedback & Incidencias"
+    ])
     with tab_audit:
         render_panel_auditoria()
+    with tab_turnos:
+        render_panel_auditoria_turnos()
     with tab_feedback:
         render_panel_gestion_feedback(current_email)
 

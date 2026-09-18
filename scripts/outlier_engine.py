@@ -430,6 +430,21 @@ def render_panel_outliers():
         unsafe_allow_html=True
     )
 
+    tab_detector, tab_wfm_audit = st.tabs([
+        "🎯 Detección de Outliers e Infracciones Operativas",
+        "🔄 Auditoría de Cambios de Turno WFM (Blindaje de Adherencia)"
+    ])
+    with tab_detector:
+        _render_cuerpo_outliers()
+    with tab_wfm_audit:
+        try:
+            from audit_turnos_engine import render_panel_auditoria_turnos
+            render_panel_auditoria_turnos()
+        except Exception as ex_at:
+            st.error(f"No se pudo cargar panel de auditoría: {ex_at}")
+
+
+def _render_cuerpo_outliers():
     with st.spinner("Cargando matriz analítica de turnos y presencia real..."):
         df_base = cargar_universo_base_outliers("2026-08-01", "2026-09-30")
 
