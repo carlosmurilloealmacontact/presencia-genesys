@@ -449,10 +449,13 @@ def generar_justificacion_automatica_avanzada(datos_m: dict, observacion_manual:
     # 4. Desvío AHT
     dif_aht = int(round(aht_real - meta_aht)) if meta_aht > 0 else 0
 
-    # 5. Brecha de personal
+    # 5. Brecha de personal y Ausentismo
     staff_req = float(datos_m.get("staff_req", 0.0))
     staff_real = float(datos_m.get("staff_real", 0.0))
     deficit_staff = int(round(staff_req - staff_real)) if (staff_req > 0 and staff_real > 0) else 0
+    pct_aus = float(datos_m.get("pct_ausentismo", 0.0))
+    ausentes = int(datos_m.get("ausentes", 0))
+    programados = int(datos_m.get("programados", 0))
 
     # Observación cualitativa complementaria
     obs_clean = observacion_manual.strip() if observacion_manual else ""
@@ -533,6 +536,22 @@ def generar_justificacion_automatica_avanzada(datos_m: dict, observacion_manual:
             partes.append(f"AHT excedido en {int(aht_real)}s (+{dif_aht}s sobre meta).")
         if obs_clean:
             partes.append(f"Observación: {obs_clean}.")
+
+    # Factor de Ausentismo: si supera meta contractual (8.0%) o impactó de forma sensible una célula pequeña
+    if ausentes > 0 and (pct_aus > 8.0 or (programados <= 10 and ausentes >= 1)):
+        texto_actual = " ".join(partes).lower()
+        if "ausentismo" not in texto_actual and "incapacidad" not in texto_actual:
+            if "desvío operativo" in texto_actual:
+                partes = [
+                    f"Cierre NNSS {ns_real:.2f}% {icono}",
+                    f"Pérdida de NNSS por ausentismo del {pct_aus:.1f}% ({ausentes} ausente(s) de {programados} programados en turno, meta contractual: ≤ 8.0%)."
+                ]
+                if dif_aht < 0:
+                    partes.append(f"El AHT cerró favorable en {int(aht_real)}s ({abs(dif_aht)}s por debajo de la meta).")
+                elif dif_aht > 0:
+                    partes.append(f"AHT cerró en {int(aht_real)}s (+{dif_aht}s sobre meta).")
+            else:
+                partes.append(f"Adicionalmente se registró un ausentismo del {pct_aus:.1f}% ({ausentes} ausente(s) de {programados} programados), reduciendo la dotación disponible.")
 
     return " ".join(partes)
 

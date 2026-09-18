@@ -11,6 +11,7 @@ Unifica el mundo completo de Agencias B2B SIN duplicar vistas:
 import os
 import sys
 import json
+import pickle
 import sqlite3
 import time
 from datetime import datetime, timezone, timedelta, date
@@ -591,6 +592,187 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
 
 
 # ── PILAR 2: NIVELES DE SERVICIO MULTICANAL (UNIFICADO GTR) ─────────────────
+MAPEO_SUB_SERVICIOS_B2B = {
+    "AGY N1 ESP VOZ": "TARGET ESP",
+    "AGY N3 ESP VOZ": "TARGET ESP",
+    "AGENCIAS TARGET ES": "TARGET ESP",
+    "TARGET ESP": "TARGET ESP",
+    "AGY N1 ENG VOZ": "TARGET ENG",
+    "TARGET ENG": "TARGET ENG",
+    "CORPORATE PYME": "EMPRESAS",
+    "EMPRESAS": "EMPRESAS",
+    "AGY N1 ESP CHAT": "AG CHAT ES",
+    "AGY N3 ESP CHAT": "AG CHAT ES",
+    "CHAT AGENCIAS ESP": "AG CHAT ES",
+    "AG CHAT ES": "AG CHAT ES",
+    "AG CORPORATE CHAT": "AG CORPORATE CHAT",
+    "AG CELULA REMISION": "AG CELULA REMISION",
+    "BO AGENCIAS TARGET": "BO AGENCIAS TARGET",
+    "AG CHECK IN": "BO AGENCIAS TARGET",
+    "BO_CORPORATE": "BO_CORPORATE",
+}
+
+
+def obtener_ausentismo_b2b_por_servicio(fecha_inicio: str = None, fecha_fin: str = None):
+    """
+    Calcula el ausentismo diario o acumulado para cada uno de los 8 servicios
+    contractuales de Agencias B2B, cruzando los turnos programados con la presencia
+    efectiva en Genesys Cloud (telefonía) y Salesforce Omni-Channel (chats/casos).
+    """
+    if not fecha_inicio:
+        fecha_inicio = date.today().strftime("%Y-%m-%d")
+    if not fecha_fin:
+        fecha_fin = fecha_inicio
+
+    servicios_base = [
+        "TARGET ESP", "TARGET ENG", "EMPRESAS",
+        "AG CHAT ES", "AG CORPORATE CHAT", "AG CELULA REMISION",
+        "BO AGENCIAS TARGET", "BO_CORPORATE"
+    ]
+    por_servicio = {
+        s: {"programados": 0, "presentes": 0, "ausentes": 0, "pct_ausentismo": 0.0}
+        for s in servicios_base
+    }
+    totales_global = {
+        "programados": 0,
+        "presentes": 0,
+        "ausentes": 0,
+        "pct_ausentismo": 0.0
+    }
+
+    if not os.path.exists(PRESENCIA_DB_PATH):
+        return por_servicio, totales_global
+
+    try:
+        conn = sqlite3.connect(PRESENCIA_DB_PATH)
+        df_ag = pd.read_sql("""
+            SELECT agente, servicio, cargo, jefe_inmediato, coordinador
+            FROM dim_agentes
+            WHERE coordinador LIKE '%Marely%' OR jefe_inmediato LIKE '%Marely%'
+        """, conn)
+
+        if df_ag.empty:
+            conn.close()
+            return por_servicio, totales_global
+
+        df_ag["bp"] = df_ag["agente"].apply(
+            lambda x: str(x).split(" - ")[0].strip() if " - " in str(x) else str(x).strip()
+        )
+        bp_to_srv_raw = dict(zip(df_ag["bp"], df_ag["servicio"]))
+        bps_marely = set(bp_to_srv_raw.keys())
+
+        # 1. Turnos programados
+        df_t = pd.read_sql(
+            "SELECT bp, fecha FROM turnos WHERE fecha >= ? AND fecha <= ?",
+            conn,
+            params=(fecha_inicio, fecha_fin)
+        )
+        if df_t.empty:
+            df_fechas = pd.read_sql("SELECT DISTINCT fecha FROM turnos ORDER BY fecha DESC", conn)
+            if not df_fechas.empty:
+                fechas_disp = [f for f in df_fechas["fecha"].tolist() if f <= fecha_fin]
+                if fechas_disp:
+                    df_t = pd.read_sql(
+                        "SELECT bp, fecha FROM turnos WHERE fecha = ?",
+                        conn,
+                        params=(fechas_disp[0],)
+                    )
+
+        if df_t.empty:
+            conn.close()
+            return por_servicio, totales_global
+
+        df_t["bp"] = df_t["bp"].astype(str)
+        df_t = df_t[df_t["bp"].isin(bps_marely)].copy()
+        df_t["srv_matriz"] = df_t["bp"].map(
+            lambda b: MAPEO_SUB_SERVICIOS_B2B.get(bp_to_srv_raw.get(b, ""), "OTROS")
+        )
+
+        # 2. Presencia registrada en Genesys Cloud (segments)
+        df_seg = pd.read_sql(
+            "SELECT DISTINCT agente, fecha FROM segments WHERE fecha >= ? AND fecha <= ?",
+            conn,
+            params=(fecha_inicio, fecha_fin)
+        )
+        if df_seg.empty and fecha_inicio == date.today().strftime("%Y-%m-%d"):
+            df_seg_rec = pd.read_sql("SELECT MAX(fecha) as max_f FROM segments", conn)
+            max_seg_f = df_seg_rec["max_f"].iloc[0] if not df_seg_rec.empty else None
+            if max_seg_f:
+                df_seg = pd.read_sql(
+                    "SELECT DISTINCT agente, fecha FROM segments WHERE fecha = ?",
+                    conn,
+                    params=(max_seg_f,)
+                )
+
+        df_seg["bp"] = df_seg["agente"].apply(
+            lambda x: str(x).split(" - ")[0].strip() if " - " in str(x) else str(x).strip()
+        )
+        df_seg = df_seg[df_seg["bp"].isin(bps_marely)]
+        if fecha_inicio == fecha_fin and not df_seg.empty and df_seg["fecha"].iloc[0] != fecha_inicio:
+            pres_gen_pairs = set((bp, fecha_inicio) for bp in df_seg["bp"].unique())
+        else:
+            pres_gen_pairs = set(zip(df_seg["bp"], df_seg["fecha"]))
+
+        # 3. Presencia registrada en Salesforce Omni-Channel
+        pres_sf_pairs = set()
+        sf_pkl = os.path.join(PROJECT_DIR, "data", "salesforce", "omni_presencia_resumen.pkl")
+        if os.path.exists(sf_pkl):
+            try:
+                with open(sf_pkl, "rb") as f_pkl:
+                    df_sf = pickle.load(f_pkl)
+                if isinstance(df_sf, pd.DataFrame) and "fecha" in df_sf.columns and "bp" in df_sf.columns:
+                    df_sf_sub = df_sf[(df_sf["fecha"] >= fecha_inicio) & (df_sf["fecha"] <= fecha_fin)]
+                    if df_sf_sub.empty and fecha_inicio == date.today().strftime("%Y-%m-%d"):
+                        max_sf_f = df_sf["fecha"].max()
+                        df_sf_sub = df_sf[df_sf["fecha"] == max_sf_f]
+                        for _, r in df_sf_sub.iterrows():
+                            b_str = str(r["bp"]).strip()
+                            if b_str in bps_marely:
+                                pres_sf_pairs.add((b_str, fecha_inicio))
+                    else:
+                        for _, r in df_sf_sub.iterrows():
+                            b_str = str(r["bp"]).strip()
+                            if b_str in bps_marely:
+                                pres_sf_pairs.add((b_str, str(r["fecha"])))
+            except Exception:
+                pass
+
+        pres_unificadas = pres_gen_pairs | pres_sf_pairs
+
+        total_prog, total_pres, total_aus = 0, 0, 0
+        for srv in servicios_base:
+            sub_t = df_t[df_t["srv_matriz"] == srv]
+            scheduled_pairs = set(zip(sub_t["bp"], sub_t["fecha"]))
+            present_pairs = scheduled_pairs & pres_unificadas
+            n_prog = len(scheduled_pairs)
+            n_pres = len(present_pairs)
+            n_aus = n_prog - n_pres
+            pct = round((n_aus / n_prog * 100.0), 1) if n_prog > 0 else 0.0
+
+            por_servicio[srv] = {
+                "programados": n_prog,
+                "presentes": n_pres,
+                "ausentes": n_aus,
+                "pct_ausentismo": pct
+            }
+            total_prog += n_prog
+            total_pres += n_pres
+            total_aus += n_aus
+
+        tot_pct = round((total_aus / total_prog * 100.0), 1) if total_prog > 0 else 0.0
+        totales_global = {
+            "programados": total_prog,
+            "presentes": total_pres,
+            "ausentes": total_aus,
+            "pct_ausentismo": tot_pct
+        }
+        conn.close()
+    except Exception as e:
+        print(f"[Ausentismo B2B] Error calculando ausentismo: {e}")
+
+    return por_servicio, totales_global
+
+
 def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio: str = None, fecha_fin: str = None):
     """
     Matriz unificada de SLA para Agencias B2B con formato idéntico a GTR y justificaciones operativas.
@@ -612,6 +794,10 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         hoy_str = date.today().strftime("%Y-%m-%d")
         cierres_dia = csl.obtener_cierre_b2b_por_fecha(hoy_str) if csl else {}
         justificaciones = jb.obtener_justificaciones_por_fecha(hoy_str) if jb else {}
+
+    f_ini_calc = fecha_inicio if fecha_inicio else (fecha_sel if (fecha_sel and fecha_sel != "live") else date.today().strftime("%Y-%m-%d"))
+    f_fin_calc = fecha_fin if fecha_fin else f_ini_calc
+    aus_por_servicio, _ = obtener_ausentismo_b2b_por_servicio(f_ini_calc, f_fin_calc)
 
     token = obtener_token_genesys()
     gtr_cfg = gtr.cargar_config_gtr()
@@ -764,6 +950,12 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
         else:
             estado = "🔴 Crítico (< SLA)"
 
+        aus_info = aus_por_servicio.get(k, {"programados": 0, "presentes": 0, "ausentes": 0, "pct_ausentismo": 0.0})
+        prog_srv = int(aus_info.get("programados", 0))
+        pres_srv = int(aus_info.get("presentes", 0))
+        aus_srv = int(aus_info.get("ausentes", 0))
+        pct_aus_srv = float(aus_info.get("pct_ausentismo", 0.0))
+
         dict_calc = {
             "servicio": srv_name,
             "clave": k,
@@ -780,7 +972,10 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
             "pct_fore": c_data.get("pct_fore"),
             "pct_contestacion": c_data.get("pct_contestacion"),
             "staff_req": c_data.get("staff_req", 0.0),
-            "staff_real": c_data.get("staff_real", 0.0)
+            "staff_real": c_data.get("staff_real", 0.0),
+            "pct_ausentismo": pct_aus_srv,
+            "ausentes": aus_srv,
+            "programados": prog_srv
         }
 
         # Extraer observación cualitativa si un líder la registró previamente (en día específico)
@@ -806,6 +1001,10 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
             "Plataforma": plat,
             "Canal": canal,
             "Estado": estado,
+            "Prog": prog_srv,
+            "Pres": pres_srv,
+            "Aus": aus_srv,
+            "% Aus": pct_aus_srv,
             "Entrantes": entrantes,
             "Atendidas": atendidas,
             "% Aband": round(aband, 1),
@@ -854,6 +1053,16 @@ def _render_tabla_html_con_texto_completo(df_disp: pd.DataFrame):
         else:
             badge_canal = '<span style="padding: 2px 6px; border-radius: 4px; background: #fef9c3; color: #854d0e; font-weight: 600; font-size: 10.5px;">📋 CASOS</span>'
 
+        prog_val = int(r.get("Prog", 0))
+        pres_val = int(r.get("Pres", 0))
+        pct_aus_val = float(r.get("% Aus", 0.0))
+        if pct_aus_val <= 8.0:
+            badge_aus = f'<span style="padding: 2px 6px; border-radius: 4px; background: #dcfce7; color: #166534; font-weight: 700; font-size: 11px;">{pct_aus_val:.1f}%</span>'
+        elif pct_aus_val <= 10.0:
+            badge_aus = f'<span style="padding: 2px 6px; border-radius: 4px; background: #fef3c7; color: #92400e; font-weight: 700; font-size: 11px;">{pct_aus_val:.1f}%</span>'
+        else:
+            badge_aus = f'<span style="padding: 2px 6px; border-radius: 4px; background: #fee2e2; color: #991b1b; font-weight: 700; font-size: 11px;">{pct_aus_val:.1f}%</span>'
+
         ent = int(r.get("Entrantes", 0))
         aten = int(r.get("Atendidas", 0))
         aband = float(r.get("% Aband", 0.0))
@@ -881,6 +1090,9 @@ def _render_tabla_html_con_texto_completo(df_disp: pd.DataFrame):
             f'</td>'
             f'<td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_canal}</td>'
             f'<td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_est}</td>'
+            f'<td style="padding: 9px 6px; text-align: center; font-weight: 600; font-size: 11.5px; color: #1e293b; vertical-align: top; white-space: nowrap;">{prog_val}</td>'
+            f'<td style="padding: 9px 6px; text-align: center; font-weight: 600; font-size: 11.5px; color: #1e293b; vertical-align: top; white-space: nowrap;">{pres_val}</td>'
+            f'<td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_aus}</td>'
             f'<td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{ent:,}</td>'
             f'<td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{aten:,}</td>'
             f'<td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: {col_aband}; vertical-align: top; white-space: nowrap;">{aband:.1f}%</td>'
@@ -907,6 +1119,9 @@ def _render_tabla_html_con_texto_completo(df_disp: pd.DataFrame):
         '<th style="padding: 10px 10px;">Servicio</th>'
         '<th style="padding: 10px 6px; text-align: center;">Canal</th>'
         '<th style="padding: 10px 6px; text-align: center;">Estado SLA</th>'
+        '<th style="padding: 10px 6px; text-align: center;" title="Agentes programados en turno">Prog</th>'
+        '<th style="padding: 10px 6px; text-align: center;" title="Agentes presentes en Genesys o Salesforce">Pres</th>'
+        '<th style="padding: 10px 6px; text-align: center;" title="Porcentaje de ausentismo del servicio (Meta: ≤ 8.0%)">% Aus</th>'
         '<th style="padding: 10px 8px; text-align: right;">Ent</th>'
         '<th style="padding: 10px 8px; text-align: right;">Aten</th>'
         '<th style="padding: 10px 8px; text-align: right;">% Aban</th>'
@@ -1005,7 +1220,12 @@ def render_subtab_niveles_servicio_unificado():
     aband_pond = (df_ns["% Aband"] * df_ns["Entrantes"]).sum() / tot_ent if tot_ent > 0 else 0.0
     aht_prom = int(round((df_ns["AHT Real (s)"] * df_ns["Atendidas"]).sum() / tot_aten)) if tot_aten > 0 else 0
 
-    k1, k2, k3, k4, k5 = st.columns(5)
+    tot_prog = int(df_ns["Prog"].sum()) if "Prog" in df_ns.columns else 0
+    tot_pres = int(df_ns["Pres"].sum()) if "Pres" in df_ns.columns else 0
+    tot_aus = tot_prog - tot_pres
+    pct_aus_global = round((tot_aus / tot_prog * 100.0), 1) if tot_prog > 0 else 0.0
+
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
     with k1:
         d_col = "normal" if dif_ns_pond >= 0 else "inverse"
         st.metric(
@@ -1022,7 +1242,16 @@ def render_subtab_niveles_servicio_unificado():
     with k4:
         st.metric("📉 % Abandono Consolidado", f"{aband_pond:.1f}%", delta="Meta: ≤ 5.0%", delta_color="inverse" if aband_pond > 5.0 else "normal")
     with k5:
-        st.metric("⏱️ AHT Promedio Ponderado", f"{aht_prom} seg", help="Tiempo medio operativo promedio de todos los canales de Agencias.")
+        st.metric("⏱️ AHT Promedio", f"{aht_prom} seg", help="Tiempo medio operativo promedio de todos los canales de Agencias.")
+    with k6:
+        d_aus_col = "normal" if pct_aus_global <= 8.0 else "inverse"
+        st.metric(
+            "👥 Ausentismo B2B",
+            f"{pct_aus_global:.1f}%",
+            delta=f"{tot_aus} ausentes de {tot_prog} (Meta ≤8%)",
+            delta_color=d_aus_col,
+            help="Ausentismo consolidado de Agencias B2B cruzando turnos programados vs presencia registrada en Genesys Cloud y Salesforce Omni-Channel."
+        )
 
     st.write("")
 
@@ -1059,7 +1288,7 @@ def render_subtab_niveles_servicio_unificado():
         _render_tabla_html_con_texto_completo(df_disp)
     else:
         cols_mostrar = [
-            "Servicio", "Plataforma", "Canal", "Estado", "Entrantes", "Atendidas",
+            "Servicio", "Plataforma", "Canal", "Estado", "Prog", "Pres", "% Aus", "Entrantes", "Atendidas",
             "% Aband", "NS Real", "NS Meta", "Umbral NS", "Dif NS (pp)",
             "AHT Real (s)", "AHT Meta (s)", "Desv AHT (%)", "ASA (s)", "Justificación Operativa"
         ]
@@ -1068,6 +1297,9 @@ def render_subtab_niveles_servicio_unificado():
             use_container_width=True,
             hide_index=True,
             column_config={
+                "Prog": st.column_config.NumberColumn("Prog", format="%d", help="Agentes programados en turno"),
+                "Pres": st.column_config.NumberColumn("Pres", format="%d", help="Agentes presentes en Genesys o Salesforce"),
+                "% Aus": st.column_config.NumberColumn("% Aus", format="%.1f%%", help="Porcentaje de ausentismo del servicio (Meta: ≤ 8.0%)"),
                 "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
                 "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
                 "% Aband": st.column_config.NumberColumn("% Aband", format="%.1f%%"),
