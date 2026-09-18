@@ -62,6 +62,12 @@ except Exception as _adh_v2_err:
     def render_tab_adherencia_v2(*args, **kwargs):
         st.error(f"Error cargando módulo Adherencia 2.0 (Lab): {_adh_v2_err}")
 
+try:
+    from copiloto_engine import render_tab_copiloto
+except Exception as _cop_err:
+    def render_tab_copiloto(*args, **kwargs):
+        st.error(f"Error cargando módulo Copiloto 4DX: {_cop_err}")
+
 
 st.set_page_config(page_title="Radar Operacional | Almaexperience", page_icon="🛰️", layout="wide", initial_sidebar_state="collapsed")
 
@@ -1256,16 +1262,18 @@ SECCIONES_APP.append("📚 Glosario & Guía")
 CARLOS_MURILLO_EMAILS = {
     "carlosmurilloe.almacontact@outsourcing-account.com",
     "lan.sm.carlos.murillo@gmail.com",
+    "kamesito2@gmail.com",
 }
 
 es_carlos = (
     current_email in CARLOS_MURILLO_EMAILS
-    or "carlosmurillo" in current_email
+    or "carlosmurillo" in current_email.lower()
     or current_email in ADMINS_AUTORIZADOS
     or not auth_configurado
 )
 
 if es_carlos:
+    SECCIONES_APP.append("🤖 Copiloto 4DX")
     SECCIONES_APP.append("🧪 Capacidad 2.0 (Lab)")
     SECCIONES_APP.append("🧪 Adherencia & Pausas 2.0 (Lab)")
 
@@ -2216,6 +2224,12 @@ elif seccion_activa == "📊 Estadísticas de Usabilidad":
         render_panel_auditoria()
     with tab_feedback:
         render_panel_gestion_feedback(current_email)
+
+elif seccion_activa == "🤖 Copiloto 4DX":
+    if es_carlos:
+        render_tab_copiloto(cargar_agentes_map_base(), current_email)
+    else:
+        st.warning("🔒 Esta función se encuentra actualmente en fase de pruebas exclusivas para administración.")
 
 elif seccion_activa == "📚 Glosario & Guía":
     render_tab_glosario(secciones_disponibles=SECCIONES_APP)

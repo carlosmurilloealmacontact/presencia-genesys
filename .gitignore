@@ -18,6 +18,7 @@ scripts/salesforce_live_config.json
 .env
 *.env
 secrets.toml
+credentials/
 
 # Bases de datos y logs locales
 *.db
