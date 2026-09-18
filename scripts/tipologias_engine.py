@@ -26,6 +26,8 @@ CONFIG_GTR_PATH = BASE_DIR / "scripts" / "gtr_config.json"
 CATALOG_PATH = BASE_DIR / "data" / "wrapup_codes_catalog.json"
 SF_DB_PATH = BASE_DIR / "data" / "salesforce_live.db"
 SF_CASES_PATH = BASE_DIR / "data" / "salesforce" / "cases_amc_cleaned.csv"
+ZD_PROD_PATH = BASE_DIR / "data" / "zendesk" / "productividad_hoy_en_vivo.csv"
+ZD_BACKLOG_PATH = BASE_DIR / "data" / "zendesk" / "backlog_en_vivo.csv"
 
 
 def formatear_segundos_mm_ss(segundos):
@@ -473,6 +475,107 @@ def obtener_tipologias_salesforce(fecha: str = "hoy") -> pd.DataFrame:
     return df_sf
 
 
+# ── 3.1 EXTRACCIÓN DE TIPOLOGÍAS EN ZENDESK (BACK OFFICE CASOUNICO) ────────────
+
+def obtener_tipologias_zendesk(fecha: str = "hoy") -> pd.DataFrame:
+    """
+    Extrae las tipologías de casos y tickets gestionados en Zendesk Back Office (CASOUNICO).
+    """
+    records = []
+    if ZD_PROD_PATH.exists():
+        try:
+            df_zd = pd.read_csv(ZD_PROD_PATH, encoding="utf-8")
+            if not df_zd.empty and "Tipo_de_Gestion" in df_zd.columns:
+                zd_grp = df_zd.groupby(["grupo", "Tipo_de_Gestion"]).size().reset_index(name="volumen")
+                for _, r in zd_grp.iterrows():
+                    grupo = str(r["grupo"])
+                    tipo_ges = str(r["Tipo_de_Gestion"]).strip()
+                    vol = int(r["volumen"])
+                    
+                    pais_zd = resolver_pais_origen("", grupo)
+                    
+                    tipo_u = tipo_ges.upper()
+                    if any(k in tipo_u for k in ("PASS", "MILLAS", "MILHAS", "SOCIO", "ELITE")):
+                        macro_zd = "🌟 LATAM Pass y Fidelización"
+                    elif any(k in tipo_u for k in ("EQUIP", "BAG", "MALETA")):
+                        macro_zd = "🧳 Equipaje y Ancillaries"
+                    elif any(k in tipo_u for k in ("ANULAC", "DEVOLUC", "REEMBOLS", "VOUCHER")):
+                        macro_zd = "🔁 Devoluciones y Reembolsos"
+                    elif any(k in tipo_u for k in ("COMPRA", "VENTA", "EMIS", "TARIF", "PAGO")):
+                        macro_zd = "💳 Emisiones, Tarifas y Pagos"
+                    elif any(k in tipo_u for k in ("CAMBIO", "VUELO", "ATRASO", "CANCELAC")):
+                        macro_zd = "✈️ Alteraciones y Cambios de Vuelo"
+                    elif any(k in tipo_u for k in ("CHECK", "ASIENTO")):
+                        macro_zd = "🛫 Check-in y Asientos"
+                    elif "SIN TIPIFICAR" in tipo_u or "NULL" in tipo_u:
+                        macro_zd = "⚠️ Sin Tipificar / Incidencias"
+                    else:
+                        macro_zd = "📋 Otros Motivos de Contacto"
+
+                    records.append({
+                        "fuente": "Zendesk Back Office",
+                        "pais": pais_zd,
+                        "servicio": f"BO {grupo.replace(' AMC', '').replace(' SSC', '')}",
+                        "cola": grupo,
+                        "canal": "TICKET",
+                        "wrapup_id": "",
+                        "motivo_contacto": tipo_ges,
+                        "macro_categoria": macro_zd,
+                        "volumen": vol,
+                        "aht_segundos": 480.0,
+                        "aht_formato": "08:00"
+                    })
+        except Exception:
+            pass
+
+    if not records:
+        return pd.DataFrame()
+
+    df_res = pd.DataFrame(records)
+    tot_vol = df_res["volumen"].sum()
+    df_res["porcentaje"] = ((df_res["volumen"] / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
+    return df_res.sort_values(by="volumen", ascending=False).reset_index(drop=True)
+
+
+def calcular_semaforo_calidad_servicio(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calcula para cada servicio el % de llamadas tipificadas exitosamente vs abandonadas en timeout,
+    generando una tabla de diagnóstico con semáforo para supervisores y jefes de sala.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    records = []
+    for srv, g in df.groupby("servicio"):
+        tot = g["volumen"].sum()
+        mask_to = (
+            g["macro_categoria"].str.contains("Timeout", case=False, na=False) |
+            g["motivo_contacto"].str.contains("Timeout", case=False, na=False) |
+            g["motivo_contacto"].str.contains("ININ", case=False, na=False)
+        )
+        timeouts = g.loc[mask_to, "volumen"].sum()
+        tipificadas = tot - timeouts
+        pct_calidad = (tipificadas / tot * 100.0) if tot > 0 else 0.0
+        
+        if pct_calidad >= 80.0:
+            estado = "🟢 Cumplimiento Alto (≥80%)"
+        elif pct_calidad >= 60.0:
+            estado = "🟡 Cumplimiento Medio (60-79%)"
+        else:
+            estado = "🔴 Requiere Foco (<60%)"
+
+        records.append({
+            "Servicio / Campaña": srv,
+            "Total Contactos": int(tot),
+            "Tipificados con Motivo": int(tipificadas),
+            "Timeouts (Sin Tipificar)": int(timeouts),
+            "% Calidad": f"{pct_calidad:.1f}%",
+            "Diagnóstico Operativo": estado
+        })
+
+    return pd.DataFrame(records).sort_values(by="Total Contactos", ascending=False).reset_index(drop=True)
+
+
 # ── 4. DETECTOR DE CONTINGENCIAS Y PICOS DE DEMANDA ────────────────────────────
 
 def detectar_picos_y_contingencias(df_tipologias: pd.DataFrame, umbral_pct: float = 25.0) -> list:
@@ -512,10 +615,10 @@ def detectar_picos_y_contingencias(df_tipologias: pd.DataFrame, umbral_pct: floa
 
 # ── 5. GENERADOR PROFESIONAL DE REPORTE DIARIO EXCEL ──────────────────────────
 
-def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.DataFrame, fecha_label: str = "Hoy") -> bytes:
+def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.DataFrame, df_zendesk: pd.DataFrame = None, fecha_label: str = "Hoy") -> bytes:
     """
     Genera un archivo Excel enriquecido con formato corporativo de AlmaContact y LATAM Airlines
-    con pestañas de Resumen Ejecutivo, Detalle Genesys Cloud y Detalle Salesforce.
+    con pestañas de Resumen Ejecutivo, Detalle Genesys Cloud, Detalle Salesforce y Detalle Zendesk.
     """
     wb = openpyxl.Workbook()
     wb.remove(wb.active)  # Quitar hoja default
@@ -552,13 +655,14 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
     c_title.alignment = Alignment(horizontal="center", vertical="center")
 
     ws_res.append([])
-    ws_res.append(["Fecha de Generación:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "", "Fuentes:", "Genesys Cloud & Salesforce B2B", ""])
+    ws_res.append(["Fecha de Generación:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "", "Fuentes:", "Genesys Cloud • Salesforce B2B • Zendesk", ""])
     ws_res["A3"].font = font_bold
     ws_res["D3"].font = font_bold
     ws_res.append([])
 
     # Sección Contingencias Detectadas
-    df_combo = pd.concat([df_genesys, df_salesforce], ignore_index=True) if not df_genesys.empty or not df_salesforce.empty else pd.DataFrame()
+    frames_combo = [d for d in [df_genesys, df_salesforce, df_zendesk] if d is not None and not d.empty]
+    df_combo = pd.concat(frames_combo, ignore_index=True) if frames_combo else pd.DataFrame()
     contingencias = detectar_picos_y_contingencias(df_combo, umbral_pct=25.0)
 
     ws_res.append(["ALERTA DE CONTINGENCIAS Y PICOS DE DEMANDA IDENTIFICADOS"])
@@ -658,7 +762,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
         ws_res.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
     # ── HOJA 2: DETALLE GENESYS CLOUD ──
-    if not df_genesys.empty:
+    if df_genesys is not None and not df_genesys.empty:
         ws_gen = wb.create_sheet(title="Genesys Cloud (Voz & WPP)")
         ws_gen.views.sheetView[0].showGridLines = True
 
@@ -697,7 +801,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
             ws_gen.column_dimensions[col_letter].width = max(max_len + 3, 14)
 
     # ── HOJA 3: DETALLE SALESFORCE ──
-    if not df_salesforce.empty:
+    if df_salesforce is not None and not df_salesforce.empty:
         ws_sf = wb.create_sheet(title="Salesforce (Chat & Casos)")
         ws_sf.views.sheetView[0].showGridLines = True
 
@@ -735,6 +839,45 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
             col_letter = get_column_letter(col[0].column)
             ws_sf.column_dimensions[col_letter].width = max(max_len + 3, 14)
 
+    # ── HOJA 4: DETALLE ZENDESK CASOUNICO ──
+    if df_zendesk is not None and not df_zendesk.empty:
+        ws_zd = wb.create_sheet(title="Zendesk Back Office")
+        ws_zd.views.sheetView[0].showGridLines = True
+
+        cols_zd = ["País / Mercado", "Fuente Zendesk", "Servicio", "Grupo / Cola", "Canal", "Macro-Categoría", "Motivo / Tipología", "Volumen Casos", "% Participación"]
+        ws_zd.append(cols_zd)
+        for col_num in range(1, len(cols_zd) + 1):
+            c = ws_zd.cell(row=1, column=col_num)
+            c.font = font_header
+            c.fill = fill_header
+            c.alignment = Alignment(horizontal="center", vertical="center")
+
+        for r_idx, row in df_zendesk.iterrows():
+            ws_zd.append([
+                row.get("pais", "Multimercado"),
+                row["fuente"],
+                row["servicio"],
+                row["cola"],
+                row["canal"],
+                row.get("macro_categoria", "General"),
+                row["motivo_contacto"],
+                int(row["volumen"]),
+                f"{row['porcentaje']}%"
+            ])
+            row_num = r_idx + 2
+            for col_num in range(1, len(cols_zd) + 1):
+                cell = ws_zd.cell(row=row_num, column=col_num)
+                cell.font = font_body
+                if r_idx % 2 == 1:
+                    cell.fill = fill_zebra
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal="center" if col_num in [1, 5, 6, 8, 9] else "left", vertical="center")
+
+        for col in ws_zd.columns:
+            max_len = max(len(str(cell.value or "")) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws_zd.column_dimensions[col_letter].width = max(max_len + 3, 14)
+
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
@@ -765,7 +908,7 @@ def render_seccion_tipologias(current_email: str = ""):
                 </div>
                 <div style="text-align: right; background: rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);">
                     <span style="color: #c084fc; font-size: 11px; font-weight: 700; text-transform: uppercase;">Fuentes Activas</span><br>
-                    <span style="color: #4ade80; font-size: 12px; font-weight: 600;">Genesys Cloud (Voz/WPP) • Salesforce CRM</span>
+                    <span style="color: #4ade80; font-size: 12px; font-weight: 600;">Genesys Cloud (Voz/WPP) • Salesforce • Zendesk BO</span>
                 </div>
             </div>
         </div>
@@ -774,9 +917,18 @@ def render_seccion_tipologias(current_email: str = ""):
     )
 
     # Filtros Superiores
-    f_c1, f_c2, f_c3, f_c4 = st.columns([1.2, 1.2, 1.4, 1.0])
+    f_c1, f_c2, f_c3, f_c4 = st.columns([1.3, 1.1, 1.4, 1.0])
     with f_c1:
-        fuente_sel = st.selectbox("🌐 Fuente de Datos", ["Todas (Consolidado)", "Genesys Cloud (Voz & WPP)", "Salesforce B2B (Chat & Casos)"], key="tipol_fuente_sel")
+        fuente_sel = st.selectbox(
+            "🌐 Fuente de Datos",
+            [
+                "Todas las Fuentes (Consolidado Tri-Plataforma)",
+                "Genesys Cloud (Voz & WPP)",
+                "Salesforce B2B (Chat & Casos)",
+                "Zendesk Back Office (Tickets CASOUNICO)"
+            ],
+            key="tipol_fuente_sel"
+        )
     with f_c2:
         modo_fecha = st.radio("⏱️ Modalidad Temporal", ["En Vivo Hoy", "Fecha Histórica"], horizontal=True, key="tipol_modo_fecha")
     with f_c3:
@@ -791,15 +943,24 @@ def render_seccion_tipologias(current_email: str = ""):
         srv_sel = st.selectbox("🏢 Filtro Servicio", servicios_disp, key="tipol_srv_sel")
         srv_query = "" if srv_sel == "Todos los Servicios" else srv_sel
 
-    with st.spinner("Extrayendo y categorizando motivos de interacción desde Genesys y Salesforce..."):
+    with st.spinner("Extrayendo y categorizando motivos de interacción desde Genesys, Salesforce y Zendesk..."):
         df_genesys = pd.DataFrame()
         df_salesforce = pd.DataFrame()
+        df_zendesk = pd.DataFrame()
 
-        if fuente_sel in ["Todas (Consolidado)", "Genesys Cloud (Voz & WPP)"]:
+        if fuente_sel in ["Todas las Fuentes (Consolidado Tri-Plataforma)", "Genesys Cloud (Voz & WPP)"]:
             df_genesys = obtener_tipologias_genesys(token, fecha=fecha_str, servicio=srv_query)
 
-        if fuente_sel in ["Todas (Consolidado)", "Salesforce B2B (Chat & Casos)"]:
+        if fuente_sel in ["Todas las Fuentes (Consolidado Tri-Plataforma)", "Salesforce B2B (Chat & Casos)"]:
             df_salesforce = obtener_tipologias_salesforce(fecha=fecha_str)
+
+        if fuente_sel in ["Todas las Fuentes (Consolidado Tri-Plataforma)", "Zendesk Back Office (Tickets CASOUNICO)"]:
+            df_zendesk = obtener_tipologias_zendesk(fecha=fecha_str)
+            if srv_query and not df_zendesk.empty:
+                df_zendesk = df_zendesk[
+                    df_zendesk["servicio"].str.contains(srv_query, case=False, na=False) |
+                    df_zendesk["cola"].str.contains(srv_query, case=False, na=False)
+                ].copy()
 
         # Unificar
         frames = []
@@ -807,6 +968,8 @@ def render_seccion_tipologias(current_email: str = ""):
             frames.append(df_genesys)
         if not df_salesforce.empty:
             frames.append(df_salesforce)
+        if not df_zendesk.empty:
+            frames.append(df_zendesk)
 
         df_total = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -818,17 +981,22 @@ def render_seccion_tipologias(current_email: str = ""):
     paises_disp = ["Todos los Países / Mercados"] + sorted([p for p in df_total["pais"].dropna().unique() if p])
     macros_disp = ["Todas las Familias / Macro-Categorías"] + sorted([m for m in df_total["macro_categoria"].dropna().unique() if m])
 
-    fc_1, fc_2, fc_3 = st.columns([1.5, 1.5, 1.2], vertical_alignment="bottom")
+    fc_1, fc_2, fc_3 = st.columns([1.2, 1.3, 1.5], vertical_alignment="bottom")
     with fc_1:
         pais_sel = st.selectbox("🌎 País / Mercado de Origen", paises_disp, key="tipol_pais_sel")
     with fc_2:
         macro_sel = st.selectbox("🏷️ Familia / Macro-Categoría de Negocio", macros_disp, key="tipol_macro_sel")
     with fc_3:
-        ocultar_timeouts = st.checkbox(
-            "🚫 Aislar Demanda Real",
-            value=False,
-            help="Oculta '⚠️ Sin Tipificar (Timeout / Tiempo de ACW Agotado)' para analizar únicamente los motivos reales de los pasajeros.",
-            key="tipol_ocultar_timeouts"
+        modo_demanda = st.selectbox(
+            "🎯 Lente Analítica de Demanda",
+            [
+                "🔍 Auditoría Operativa (Timeouts por Servicio)",
+                "🔮 Demanda Total Estimada (Reclasificación por Cola)",
+                "🚫 Demanda Real Pura (Ocultar Timeouts)"
+            ],
+            index=0,
+            help="🔍 Auditoría: muestra motivos reales + llamadas en timeout catalogadas por servicio.\n🔮 Estimada: reclasifica el 100% del tráfico mapeando timeouts a la especialidad de la cola.\n🚫 Pura: aísla y analiza únicamente interacciones donde el asesor tipificó manualmente.",
+            key="tipol_modo_demanda"
         )
 
     # Filtrar por país si se seleccionó uno específico
@@ -914,12 +1082,58 @@ def render_seccion_tipologias(current_email: str = ""):
     elif not (vol_sin_tipificar > 0 and pct_sin_tipificar >= 20.0):
         st.success("🟢 **Operación Estable**: La demanda se encuentra distribuida normalmente entre los motivos habituales sin concentración anómala superior al 25%.", icon="✅")
 
+    # ── SEMÁFORO DE CUMPLIMIENTO OPERATIVO POR SERVICIO ──
+    with st.expander("📊 Semáforo de Cumplimiento de Tipificación por Servicio (Auditoría de Jefatura y Coaching)", expanded=False):
+        st.markdown(
+            "Este semáforo audita la disciplina de tipificación por campaña, contrastando llamadas cerradas con wrap-up code vs aquellas abandonadas en timeout de ACW. "
+            "Permite a supervisores y monitores de calidad focalizar refuerzos y coaching en los equipos con mayor fuga de tipificación."
+        )
+        df_semaforo = calcular_semaforo_calidad_servicio(df_base)
+        if not df_semaforo.empty:
+            st.dataframe(df_semaforo, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay datos disponibles para calcular el semáforo.")
+
     st.markdown("---")
 
-    # ── FILTROS ADICIONALES PARA GRÁFICOS ──
+    # ── APLICAR LENTE DE DEMANDA SELECCIONADA PARA GRÁFICOS ──
     df_graficos = df_base.copy()
-    if ocultar_timeouts:
-        df_graficos = df_graficos[~mask_sin_tipificar]
+    if modo_demanda == "🚫 Demanda Real Pura (Ocultar Timeouts)":
+        df_graficos = df_graficos[~mask_sin_tipificar].copy()
+    elif modo_demanda == "🔮 Demanda Total Estimada (Reclasificación por Cola)":
+        def _reclasificar_fila(row):
+            is_to = (
+                "Sin Tipificar" in str(row.get("macro_categoria", "")) or
+                "Timeout" in str(row.get("motivo_contacto", "")) or
+                "ININ" in str(row.get("motivo_contacto", ""))
+            )
+            if is_to:
+                srv_txt = str(row.get("servicio", "")).upper()
+                cola_txt = str(row.get("cola", "")).upper()
+                if "EQUIP" in srv_txt or "EQUIP" in cola_txt:
+                    row["macro_categoria"] = "🧳 Equipaje y Ancillaries"
+                    row["motivo_contacto"] = "Demanda Estimada: Equipajes (Vía Cola)"
+                elif "VENTA" in srv_txt or "VENTA" in cola_txt:
+                    row["macro_categoria"] = "💳 Emisiones, Tarifas y Pagos"
+                    row["motivo_contacto"] = "Demanda Estimada: Ventas y Tarifas (Vía Cola)"
+                elif any(k in srv_txt or k in cola_txt for k in ("FFP", "DT", "PASS", "ELITE")):
+                    row["macro_categoria"] = "🌟 LATAM Pass y Fidelización"
+                    row["motivo_contacto"] = "Demanda Estimada: LATAM Pass (Vía Cola)"
+                elif "WPP" in srv_txt or "WHATSAPP" in cola_txt:
+                    row["macro_categoria"] = "📱 Canales Digitales y WhatsApp"
+                    row["motivo_contacto"] = "Demanda Estimada: Atención WhatsApp (Vía Cola)"
+                elif any(k in srv_txt or k in cola_txt for k in ("B2B", "AGENC", "CORP")):
+                    row["macro_categoria"] = "🏢 Agencias B2B / Canales Indirectos"
+                    row["motivo_contacto"] = "Demanda Estimada: Soporte B2B (Vía Cola)"
+                elif "LUA" in srv_txt or "LUA" in cola_txt:
+                    row["macro_categoria"] = "✈️ Cambios y Servicio al Pasajero"
+                    row["motivo_contacto"] = "Demanda Estimada: Línea Única LUA (Vía Cola)"
+                else:
+                    row["macro_categoria"] = "📋 Tráfico General Atribuido"
+                    row["motivo_contacto"] = f"Demanda Estimada: {row.get('servicio', 'General')} (Vía Cola)"
+            return row
+
+        df_graficos = df_graficos.apply(_reclasificar_fila, axis=1)
 
     if macro_sel != "Todas las Familias / Macro-Categorías":
         df_graficos = df_graficos[df_graficos["macro_categoria"] == macro_sel]
@@ -928,7 +1142,12 @@ def render_seccion_tipologias(current_email: str = ""):
     g_c1, g_c2 = st.columns([1.4, 1.1])
 
     with g_c1:
-        subtit_bar = "📊 Top 10 Motivos de Contacto" if not ocultar_timeouts else "📊 Top 10 Motivos Reales de Clientes"
+        if modo_demanda == "🚫 Demanda Real Pura (Ocultar Timeouts)":
+            subtit_bar = "📊 Top 10 Motivos Reales de Clientes (Solo Tipificados)"
+        elif modo_demanda == "🔮 Demanda Total Estimada (Reclasificación por Cola)":
+            subtit_bar = "📊 Top 10 Motivos de Demanda Estimada (100% Tráfico)"
+        else:
+            subtit_bar = "📊 Top 10 Motivos de Contacto (Auditoría con Timeouts)"
         st.subheader(subtit_bar)
         if not df_graficos.empty:
             df_top10 = df_graficos.groupby("motivo_contacto")["volumen"].sum().reset_index().sort_values(by="volumen", ascending=True).tail(10)
@@ -1032,7 +1251,7 @@ def render_seccion_tipologias(current_email: str = ""):
     with d_c1:
         filtro_txt = st.text_input("🔍 Buscar motivo, país, macro-categoría o cola...", placeholder="Ej. Chile, Colombia, Pago, Check-in, Equipaje, Vuelo...", key="tipol_txt_search")
     with d_c2:
-        excel_bytes = generar_reporte_diario_excel(df_genesys, df_salesforce, fecha_label=fecha_str)
+        excel_bytes = generar_reporte_diario_excel(df_genesys, df_salesforce, df_zendesk=df_zendesk, fecha_label=fecha_str)
         st.download_button(
             label="📥 Descargar Reporte Diario (Excel)",
             data=excel_bytes,
