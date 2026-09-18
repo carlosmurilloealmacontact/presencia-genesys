@@ -959,11 +959,24 @@ def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -
     try:
         MAX_TURNS = 5
         for _ in range(MAX_TURNS):
-            with httpx.Client(timeout=45.0) as client:
-                r = client.post(endpoint_url, headers=headers, json=body)
+            r = None
+            for intento in range(3):
+                try:
+                    with httpx.Client(timeout=60.0) as client:
+                        r = client.post(endpoint_url, headers=headers, json=body)
+                    if r.status_code == 429:
+                        espera = (intento + 1) * 3.0
+                        time.sleep(espera)
+                        continue
+                    break
+                except (httpx.ReadTimeout, httpx.ConnectTimeout):
+                    if intento < 2:
+                        time.sleep(2.0)
+                        continue
+                    raise
             
-            if r.status_code != 200:
-                return f"⚠️ Error en respuesta de Vertex AI (HTTP {r.status_code}): {r.text}"
+            if r is None or r.status_code != 200:
+                return f"⚠️ Error en respuesta de Vertex AI (HTTP {r.status_code if r else 'Timeout'}): {r.text if r else 'Sin respuesta'}"
 
             res_json = r.json()
             candidate = res_json.get("candidates", [{}])[0].get("content", {})
