@@ -62,6 +62,42 @@ CREATE INDEX IF NOT EXISTS idx_act_servicio ON auditoria_cambios_turnos(servicio
 """
 
 
+def obtener_ventana_ciclo_4dx(today=None, min_dias_atras: int = 3, dias_adelante: int = 7) -> tuple[str, str]:
+    """
+    Calcula la ventana adaptativa de auditoría y descarga de turnos:
+    - Retrocede como mínimo `min_dias_atras` (por defecto 3 días para auditar D-1, D-2 y D-3).
+    - Cubre desde el inicio del Ciclo 4DX activo del mes:
+      * Ciclo 1: días 01 a 07
+      * Ciclo 2: días 08 a 15
+      * Ciclo 3: días 16 a 23
+      * Ciclo 4: días 24 a fin de mes
+    - Hacia adelante: cubre `dias_adelante` (por defecto 7 días).
+    Garantiza que cualquier modificación hecha por WFM en el ciclo activo se audite y concilie diariamente.
+    """
+    if today is None:
+        today = datetime.now().date()
+    elif isinstance(today, str):
+        today = datetime.strptime(today, "%Y-%m-%d").date()
+
+    dia = today.day
+    if dia <= 7:
+        dia_ini_ciclo = 1
+    elif dia <= 15:
+        dia_ini_ciclo = 8
+    elif dia <= 23:
+        dia_ini_ciclo = 16
+    else:
+        dia_ini_ciclo = 24
+
+    fecha_ini_ciclo = today.replace(day=dia_ini_ciclo)
+    fecha_min_retroceso = today - timedelta(days=min_dias_atras)
+
+    fecha_inicio = min(fecha_ini_ciclo, fecha_min_retroceso)
+    fecha_fin = today + timedelta(days=dias_adelante)
+
+    return fecha_inicio.strftime("%Y-%m-%d"), fecha_fin.strftime("%Y-%m-%d")
+
+
 def inicializar_tabla_auditoria(conn: sqlite3.Connection = None) -> None:
     """Crea la tabla de auditoría en la conexión provista o en ambas bases (master y presencia.db)."""
     if conn:
@@ -366,18 +402,31 @@ def auditar_diferencias(raw_shifts: list[dict], cedula_a_bp: dict, existing_turn
     return rows_turnos, rows_detallados, rows_auditoria
 
 
-def ejecutar_auditoria_y_sync_turnos(dias_atras: int = 7, dias_adelante: int = 7) -> dict:
+def ejecutar_auditoria_y_sync_turnos(
+    dias_atras: int = None,
+    dias_adelante: int = 7,
+    fecha_ini_custom: str = None,
+    fecha_fin_custom: str = None
+) -> dict:
     """
     Ejecuta el ciclo completo de auditoría y sincronización:
-    1. Descarga turnos vigentes desde API Almaverso para la ventana [hoy - dias_atras, hoy + dias_adelante].
-    2. Compara contra turnos y turnos_detallados en base de datos.
-    3. Registra todas las diferencias en auditoria_cambios_turnos.
-    4. Aplica el upsert en presencia_master.db y presencia.db.
-    5. Limpia los caches de Streamlit para reflejo inmediato.
+    1. Si no se especifican días, usa la ventana adaptativa del Ciclo 4DX (mínimo 3 días atrás + ciclo activo).
+    2. Descarga turnos vigentes desde API Almaverso para la ventana [fecha_ini, fecha_fin].
+    3. Compara contra turnos y turnos_detallados en base de datos.
+    4. Registra todas las diferencias en auditoria_cambios_turnos.
+    5. Aplica el upsert en presencia_master.db y presencia.db.
+    6. Limpia los caches de Streamlit para reflejo inmediato.
     """
     today = datetime.now().date()
-    fecha_ini = (today - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
-    fecha_fin = (today + timedelta(days=dias_adelante)).strftime("%Y-%m-%d")
+    if fecha_ini_custom and fecha_fin_custom:
+        fecha_ini = fecha_ini_custom
+        fecha_fin = fecha_fin_custom
+    elif dias_atras is not None:
+        fecha_ini = (today - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
+        fecha_fin = (today + timedelta(days=dias_adelante)).strftime("%Y-%m-%d")
+    else:
+        # Por defecto: Ciclo 4DX activo + mínimo 3 días atrás (cubre D-1, D-2, D-3 y todo el ciclo actual)
+        fecha_ini, fecha_fin = obtener_ventana_ciclo_4dx(today, min_dias_atras=3, dias_adelante=dias_adelante)
 
     inicializar_tabla_auditoria()
     sembrar_historico_si_vacio()

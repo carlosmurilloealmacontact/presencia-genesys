@@ -260,10 +260,11 @@ def run_extraction(start_date: str, end_date: str):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Extrae turnos de Almaverso API y los guarda en SQLite.")
+    parser = argparse.ArgumentParser(description="Extrae y audita turnos de Almaverso API y los guarda en SQLite.")
     parser.add_argument("--start", help="Fecha inicio YYYY-MM-DD")
     parser.add_argument("--end", help="Fecha fin YYYY-MM-DD")
     parser.add_argument("--hoy", action="store_true", help="Solo el día de hoy")
+    parser.add_argument("--days-back", type=int, default=None, help="Días hacia atrás a auditar y sincronizar")
     args = parser.parse_args()
 
     today = datetime.now().date()
@@ -273,9 +274,17 @@ if __name__ == "__main__":
     elif args.start and args.end:
         start_str = args.start
         end_str = args.end
-    else:
-        # Por defecto: desde ayer hasta hoy + 7 días
-        start_str = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    elif args.days_back is not None:
+        start_str = (today - timedelta(days=args.days_back)).strftime("%Y-%m-%d")
         end_str = (today + timedelta(days=7)).strftime("%Y-%m-%d")
+    else:
+        # Por defecto: ventana adaptativa del Ciclo 4DX (mínimo 3 días atrás cubriendo D-1, D-2, D-3 y todo el ciclo activo) hasta hoy + 7 días
+        try:
+            from audit_turnos_engine import obtener_ventana_ciclo_4dx
+            start_str, end_str = obtener_ventana_ciclo_4dx(today, min_dias_atras=3, dias_adelante=7)
+        except Exception:
+            start_str = (today - timedelta(days=3)).strftime("%Y-%m-%d")
+            end_str = (today + timedelta(days=7)).strftime("%Y-%m-%d")
 
+    print(f"-> Rango de sincronización y auditoría WFM: {start_str} a {end_str}")
     run_extraction(start_str, end_str)
