@@ -9822,6 +9822,7 @@
 2026-09-18,DT FFP AMC,williamgaleano.alma@outsourcing-account.com,LATAM PASS::Acreditacion vuelo LATAM,1,2026-09-18 00:00:00,LATAM PASS::Acreditacion vuelo LATAM
 2026-09-18,DT FFP AMC,williamgaleano.alma@outsourcing-account.com,LATAM PASS::Actualización Datos Ebiz,1,2026-09-18 00:00:00,LATAM PASS::Actualización Datos Ebiz
 2026-09-18,DT FFP AMC,williamgaleano.alma@outsourcing-account.com,LATAM PASS::Compra / canje no reconocido del producto,1,2026-09-18 00:00:00,LATAM PASS::Compra / canje no reconocido del producto
+2026-09-18,DT FFP AMC,williamgaleano.alma@outsourcing-account.com,LATAM PASS::Error Login,1,2026-09-18 00:00:00,LATAM PASS::Error Login
 2026-09-18,DT FFP AMC,williamgaleano.alma@outsourcing-account.com,LATAM PASS::Registro mi cuenta está bloqueada,1,2026-09-18 00:00:00,LATAM PASS::Registro mi cuenta está bloqueada
 2026-09-18,DT FFP AMC,williamgaleano.alma@outsourcing-account.com,LATAM PASS::Sospecha de alto riesgo,4,2026-09-18 00:00:00,LATAM PASS::Sospecha de alto riesgo
 2026-09-18,DT FFP AMC,williamgaleano.alma@outsourcing-account.com,Sin Tipificar / Null,1,2026-09-18 00:00:00,Sin Tipificar / Null
@@ -9896,7 +9897,7 @@
 2026-09-18,LUA AMC,andrespaez.alma@outsourcing-account.com,Excepciones::Endoso Ley Chile,3,2026-09-18 00:00:00,Excepciones::Endoso Ley Chile
 2026-09-18,LUA AMC,danielaperez.almacontact@outsourcing-account.com,LATAM PASS::Cierre de cuenta Pass - APP,1,2026-09-18 00:00:00,LATAM PASS::Cierre de cuenta Pass - APP
 2026-09-18,LUA AMC,darenmanco.almacontact@outsourcing-account.com,Cambios Involuntarios::Atraso CON responsabilidad,2,2026-09-18 00:00:00,Cambios Involuntarios::Atraso CON responsabilidad
-2026-09-18,LUA AMC,darenmanco.almacontact@outsourcing-account.com,Cambios Voluntarios::Adelanto - Postergación,1,2026-09-18 00:00:00,Cambios Voluntarios::Adelanto - Postergación
+2026-09-18,LUA AMC,darenmanco.almacontact@outsourcing-account.com,Cambios Voluntarios::Adelanto - Postergación,2,2026-09-18 00:00:00,Cambios Voluntarios::Adelanto - Postergación
 2026-09-18,LUA AMC,darenmanco.almacontact@outsourcing-account.com,Excepciones::Corrección de nombre  ,1,2026-09-18 00:00:00,Excepciones::Corrección de nombre  
 2026-09-18,LUA AMC,darenmanco.almacontact@outsourcing-account.com,Excepciones::Endoso Ley Chile,1,2026-09-18 00:00:00,Excepciones::Endoso Ley Chile
 2026-09-18,LUA AMC,darenmanco.almacontact@outsourcing-account.com,Excepciones::Graves,1,2026-09-18 00:00:00,Excepciones::Graves
