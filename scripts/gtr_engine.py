@@ -777,7 +777,8 @@ def render_tab_gtr(agentes_map: dict):
             st.metric("Corte / Período", hora_act if hora_act else "--:--", delta=delta_tag)
         with btn_c2:
             if st.button("🔄 Actualizar Ahora", key=f"{k_pfx}btn_refresh", use_container_width=True):
-                st.cache_data.clear()
+                obtener_metricas_gtr_api.clear()
+                obtener_aht_asesores_api.clear()
                 st.session_state["bytes_hh_cache"] = None
                 st.session_state["bytes_aht_cache"] = None
                 st.rerun()

@@ -307,6 +307,7 @@ def obtener_actividad_salesforce_por_fecha(fecha: str) -> dict:
     return res
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, ambito: str = "TODOS") -> pd.DataFrame:
     """
     Evalúa el cumplimiento de horas de la jornada laboral:
@@ -503,6 +504,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
     return df_res
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, tolerancia_min: int = 20, ambito: str = "TODOS") -> pd.DataFrame:
     """
     Audita franja a franja la puntualidad y duración de cada pausa programada:
@@ -715,6 +717,7 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
     return df_p
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def calcular_auditoria_integral_unificada(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, ambito: str = "TODOS") -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Combina en un solo DataFrame por asesor:

@@ -1098,14 +1098,19 @@ def cargar_agentes_map_base():
     if not os.path.exists(real_db_path):
         return {}
     conn = sqlite3.connect(real_db_path)
-    agentes_db = pd.read_sql(
-        "SELECT distinct agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM segments", conn
-    )
+    try:
+        agentes_db = pd.read_sql(
+            "SELECT agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM dim_agentes WHERE UPPER(cargo) LIKE '%ASESOR%' AND UPPER(estado_laboral) = 'ACTIVO'", conn
+        )
+    except Exception:
+        agentes_db = pd.read_sql(
+            "SELECT distinct agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM segments", conn
+        )
+        if "cargo" in agentes_db.columns:
+            agentes_db = agentes_db[agentes_db["cargo"].str.upper().str.contains("ASESOR", na=False)]
+        if "estado_laboral" in agentes_db.columns:
+            agentes_db = agentes_db[agentes_db["estado_laboral"].str.upper() == "ACTIVO"]
     conn.close()
-    if "cargo" in agentes_db.columns:
-        agentes_db = agentes_db[agentes_db["cargo"].str.upper().str.contains("ASESOR", na=False)]
-    if "estado_laboral" in agentes_db.columns:
-        agentes_db = agentes_db[agentes_db["estado_laboral"].str.upper() == "ACTIVO"]
     agentes_db = filtrar_df_exclusiones(agentes_db)
     agentes_db = agentes_db.drop_duplicates("agente_id", keep="last")
     return agentes_db.set_index("agente_id").to_dict(orient="index")
@@ -1529,7 +1534,6 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
         btn_txt_h = "✖ Quitar filtro" if es_act_h else "🔍 Filtrar <90%"
         if st.button(btn_txt_h, key="btn_hist_kpi_horario", width="stretch", type="primary" if es_act_h else "secondary"):
             st.session_state["hist_filtro_kpi"] = None if es_act_h else "horario"
-            st.rerun()
 
     # 2. Tarjeta % Fuga
     with kpi_cols[1]:
@@ -1553,7 +1557,6 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
         btn_txt_f = "✖ Quitar filtro" if es_act_f else "🔍 Filtrar con Fuga"
         if st.button(btn_txt_f, key="btn_hist_kpi_fuga", width="stretch", type="primary" if es_act_f else "secondary"):
             st.session_state["hist_filtro_kpi"] = None if es_act_f else "fuga"
-            st.rerun()
 
     # 3. Tarjetas de Pausas (Descanso, Pre Pausa, Baño, Diálogo, Lunch, CDR)
     for i, card in enumerate(CARDS):
@@ -1582,7 +1585,6 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
             btn_txt_c = "✖ Quitar" if es_act_c else ("🔍 Filtrar uso" if card["tipo"] == "conteo" else "🔍 Filtrar <100%")
             if st.button(btn_txt_c, key=f"btn_hist_kpi_{ckey}", width="stretch", type="primary" if es_act_c else "secondary"):
                 st.session_state["hist_filtro_kpi"] = None if es_act_c else ckey
-                st.rerun()
     
     # ── Tabla por agente ───────────────────────────────────────────────────
 
@@ -2131,12 +2133,12 @@ if seccion_activa in ("✈️ LATAM Pasajeros", "Analisis de Pausas y Adherencia
         unsafe_allow_html=True
     )
     sub_secciones_pasajeros = [
-        "📡 Pausas y Adherencia",
         "🔴 Control de Estados (en Vivo)",
+        "📡 Pausas y Adherencia",
         "📞 Niveles de Servicio",
     ]
     def_sub = sub_secciones_pasajeros[0]
-    if seccion_activa == "Control de Estados (en Vivo)":
+    if seccion_activa == "Analisis de Pausas y Adherencia":
         def_sub = sub_secciones_pasajeros[1]
     elif seccion_activa == "Niveles de Servicio":
         def_sub = sub_secciones_pasajeros[2]
@@ -2151,10 +2153,10 @@ if seccion_activa in ("✈️ LATAM Pasajeros", "Analisis de Pausas y Adherencia
     if not sub_pasajeros:
         sub_pasajeros = def_sub
 
-    if sub_pasajeros == "📡 Pausas y Adherencia":
-        render_subtab_pausas_pasajeros(render_tab_asesores_historico, agentes_map=cargar_agentes_map_base())
-    elif sub_pasajeros == "🔴 Control de Estados (en Vivo)":
+    if sub_pasajeros == "🔴 Control de Estados (en Vivo)":
         render_tab_en_vivo(cargar_agentes_map_base())
+    elif sub_pasajeros == "📡 Pausas y Adherencia":
+        render_subtab_pausas_pasajeros(render_tab_asesores_historico, agentes_map=cargar_agentes_map_base())
     elif sub_pasajeros == "📞 Niveles de Servicio":
         render_tab_gtr(cargar_agentes_map_base())
 

@@ -24,6 +24,14 @@ import numpy as np
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+try:
+    import streamlit as st
+    cache_data_omni = st.cache_data(ttl=300, show_spinner=False)
+except Exception:
+    def cache_data_omni(fn):
+        return fn
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(BASE_DIR, ".."))
 DATA_SF_DIR = os.path.join(PROJECT_DIR, "data", "salesforce")
@@ -137,6 +145,7 @@ def obtener_mapeo_omni_a_bp() -> dict:
     return mapping
 
 
+@cache_data_omni
 def procesar_omni_presencia_completa(forzar: bool = False) -> pd.DataFrame:
     """
     Procesa el archivo completo de presencia Omni-Channel, convirtiendo a hora Colombia
@@ -256,6 +265,7 @@ def procesar_omni_presencia_completa(forzar: bool = False) -> pd.DataFrame:
     return df_resumen
 
 
+@cache_data_omni
 def obtener_presencia_omni_por_fecha(fecha: str) -> dict:
     """
     Retorna mapa indexado por BP con la presencia de Omni-Channel para la fecha (YYYY-MM-DD):

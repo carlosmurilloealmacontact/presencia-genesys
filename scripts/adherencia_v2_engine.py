@@ -101,6 +101,8 @@ def render_tab_adherencia_v2(agentes_map: dict = None, current_email: str = ""):
         )
         if not ambito_sel:
             ambito_sel = "✈️ Pasajeros"
+
+    ambito_code = "B2B" if "B2B" in ambito_sel else "PASAJEROS"
             
     with c_sel2:
         opciones_modo = ["📅 Vista Diaria (Auditoría Intradía)", "📈 Tendencia Multidía (Consolidado)"]
@@ -115,8 +117,6 @@ def render_tab_adherencia_v2(agentes_map: dict = None, current_email: str = ""):
         )
         if not modo_sel:
             modo_sel = "📅 Vista Diaria (Auditoría Intradía)"
-
-    ambito_code = "B2B" if "B2B" in ambito_sel else "PASAJEROS"
 
     st.write("")
 

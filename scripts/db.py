@@ -30,6 +30,24 @@ CREATE TABLE IF NOT EXISTS segments (
 CREATE INDEX IF NOT EXISTS idx_segments_fecha ON segments(fecha);
 CREATE INDEX IF NOT EXISTS idx_segments_agente ON segments(agente_id, fecha);
 CREATE INDEX IF NOT EXISTS idx_segments_agente_id ON segments(agente_id);
+CREATE INDEX IF NOT EXISTS idx_segments_coord ON segments(coordinador);
+CREATE INDEX IF NOT EXISTS idx_segments_jefe ON segments(jefe_inmediato);
+CREATE INDEX IF NOT EXISTS idx_segments_servicio ON segments(servicio);
+CREATE INDEX IF NOT EXISTS idx_segments_fecha_srv ON segments(fecha, servicio);
+CREATE INDEX IF NOT EXISTS idx_segments_cargo ON segments(cargo);
+
+CREATE TABLE IF NOT EXISTS dim_agentes (
+    agente_id TEXT PRIMARY KEY,
+    agente TEXT NOT NULL,
+    cargo TEXT NOT NULL DEFAULT '',
+    estado_laboral TEXT NOT NULL DEFAULT 'Activo',
+    servicio TEXT NOT NULL DEFAULT '',
+    jefe_inmediato TEXT NOT NULL DEFAULT '',
+    coordinador TEXT NOT NULL DEFAULT '',
+    ultima_actualizacion TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_dim_agentes_cargo ON dim_agentes(cargo);
+CREATE INDEX IF NOT EXISTS idx_dim_agentes_estado ON dim_agentes(estado_laboral);
 
 CREATE TABLE IF NOT EXISTS turnos (
     bp TEXT NOT NULL,
@@ -74,6 +92,8 @@ def get_connection() -> sqlite3.Connection:
     db_path = Path(__file__).parent / MASTER_DB_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
     conn.executescript(SCHEMA)
 
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(segments)")}
@@ -82,6 +102,26 @@ def get_connection() -> sqlite3.Connection:
             conn.execute(f"ALTER TABLE segments ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
     conn.commit()
     return conn
+
+
+def refrescar_dim_agentes(conn: sqlite3.Connection) -> None:
+    """Actualiza la tabla dimensional de agentes para consultas ultra-rápidas (<2ms) en el visor."""
+    conn.execute("""
+        INSERT INTO dim_agentes (agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador, ultima_actualizacion)
+        SELECT agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador, CURRENT_TIMESTAMP
+        FROM segments
+        GROUP BY agente_id
+        ON CONFLICT(agente_id) DO UPDATE SET
+            agente = excluded.agente,
+            cargo = excluded.cargo,
+            estado_laboral = excluded.estado_laboral,
+            servicio = excluded.servicio,
+            jefe_inmediato = excluded.jefe_inmediato,
+            coordinador = excluded.coordinador,
+            ultima_actualizacion = CURRENT_TIMESTAMP;
+    """)
+    conn.commit()
+
 
 
 _INSERT_SQL = """

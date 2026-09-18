@@ -1,0 +1,17 @@
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false
+
+[server]
+maxUploadSize = 50
+runOnSave = false
+
+[theme]
+primaryColor = "#0284c7"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8fafc"
+textColor = "#0f172a"
+font = "sans serif"

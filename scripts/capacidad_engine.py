@@ -236,6 +236,7 @@ def cargar_forecast_sore_completo(forzar_recarga: bool = False) -> pd.DataFrame:
     return df_nuevo
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def cargar_presencia_resumen_rango(fecha_desde: str, fecha_hasta: str, num_dias: int = 1) -> pd.DataFrame:
     """
     Agrupa los minutos de presencia real de Genesys para un rango de fechas (o un solo día).
@@ -318,11 +319,13 @@ def cargar_presencia_resumen_rango(fecha_desde: str, fecha_hasta: str, num_dias:
     return df_pres
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def cargar_presencia_resumen_dia(fecha_str: str) -> pd.DataFrame:
     """Compatibilidad: Agrupa minutos de presencia real para un solo día."""
     return cargar_presencia_resumen_rango(fecha_str, fecha_str, num_dias=1)
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def calcular_evolucion_diaria_servicio(
     fecha_desde: str, fecha_hasta: str, servicio_sel: str, df_fore_all: pd.DataFrame
 ) -> pd.DataFrame:
@@ -414,6 +417,7 @@ def calcular_evolucion_diaria_servicio(
     return merged
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def calcular_capacidad_intervalos_real(fecha_str: str, servicio_sel: str) -> pd.DataFrame:
     """
     Calcula la presencia real de Genesys para cada uno de los 48 intervalos de 30 min.

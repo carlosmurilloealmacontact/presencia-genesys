@@ -18,7 +18,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from config import MASTER_DB_PATH, CLOUD_EXPORT_PATH, CLOUD_RETENTION_DIAS
-from db import SCHEMA
+from db import SCHEMA, refrescar_dim_agentes
 
 
 def run():
@@ -35,6 +35,8 @@ def run():
 
     export_path.unlink(missing_ok=True)
     export_conn = sqlite3.connect(export_path)
+    export_conn.execute("PRAGMA journal_mode = WAL;")
+    export_conn.execute("PRAGMA synchronous = NORMAL;")
     export_conn.executescript(SCHEMA)
 
     master_conn = sqlite3.connect(master_path)
@@ -59,6 +61,7 @@ def run():
     except Exception as e:
         print(f"Aviso exportando turnos detallados: {e}")
 
+    refrescar_dim_agentes(export_conn)
     export_conn.commit()
     export_conn.execute("VACUUM")
     export_conn.close()

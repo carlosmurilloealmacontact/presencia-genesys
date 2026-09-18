@@ -13,7 +13,8 @@ scripts/salesforce_session.json
 scripts/salesforce_live_config.json
 
 # Credenciales y Secretos
-.streamlit/
+.streamlit/*
+!.streamlit/config.toml
 .env
 *.env
 secrets.toml

@@ -19,6 +19,13 @@ try:
 except Exception:
     COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
+try:
+    import streamlit as st
+    cache_data_sf = st.cache_data(ttl=300, show_spinner=False)
+except Exception:
+    def cache_data_sf(fn):
+        return fn
+
 def get_colombia_now():
     """Retorna la fecha y hora actual en Zona Horaria Colombia (UTC-5)."""
     try:
@@ -42,6 +49,7 @@ def get_latest_salesforce_file():
     return raw_files[0]
 
 
+@cache_data_sf
 def load_and_clean_cases_data(file_path=None):
     """
     Carga el reporte exportado de Salesforce o la base preprocesada de casos AMC.

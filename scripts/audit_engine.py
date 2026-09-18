@@ -5,6 +5,7 @@ Permite visualizar estadísticas ejecutivas de adopción y uso del tablero.
 """
 
 import os
+import threading
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
@@ -45,32 +46,38 @@ def _obtener_db_url() -> str | None:
     return None
 
 
+def _insertar_evento_worker(db_url: str, email: str, nombre: str, seccion: str, accion: str, detalles: str):
+    try:
+        import psycopg2
+        conn = psycopg2.connect(db_url, connect_timeout=5)
+        cur = conn.cursor()
+        ahora_col = datetime.now(timezone.utc) - timedelta(hours=5)
+        cur.execute("""
+            INSERT INTO audit_usabilidad (email, nombre, seccion, accion, fecha_hora, detalles)
+            VALUES (%s, %s, %s, %s, %s, %s);
+        """, (email.strip().lower(), (nombre or "").strip(), seccion, accion, ahora_col, detalles))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"[Audit] Aviso al registrar evento en background: {e}")
+
+
 def registrar_evento(email: str, nombre: str, seccion: str, accion: str, detalles: str = ""):
-    """Registra una acción de usuario en la tabla audit_usabilidad de Neon Postgres."""
+    """Registra una acción de usuario de forma asíncrona (no bloqueante) en Neon Postgres."""
     if not email:
         return
 
     db_url = _obtener_db_url()
     if not db_url:
         return
-    try:
-        import psycopg2
-        conn = psycopg2.connect(db_url, connect_timeout=5)
-        cur = conn.cursor()
-        
-        # Fecha hora en hora Colombia (UTC-5)
-        ahora_col = datetime.now(timezone.utc) - timedelta(hours=5)
-        
-        cur.execute("""
-            INSERT INTO audit_usabilidad (email, nombre, seccion, accion, fecha_hora, detalles)
-            VALUES (%s, %s, %s, %s, %s, %s);
-        """, (email.strip().lower(), (nombre or "").strip(), seccion, accion, ahora_col, detalles))
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print(f"[Audit] Aviso al registrar evento: {e}")
+
+    threading.Thread(
+        target=_insertar_evento_worker,
+        args=(db_url, email, nombre, seccion, accion, detalles),
+        daemon=True
+    ).start()
+
 
 
 @st.cache_data(ttl=60)
