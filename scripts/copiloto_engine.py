@@ -1892,11 +1892,7 @@ def render_contenido_copiloto_rocco(es_modal: bool = False):
 
     # Entrada de voz nativa de Streamlit (Multimodal directa a Gemini 2.5 Flash)
     st.markdown("---")
-    col_v1, col_v2 = st.columns([1, 4])
-    with col_v1:
-        audio_in = st.audio_input("🎙️ Dictar a Rocco por voz", key=f"{prefijo_key}audio_in")
-    with col_v2:
-        st.caption("🎙️ **Pregunta por voz:** Presiona el micrófono, dicta tu consulta con naturalidad y Rocco la escuchará e interpretará al instante.")
+    audio_in = st.audio_input("🎙️ Hablar con Rocco por voz (presiona el micrófono para grabar y enviar tu pregunta)", key=f"{prefijo_key}audio_in")
 
     if audio_in is not None:
         audio_id = f"{audio_in.name}_{audio_in.size}"
