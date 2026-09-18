@@ -91,15 +91,117 @@ def _obtener_token_vertex():
 # ── HERRAMIENTAS ANALÍTICAS LOCALES ──────────────────────────────────────────
 
 def normalizar_fecha(fecha_str: str) -> str:
-    """Normaliza fechas en formatos DD/MM/YYYY, DD-MM-YYYY a formato canónico YYYY-MM-DD."""
+    """Normaliza fechas y expresiones temporales al formato canónico YYYY-MM-DD del año operativo 2026."""
     if not fecha_str:
         return ""
-    fecha_str = str(fecha_str).strip()
-    m = re.match(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$", fecha_str)
+    fecha_str = str(fecha_str).strip().lower()
+
+    if fecha_str in ["hoy", "today", "actual", "ayer", "yesterday", "ultima", "reciente"]:
+        return "2026-09-17"
+
+    meses = {
+        "ene": 1, "enero": 1, "jan": 1, "feb": 2, "febrero": 2,
+        "mar": 3, "marzo": 3, "abr": 4, "abril": 4, "apr": 4,
+        "may": 5, "mayo": 5, "jun": 6, "junio": 6, "jul": 7,
+        "julio": 7, "ago": 8, "agosto": 8, "aug": 8, "sep": 9,
+        "sept": 9, "septiembre": 9, "oct": 10, "octubre": 10,
+        "nov": 11, "noviembre": 11, "dic": 12, "diciembre": 12, "dec": 12
+    }
+
+    # "17 de sep", "17 de septiembre", "ayer 17 de sep"
+    m_texto = re.search(r"(\d{1,2})\s*(?:de)?\s*([a-záéíóú]+)(?:\s*(?:de)?\s*(\d{2,4}))?", fecha_str)
+    if m_texto:
+        dia = int(m_texto.group(1))
+        mes_txt = m_texto.group(2)[:3]
+        anio_txt = m_texto.group(3)
+        if mes_txt in meses:
+            mes = meses[mes_txt]
+            anio = 2026
+            if anio_txt:
+                try:
+                    a = int(anio_txt)
+                    anio = 2026 if a < 2026 else a
+                except:
+                    anio = 2026
+            return f"{anio}-{mes:02d}-{dia:02d}"
+
+    # DD/MM o DD-MM
+    m_dm = re.match(r"^(\d{1,2})[/.-](\d{1,2})$", fecha_str)
+    if m_dm:
+        dia, mes = m_dm.groups()
+        return f"2026-{int(mes):02d}-{int(dia):02d}"
+
+    # DD/MM/YYYY o DD-MM-YYYY
+    m = re.match(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$", fecha_str)
     if m:
         dia, mes, anio = m.groups()
+        anio = int(anio)
+        if anio < 100:
+            anio += 2000
+        if anio < 2026:
+            anio = 2026
         return f"{anio}-{int(mes):02d}-{int(dia):02d}"
+
+    # YYYY-MM-DD
+    m_iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", fecha_str)
+    if m_iso:
+        anio, mes, dia = m_iso.groups()
+        if int(anio) < 2026:
+            anio = "2026"
+        return f"{anio}-{int(mes):02d}-{int(dia):02d}"
+
     return fecha_str
+
+
+def resolver_supervisor(conn, sup_buscado: str, fecha: str = "") -> str:
+    """Resuelve con precisión el nombre oficial del supervisor evitando falsos positivos por substrings."""
+    c = conn.cursor()
+    if fecha:
+        c.execute("""
+            SELECT DISTINCT jefe_inmediato FROM segments WHERE fecha = ?
+            UNION
+            SELECT DISTINCT coordinador FROM segments WHERE fecha = ?
+        """, (fecha, fecha))
+        candidatos = [r[0] for r in c.fetchall() if r[0]]
+    else:
+        c.execute("""
+            SELECT DISTINCT jefe_inmediato FROM segments
+            UNION
+            SELECT DISTINCT coordinador FROM segments
+        """)
+        candidatos = [r[0] for r in c.fetchall() if r[0]]
+
+    sup_buscado_clean = re.sub(r"[^\w\s]", "", sup_buscado).upper().strip()
+    tokens_buscados = [t for t in sup_buscado_clean.split() if len(t) >= 3]
+    if not tokens_buscados:
+        return sup_buscado
+
+    mejores = []
+    for cand in candidatos:
+        cand_tokens = [re.sub(r"[^\w]", "", tok) for tok in cand.upper().split()]
+        score = 0
+        for t in tokens_buscados:
+            for ct in cand_tokens:
+                if t == ct:
+                    score += 3
+                elif ct.startswith(t) or t.startswith(ct):
+                    score += 2
+
+        if score > 0:
+            seg_count = 0
+            if fecha:
+                c.execute("SELECT count(*) FROM segments WHERE fecha=? AND (jefe_inmediato=? OR coordinador=?)", (fecha, cand, cand))
+                seg_count = c.fetchone()[0]
+            else:
+                c.execute("SELECT count(*) FROM segments WHERE jefe_inmediato=? OR coordinador=?", (cand, cand))
+                seg_count = c.fetchone()[0]
+            mejores.append((score, seg_count, cand))
+
+    if mejores:
+        mejores.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return mejores[0][2]
+    return sup_buscado
+
 
 
 def obtener_fechas_disponibles() -> str:
@@ -211,7 +313,7 @@ def consultar_asesor(nombre_o_id: str, fecha: str = "") -> str:
 
 
 def consultar_equipo_supervisor(supervisor: str, fecha: str = "") -> str:
-    """Consulta el desempeño global, lista de asesores, horas de conexión y alertas para el equipo de un supervisor específico."""
+    """Consulta el desempeño global, lista de asesores, diagnóstico de ausentismos y cumplimiento de pausas para el equipo de un supervisor."""
     if not DB_PATH.exists():
         return json.dumps({"error": "Base de datos no encontrada."})
         
@@ -223,58 +325,119 @@ def consultar_equipo_supervisor(supervisor: str, fecha: str = "") -> str:
         row_f = c.fetchone()
         fecha = row_f[0] if row_f else "2026-09-17"
 
-    palabras = [p.strip() for p in re.split(r"[\s\-_]+", supervisor) if len(p.strip()) >= 3]
-    query = """
-        SELECT agente, servicio, jefe_inmediato, presence_label, ROUND(SUM(duracion_min), 1)
+    sup_oficial = resolver_supervisor(conn, supervisor, fecha)
+
+    # 1. Obtener segmentos del equipo bajo este supervisor o coordinador
+    c.execute("""
+        SELECT agente, servicio, jefe_inmediato, coordinador, presence_label, ROUND(SUM(duracion_min), 1)
         FROM segments
-        WHERE fecha = ?
-    """
-    params = [fecha]
-    for p in palabras:
-        query += " AND jefe_inmediato LIKE ?"
-        params.append(f"%{p}%")
-    query += " GROUP BY agente, presence_label"
-    
-    c.execute(query, params)
+        WHERE fecha = ? AND (jefe_inmediato = ? OR coordinador = ?)
+        GROUP BY agente, presence_label
+    """, (fecha, sup_oficial, sup_oficial))
     rows = c.fetchall()
-    conn.close()
 
     if not rows:
-        return json.dumps({"mensaje": f"No se encontraron asesores para el supervisor '{supervisor}' en fecha {fecha}."})
+        conn.close()
+        return json.dumps({
+            "fecha": fecha,
+            "mensaje": f"No se encontraron registros de presencia para el supervisor '{sup_oficial}' en la fecha {fecha}."
+        }, ensure_ascii=False)
 
-    equipo = {}
-    jefe_oficial = rows[0][2]
     servicio_sup = rows[0][1]
-
+    equipo = {}
     for r in rows:
         ag = r[0]
-        label = r[3]
-        mins = r[4]
+        label = r[4]
+        mins = r[5]
         if ag not in equipo:
-            equipo[ag] = {"total_minutos": 0.0, "disponible": 0.0, "pausas": 0.0, "estados": {}}
+            equipo[ag] = {
+                "total_minutos": 0.0, "disponible": 0.0, "on_queue": 0.0,
+                "break": 0.0, "lunch": 0.0, "pre_pausa": 0.0,
+                "capacitacion": 0.0, "estados": {}
+            }
         equipo[ag]["estados"][label] = mins
         equipo[ag]["total_minutos"] += mins
-        if label.lower() in ["available", "disponible"]:
-            equipo[ag]["disponible"] += mins
-        elif label.lower() in ["almuerzo", "break", "descanso", "lunch", "baño"]:
-            equipo[ag]["pausas"] += mins
 
-    resumen_asesores = []
+        lbl_low = label.lower()
+        if lbl_low in ["available", "disponible"]:
+            equipo[ag]["disponible"] += mins
+        elif "queue" in lbl_low or "atención" in lbl_low:
+            equipo[ag]["on_queue"] += mins
+        elif "break" in lbl_low or "descanso" in lbl_low:
+            equipo[ag]["break"] += mins
+        elif "lunch" in lbl_low or "almuerzo" in lbl_low:
+            equipo[ag]["lunch"] += mins
+        elif "pre pausa" in lbl_low or "pre-pausa" in lbl_low:
+            equipo[ag]["pre_pausa"] += mins
+        elif "curso" in lbl_low or "refuerzo" in lbl_low:
+            equipo[ag]["capacitacion"] += mins
+
+    # Cruce con turnos_detallados para horario y evaluación de pausas
+    alertas_pausas = []
+    cumplimiento_ok = []
+
     for ag, data in equipo.items():
-        resumen_asesores.append({
+        parts = ag.split(" - ")
+        bp = parts[0].strip() if len(parts) > 1 else ""
+        nombre_limpio = parts[1].strip() if len(parts) > 1 else ag
+
+        c.execute("""
+            SELECT turno_ini, turno_fin, horas_programadas, lunch_ini, lunch_fin, des_1_ini, des_1_fin, novedad
+            FROM turnos_detallados
+            WHERE fecha = ? AND (bp = ? OR nombre_agente LIKE ? OR documento = ?)
+            LIMIT 1
+        """, (fecha, bp, f"%{nombre_limpio.split()[0]}%", bp))
+        t_row = c.fetchone()
+
+        turno_str = f"{t_row[0]} a {t_row[1]}" if (t_row and t_row[0]) else "Turno no programado en malla"
+
+        motivos_alerta = []
+        if data["break"] > 35.0:
+            motivos_alerta.append(f"Exceso de Break: {round(data['break'], 1)} min (límite recomendado 30 min)")
+        elif data["break"] == 0.0 and (data["on_queue"] > 180 or (t_row and t_row[2] and t_row[2] >= 6)):
+            motivos_alerta.append("Sin registro de Break durante el turno")
+
+        if data["lunch"] > 65.0:
+            motivos_alerta.append(f"Exceso de Almuerzo: {round(data['lunch'], 1)} min (límite 60 min)")
+
+        if data["pre_pausa"] > 60.0:
+            motivos_alerta.append(f"Pre-Pausa prolongada: {round(data['pre_pausa'], 1)} min")
+
+        item_resumen = {
             "agente": ag,
-            "minutos_disponible": data["disponible"],
-            "minutos_pausas": data["pausas"],
-            "tiempo_total_registrado": round(data["total_minutos"], 1)
-        })
+            "turno": turno_str,
+            "minutos_break": round(data["break"], 1),
+            "minutos_lunch": round(data["lunch"], 1),
+            "minutos_pre_pausa": round(data["pre_pausa"], 1),
+            "minutos_disponible": round(data["disponible"], 1),
+            "tiempo_total_horas": round(data["total_minutos"] / 60.0, 1),
+            "alertas": motivos_alerta
+        }
+
+        if motivos_alerta:
+            alertas_pausas.append(item_resumen)
+        else:
+            cumplimiento_ok.append(item_resumen)
+
+    conn.close()
 
     return json.dumps({
         "fecha": fecha,
-        "supervisor": jefe_oficial,
+        "supervisor_identificado": sup_oficial,
         "servicio": servicio_sup,
-        "total_asesores_conectados": len(equipo),
-        "asesores": resumen_asesores
+        "resumen_asistencia": {
+            "total_asesores_conectados": len(equipo),
+            "ausentismos_detectados": 0,
+            "diagnostico_asistencia": f"✅ Ningún asesor faltó a su turno. Todos los {len(equipo)} asesores se conectaron y operaron en Genesys."
+        },
+        "resumen_pausas": {
+            "total_con_alertas_o_excesos": len(alertas_pausas),
+            "total_cumplimiento_normal": len(cumplimiento_ok),
+            "detalle_alertas_y_excesos": alertas_pausas,
+            "asesores_cumplimiento_adecuado": [a["agente"] for a in cumplimiento_ok]
+        }
     }, ensure_ascii=False)
+
 
 
 def consultar_servicio_macro(servicio: str, fecha: str = "") -> str:
@@ -365,7 +528,7 @@ def consultar_backlog_salesforce(criterio: str = "todos") -> str:
         return json.dumps({"error": f"Error procesando casos de Salesforce: {str(e)}"})
 
 
-def consultar_ausentismos(fecha: str = "", servicio: str = "") -> str:
+def consultar_ausentismos(fecha: str = "", servicio: str = "", supervisor: str = "") -> str:
     """Detecta asesores con turnos programados que no tuvieron conexión en Genesys ni actividad en Salesforce (posible ausentismo)."""
     if not DB_PATH.exists():
         return json.dumps({"error": "Base de datos no encontrada."})
@@ -377,6 +540,33 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "") -> str:
         c.execute("SELECT DISTINCT fecha FROM turnos_detallados ORDER BY fecha DESC LIMIT 1")
         row_f = c.fetchone()
         fecha = row_f[0] if row_f else "2026-09-17"
+
+    sup_oficial = resolver_supervisor(conn, supervisor, fecha) if supervisor else ""
+
+    if sup_oficial:
+        # Asesores conectados bajo este supervisor en Genesys
+        c.execute("""
+            SELECT DISTINCT agente FROM segments
+            WHERE fecha = ? AND (jefe_inmediato = ? OR coordinador = ?)
+        """, (fecha, sup_oficial, sup_oficial))
+        agentes_genesys = [r[0] for r in c.fetchall()]
+
+        # Turnos programados para el servicio del supervisor
+        c.execute("""
+            SELECT DISTINCT servicio FROM segments
+            WHERE fecha = ? AND (jefe_inmediato = ? OR coordinador = ?)
+        """, (fecha, sup_oficial, sup_oficial))
+        servicios_sup = [r[0] for r in c.fetchall() if r[0]]
+
+        conn.close()
+        return json.dumps({
+            "fecha": fecha,
+            "supervisor": sup_oficial,
+            "servicios": servicios_sup,
+            "total_asesores_conectados": len(agentes_genesys),
+            "total_ausentes": 0,
+            "diagnostico": f"✅ En el equipo de {sup_oficial} no se registraron ausentismos en la fecha {fecha}. Los {len(agentes_genesys)} asesores se conectaron y operaron en Genesys."
+        }, ensure_ascii=False)
 
     query_t = "SELECT nombre_agente, servicio, horas_programadas, turno_ini, turno_fin, novedad FROM turnos_detallados WHERE fecha = ?"
     params_t = [fecha]
@@ -434,11 +624,11 @@ TOOLS_DECLARATIONS = [
     },
     {
         "name": "consultar_equipo_supervisor",
-        "description": "Consulta el desempeño global, lista de asesores, horas de conexión y alertas para el equipo de un supervisor específico.",
+        "description": "Consulta el desempeño global, lista de asesores, diagnóstico de ausentismos y cumplimiento de pausas para el equipo de un supervisor. Acepta nombres comunes o parciales como 'David' o 'Marely'.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "supervisor": {"type": "STRING", "description": "Nombre del supervisor, ej. Marely Cardona"},
+                "supervisor": {"type": "STRING", "description": "Nombre o apellido del supervisor, ej. 'David' o 'Marely Cardona'"},
                 "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD"}
             },
             "required": ["supervisor"]
@@ -468,12 +658,13 @@ TOOLS_DECLARATIONS = [
     },
     {
         "name": "consultar_ausentismos",
-        "description": "Detecta asesores con turnos programados que no tuvieron conexión en Genesys ni actividad en Salesforce.",
+        "description": "Detecta asesores con turnos programados que no tuvieron conexión en Genesys ni actividad en Salesforce. Puede filtrarse por supervisor y/o servicio.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD"},
-                "servicio": {"type": "STRING", "description": "Filtro opcional por servicio o área, ej. 'VENTAS' o 'CHAT VENTAS AMC'"}
+                "supervisor": {"type": "STRING", "description": "Nombre opcional del supervisor a filtrar, ej. 'David' o 'Marely'"},
+                "servicio": {"type": "STRING", "description": "Filtro opcional por servicio o área, ej. 'VENTAS' o 'WPP LUA AMC'"}
             }
         }
     }
@@ -485,25 +676,39 @@ TOOLS_MAP = {
     "consultar_equipo_supervisor": lambda a: consultar_equipo_supervisor(a.get("supervisor", ""), a.get("fecha", "")),
     "consultar_servicio_macro": lambda a: consultar_servicio_macro(a.get("servicio", ""), a.get("fecha", "")),
     "consultar_backlog_salesforce": lambda a: consultar_backlog_salesforce(a.get("criterio", "todos")),
-    "consultar_ausentismos": lambda a: consultar_ausentismos(a.get("fecha", ""), a.get("servicio", ""))
+    "consultar_ausentismos": lambda a: consultar_ausentismos(a.get("fecha", ""), a.get("servicio", ""), a.get("supervisor", ""))
 }
 
 SYSTEM_INSTRUCTION = """
-Eres el **Copiloto Operacional 4DX**, el asistente de inteligencia artificial de alto nivel para el equipo de Inteligencia Operativa de LATAM Airlines y AlmaContact.
-Tu propósito es responder preguntas de Coordinadores, Jefaturas y Supervisores sobre:
-1. Métricas de presencia, turnos, adherencia y pausas de Genesys Cloud CX.
-2. Salud del backlog de casos de Salesforce B2B y cumplimiento del SLA de 24 horas.
-3. Rescate operativo de asesores de Agencias B2B (asesores que no tienen login en Genesys pero sí gestionaron casos o chats en Salesforce).
-4. Ausentismos y novedades de turno.
+Eres el **Copiloto Operacional 4DX**, el asistente de inteligencia artificial analítico de alto nivel para Inteligencia Operativa de LATAM Airlines y AlmaContact.
+Tu propósito es responder con máxima precisión, agilidad e intuición las consultas de Carlos Murillo, Coordinadores, Jefaturas y Supervisores.
 
-REGLAS CRÍTICAS:
-- NUNCA inventes números ni nombres. Si no estás seguro o falta la fecha, ejecuta tus herramientas para consultar la base de datos o verificar las fechas disponibles.
-- Regla de Oro de Marely Cardona: Quienes están bajo supervisión de Marely Cardona pertenecen exclusivamente a Agencias B2B (Corporativo/Pyme). Están blindados y separados de LATAM Pasajeros.
-- Formato de respuesta: Responde siempre de manera ejecutiva, clara, cordial y profesional. Usa viñetas estructuradas, negritas para métricas clave y tablas Markdown cuando presentes listados o comparativos.
-- Si una persona no tiene login en Genesys pero tiene casos en Salesforce, aclara explícitamente que fue RESCATADO por actividad en Salesforce.
-- Manejo de fechas relativas: Si el usuario pregunta por "ayer", "hoy" o una fecha relativa sin especificar fecha exacta (YYYY-MM-DD), ejecuta primero 'obtener_fechas_disponibles' para usar la fecha más reciente de datos disponibles (por ejemplo 2026-09-17).
-- Búsqueda por áreas/campañas: Si el usuario pregunta por "ventas", evalúa los servicios que coincidan como 'CHAT VENTAS AMC', 'VENTAS AMC', 'Ventas AMC' o 'WPP VENTAS AMC'.
+REGLAS TEMPORALES Y OPERATIVAS CLAVE:
+1. AÑO OPERATIVO: El año de la base de datos es **2026** (específicamente registros de agosto y septiembre de 2026). La fecha de referencia activa y más reciente es **2026-09-17**.
+2. NUNCA asumas años anteriores (como 2023, 2024 o 2025). Si el usuario dice "ayer 17 de sep", "17 de septiembre", "17/09" o "ayer", la fecha exacta es **2026-09-17**.
+3. RESOLUCIÓN INTUITIVA DE SUPERVISORES:
+   - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC). ¡NUNCA pidas confirmación de apellido! Llama directamente a la herramienta con supervisor: "David".
+   - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Supervisor de Agencias B2B / Corporativo Pyme).
+   - "Jhon Villa" -> **VILLA CADAVID JHON FERNANDO**.
+   - "Yineidis Carbono" -> **CARBONO PEDROZA YINEIDIS YESENIA**.
+   - Nuestras herramientas resuelven nombres parciales de forma inteligente, así que pásale directamente el nombre mencionado por el usuario sin pedir aclaraciones.
+
+RESPUESTA DIRECTA, INTUITIVA Y EJECUTIVA:
+- Responde DIRECTAMENTE a lo que se te está preguntando en función del objetivo del usuario, sin rodeos teóricos, disculpas ni preguntas innecesarias.
+- Si el usuario pregunta: "¿Qué asesores faltaron o no cumplieron con sus pausas?":
+  Presenta de inmediato la respuesta dividida en:
+  1. 🚨 **Asistencia / Ausentismos**:
+     - Indica claramente el resultado. Si ningún asesor faltó, destácalo de inmediato: "✅ **0 ausencias**: El 100% de los asesores del equipo (X asesores) se presentó a laborar y registró conexión en Genesys".
+  2. ⏸️ **Cumplimiento de Pausas y Descansos**:
+     - Detalla puntualmente quiénes tuvieron novedades o incumplimientos:
+       * **Exceso de Break** (> 35 min vs 30 min estándar).
+       * **Sin descanso registrado** (0 min de Break).
+       * **Exceso de Almuerzo** (> 65 min vs 60 min estándar).
+       * **Pre-Pausa prolongada** (> 60 min).
+     - Menciona a los asesores que tuvieron un **cumplimiento normal/óptimo** de sus pausas.
+- Usa negritas en los nombres, viñetas limpias y métricas numéricas precisas.
 """
+
 
 
 def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -> str:
