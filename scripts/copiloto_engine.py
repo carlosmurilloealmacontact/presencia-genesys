@@ -3,10 +3,12 @@
 # Implementación 100% nativa vía REST API con authlib + httpx (Cero dependencias pesadas en Streamlit Cloud)
 
 import os
+import sys
 import sqlite3
 import json
 import re
 import time
+
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -14,7 +16,14 @@ import streamlit as st
 import httpx
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 DB_PATH = BASE_DIR / "data" / "presencia.db"
+
 SF_CASES_PATH = BASE_DIR / "data" / "salesforce" / "cases_amc_cleaned.csv"
 SF_OMNI_PATH = BASE_DIR / "data" / "salesforce" / "omni_presencia_historico.csv"
 
@@ -676,6 +685,122 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "", supervisor: str =
     }, ensure_ascii=False)
 
 
+def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_coordinador: str = "") -> str:
+    """Consulta el Nivel de Servicio (% NS, llamadas/chats ofrecidos, atendidos, abandono y AHT) de las colas de Genesys Cloud."""
+    try:
+        try:
+            from scripts.live_engine import obtener_token_genesys
+            from scripts.gtr_engine import obtener_metricas_gtr_historico_api, formatear_segundos_mm_ss
+        except ImportError:
+            from live_engine import obtener_token_genesys
+            from gtr_engine import obtener_metricas_gtr_historico_api, formatear_segundos_mm_ss
+    except Exception as e:
+        return json.dumps({"error": f"Error importando módulos de GTR / Genesys: {e}"})
+
+
+    fecha = normalizar_fecha(fecha)
+    if not fecha:
+        fecha = "2026-09-17"
+
+    token = obtener_token_genesys()
+    if not token:
+        return json.dumps({"error": "No se pudo obtener token de Genesys Cloud para consultar Nivel de Servicio."})
+
+    df_hist, err = obtener_metricas_gtr_historico_api(token, fecha, fecha, "P1D")
+    if err or df_hist is None or df_hist.empty:
+        return json.dumps({"error": f"No se obtuvieron métricas de colas de Genesys: {err or 'Sin datos'}"})
+
+    servicios_filtro = []
+    persona_oficial = ""
+    if supervisor_o_coordinador:
+        conn = sqlite3.connect(str(DB_PATH))
+        persona_oficial = resolver_supervisor(conn, supervisor_o_coordinador, fecha)
+        c = conn.cursor()
+        c.execute("""
+            SELECT DISTINCT servicio FROM segments
+            WHERE fecha=? AND (coordinador=? OR jefe_inmediato=?)
+        """, (fecha, persona_oficial, persona_oficial))
+        servicios_filtro = [r[0] for r in c.fetchall() if r[0]]
+        if any("LUA AMC" in s for s in servicios_filtro):
+            servicios_filtro.append("Soporte LUA AMC")
+        conn.close()
+
+    if servicio:
+        servicios_filtro = [servicio]
+
+    df_calc = df_hist.copy()
+    if servicios_filtro:
+        mask = pd.Series(False, index=df_calc.index)
+        for sf in servicios_filtro:
+            mask = mask | df_calc["servicio"].str.contains(sf, case=False, na=False)
+        df_calc = df_calc[mask]
+
+    if df_calc.empty:
+        return json.dumps({
+            "fecha": fecha,
+            "mensaje": f"No se encontraron colas con tráfico para los filtros especificados en la fecha {fecha}."
+        })
+
+    df_ns = df_calc.groupby("servicio").agg({
+        "nOffered": "sum",
+        "tAnswered_count": "sum",
+        "tAbandon_count": "sum",
+        "sl_numerator": "sum",
+        "sl_denominator": "sum",
+        "tHandle_sum": "sum",
+        "tHandle_count": "sum"
+    }).reset_index()
+
+    tot_offered = int(df_ns["nOffered"].sum())
+    tot_answered = int(df_ns["tAnswered_count"].sum())
+    tot_abandon = int(df_ns["tAbandon_count"].sum())
+    tot_sl_num = df_ns["sl_numerator"].sum()
+    tot_sl_den = df_ns["sl_denominator"].sum()
+    tot_handle_sum = df_ns["tHandle_sum"].sum()
+    tot_handle_cnt = df_ns["tHandle_count"].sum()
+
+    ns_ponderado = round(tot_sl_num / tot_sl_den * 100.0, 1) if tot_sl_den > 0 else 0.0
+    abandono_global = round(tot_abandon / tot_offered * 100.0, 1) if tot_offered > 0 else 0.0
+    aht_promedio_seg = round(tot_handle_sum / tot_handle_cnt / 1000.0, 0) if tot_handle_cnt > 0 else 0.0
+
+    detalle_servicios = []
+    for _, r in df_ns.iterrows():
+        sl_num = r["sl_numerator"]
+        sl_den = r["sl_denominator"]
+        ns_val = round(sl_num / sl_den * 100.0, 1) if sl_den > 0 else 0.0
+        offered = int(r["nOffered"])
+        answered = int(r["tAnswered_count"])
+        aband = int(r["tAbandon_count"])
+        pct_aband = round(aband / offered * 100.0, 1) if offered > 0 else 0.0
+        aht_seg = round(r["tHandle_sum"] / r["tHandle_count"] / 1000.0, 0) if r["tHandle_count"] > 0 else 0.0
+        
+        meta = 75.3 if "WPP" not in r["servicio"] and "CHAT" not in r["servicio"] else 80.0
+        estado_meta = "🟢 Cumple Meta" if ns_val >= meta else f"🔴 Bajo Meta (Meta: {meta}%)"
+
+        detalle_servicios.append({
+            "servicio": r["servicio"],
+            "nivel_de_servicio_pct": f"{ns_val}%",
+            "cumplimiento_meta": estado_meta,
+            "llamadas_o_chats_ofrecidos": offered,
+            "llamadas_o_chats_atendidos": answered,
+            "porcentaje_abandono": f"{pct_aband}%",
+            "aht": formatear_segundos_mm_ss(aht_seg) + f" ({int(aht_seg)}s)"
+        })
+
+    return json.dumps({
+        "fecha": fecha,
+        "coordinador_o_supervisor": persona_oficial if persona_oficial else (servicio if servicio else "Consolidado General"),
+        "resumen_consolidado": {
+            "nivel_de_servicio_global": f"{ns_ponderado}%",
+            "total_ofrecidas": tot_offered,
+            "total_atendidas": tot_answered,
+            "porcentaje_abandono_global": f"{abandono_global}%",
+            "aht_promedio": formatear_segundos_mm_ss(aht_promedio_seg)
+        },
+        "desglose_por_servicio": detalle_servicios
+    }, ensure_ascii=False)
+
+
 # ── DECLARACIONES DE HERRAMIENTAS PARA VERTEX AI (OPENAPI SPEC) ───────────────
 
 TOOLS_DECLARATIONS = [
@@ -697,14 +822,26 @@ TOOLS_DECLARATIONS = [
     },
     {
         "name": "consultar_equipo_supervisor",
-        "description": "Consulta el desempeño global, lista de asesores, diagnóstico de ausentismos y cumplimiento de pausas para el equipo de un supervisor. Acepta nombres comunes o parciales como 'David' o 'Marely'.",
+        "description": "Consulta datos operacionales internos: lista de asesores conectados, diagnóstico de ausentismos y pausas para un supervisor o coordinador.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "supervisor": {"type": "STRING", "description": "Nombre o apellido del supervisor, ej. 'David' o 'Marely Cardona'"},
+                "supervisor": {"type": "STRING", "description": "Nombre o apellido del supervisor o coordinador, ej. 'David' o 'Yineidis'"},
                 "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD"}
             },
             "required": ["supervisor"]
+        }
+    },
+    {
+        "name": "consultar_nivel_servicio",
+        "description": "Consulta los NIVELES DE SERVICIO (% NS, SLA contractual 75.3% / 80%, llamadas/chats ofrecidos, atendidos, porcentaje de abandono y AHT) de las colas de atención de Genesys Cloud. Permite filtrar por servicio (ej. 'LUA AMC', 'VENTAS') o por coordinador/supervisor (ej. 'Yineidis Carbono', 'David Jaramillo').",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "servicio": {"type": "STRING", "description": "Nombre del servicio o campaña a evaluar, ej. 'LUA AMC' o 'VENTAS AMC'"},
+                "supervisor_o_coordinador": {"type": "STRING", "description": "Nombre del coordinador o supervisor cuyos servicios se desean evaluar, ej. 'Yineidis Carbono'"},
+                "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD (ej. 2026-09-17)"}
+            }
         }
     },
     {
@@ -747,6 +884,7 @@ TOOLS_MAP = {
     "obtener_fechas_disponibles": lambda a: obtener_fechas_disponibles(),
     "consultar_asesor": lambda a: consultar_asesor(a.get("nombre_o_id", ""), a.get("fecha", "")),
     "consultar_equipo_supervisor": lambda a: consultar_equipo_supervisor(a.get("supervisor", ""), a.get("fecha", "")),
+    "consultar_nivel_servicio": lambda a: consultar_nivel_servicio(a.get("servicio", ""), a.get("fecha", ""), a.get("supervisor_o_coordinador", "")),
     "consultar_servicio_macro": lambda a: consultar_servicio_macro(a.get("servicio", ""), a.get("fecha", "")),
     "consultar_backlog_salesforce": lambda a: consultar_backlog_salesforce(a.get("criterio", "todos")),
     "consultar_ausentismos": lambda a: consultar_ausentismos(a.get("fecha", ""), a.get("servicio", ""), a.get("supervisor", ""))
@@ -759,35 +897,33 @@ Tu propósito es responder con máxima precisión, agilidad e intuición las con
 REGLAS TEMPORALES Y OPERATIVAS CLAVE:
 1. AÑO OPERATIVO: El año de la base de datos es **2026** (específicamente registros de agosto y septiembre de 2026). La fecha de referencia activa y más reciente es **2026-09-17**.
 2. NUNCA asumas años anteriores (como 2023, 2024 o 2025). Si el usuario dice "ayer 17 de sep", "17 de septiembre", "17/09" o "ayer", la fecha exacta es **2026-09-17**.
-3. RESOLUCIÓN INTUITIVA DE SUPERVISORES Y COORDINADORES:
-   - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC). ¡NUNCA pidas confirmación de apellido! Llama directamente a la herramienta con supervisor: "David".
+
+3. DISTINCIÓN CRÍTICA ENTRE "NIVEL DE SERVICIO" Y "DATOS OPERACIONALES":
+   - Si el usuario pregunta por: **"NIVEL DE SERVICIO"**, **"NIVELES DE SERVICIO"**, **"% NS"**, **"SLA"**, **"CÓMO CERRARON LOS NIVELES DE SERVICIO"**, **"TRÁFICO"**, **"ATENCIÓN"**, **"ABANDONO"** o **"AHT"**:
+     👉 DEBES LLAMAR INMEDIATAMENTE A LA HERRAMIENTA `consultar_nivel_servicio`.
+     NUNCA respondas solo con horas de conexión o pausas si te están preguntando por Niveles de Servicio.
+     Ejemplo: "cierre de los niveles de servicio de Yineidis" -> Llama a `consultar_nivel_servicio(supervisor_o_coordinador='Yineidis', fecha='2026-09-17')`.
+     Presenta la tabla con:
+     * **% NS alcanzado** y si cumple la meta contractual (75.3% en Voz, 80% en Chat/WPP).
+     * **Volumen Ofrecido vs Atendido**.
+     * **% Abandono**.
+     * **AHT (Tiempo de Operación)**.
+   - Si el usuario pregunta por "adherencia", "pausas", "asistencia", "ausentismos", "quién faltó" o "tiempos en available":
+     👉 Llama a `consultar_equipo_supervisor`.
+
+4. RESOLUCIÓN INTUITIVA DE SUPERVISORES Y COORDINADORES:
+   - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC).
    - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Supervisor de Agencias B2B / Corporativo Pyme).
    - "Jhon Villa" -> **VILLA CADAVID JHON FERNANDO**.
-   - **YINEIDIS CARBONO** (`CARBONO PEDROZA YINEIDIS YESENIA`): Es la **Coordinadora de Operaciones** de 4 servicios clave:
-     1. **LUA AMC** (Supervisores: Nieves Oropeza, Santiago López, Jonathan García).
-     2. **WPP LUA AMC** (Supervisores: David Jaramillo, María Camila Agudelo).
-     3. **LUA AMC ING** (Supervisores: Emanuel Vasco, Dany Cegueri).
-     4. **CARGO BOOKING** (Supervisor: Camilo Burgos).
-     Totaliza 167 asesores y más de 1,300 horas de operación en la fecha.
-   - Si el usuario pregunta por *"los servicios de Yineidis"*, *"el cierre de Yineidis"* o *"cómo cerraron ayer los servicios de Yineidis"*, NUNCA digas que no sabes a qué servicio se refiere. Llama inmediatamente a `consultar_equipo_supervisor(supervisor='Yineidis', fecha='2026-09-17')` y presenta el balance completo de sus 4 servicios con asesores, horas en cola (On Queue) y supervisores.
-   - Nuestras herramientas resuelven nombres parciales y roles de coordinación de forma inteligente, así que pásale directamente el nombre mencionado por el usuario sin pedir aclaraciones.
+   - **YINEIDIS CARBONO** (`CARBONO PEDROZA YINEIDIS YESENIA`): Es la **Coordinadora de Operaciones** de 4 servicios clave (`LUA AMC`, `WPP LUA AMC`, `LUA AMC ING`, `CARGO BOOKING`, `Soporte LUA AMC`).
+     * Si preguntan por los niveles de servicio de Yineidis, evalúa sus colas en `consultar_nivel_servicio(supervisor_o_coordinador='Yineidis')`.
 
 RESPUESTA DIRECTA, INTUITIVA Y EJECUTIVA:
-- Responde DIRECTAMENTE a lo que se te está preguntando en función del objetivo del usuario, sin rodeos teóricos, disculpas ni preguntas innecesarias.
-- Si el usuario pregunta: "¿Qué asesores faltaron o no cumplieron con sus pausas?":
-  Presenta de inmediato la respuesta dividida en:
-  1. 🚨 **Asistencia / Ausentismos**:
-     - Indica claramente el resultado. Si ningún asesor faltó, destácalo de inmediato: "✅ **0 ausencias**: El 100% de los asesores del equipo (X asesores) se presentó a laborar y registró conexión en Genesys".
-  2. ⏸️ **Cumplimiento de Pausas y Descansos**:
-     - Detalla puntualmente quiénes tuvieron novedades o incumplimientos:
-       * **Exceso de Break** (> 35 min vs 30 min estándar).
-       * **Sin descanso registrado** (0 min de Break).
-       * **Exceso de Almuerzo** (> 65 min vs 60 min estándar).
-       * **Pre-Pausa prolongada** (> 60 min).
-     - Menciona a los asesores que tuvieron un **cumplimiento normal/óptimo** de sus pausas.
-- Si preguntan por cierre operacional o niveles de servicio de una coordinación, presenta la tabla Markdown o viñetas con los servicios a cargo, total de asesores, horas en On Queue y supervisores responsables.
-- Usa negritas en los nombres, viñetas limpias y métricas numéricas precisas.
+- Responde DIRECTAMENTE a lo que se te está preguntando sin rodeos teóricos ni disculpas.
+- Presenta tablas Markdown limpias para comparar niveles de servicio (% NS, meta, ofrecidas, atendidas, abandono, AHT).
+- Usa negritas en los nombres y cifras numéricas precisas.
 """
+
 
 
 
