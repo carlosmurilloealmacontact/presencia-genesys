@@ -1397,6 +1397,14 @@ if "seccion_audit_actual" not in st.session_state or st.session_state["seccion_a
     st.session_state["seccion_audit_actual"] = seccion_activa
     registrar_evento(current_email, current_name, seccion_activa, "cambio_seccion")
 
+# ── BOTÓN FLOTANTE OMNIPRESENTE DE ROCCO (DISPONIBLE EN TODAS LAS PANTALLAS) ──
+if es_carlos and seccion_activa not in ("🐙 Rocco Copiloto", "🤖 Copiloto 4DX"):
+    try:
+        from copiloto_engine import render_boton_flotante_rocco
+        render_boton_flotante_rocco()
+    except Exception as _e_fab:
+        pass
+
 def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: str = "", excluir_b2b_y_cargo: bool = False):
     rango_disponible = cargar_rango_fechas()
     if not rango_disponible:
@@ -2270,12 +2278,4 @@ elif seccion_activa in ("🐙 Rocco Copiloto", "🤖 Copiloto 4DX"):
 
 elif seccion_activa == "📚 Glosario & Guía":
     render_tab_glosario(secciones_disponibles=SECCIONES_APP)
-
-# ── BOTÓN FLOTANTE OMNIPRESENTE DE ROCCO (DISPONIBLE EN TODAS LAS PANTALLAS) ──
-if es_carlos:
-    try:
-        from copiloto_engine import render_boton_flotante_rocco
-        render_boton_flotante_rocco()
-    except Exception:
-        pass
 

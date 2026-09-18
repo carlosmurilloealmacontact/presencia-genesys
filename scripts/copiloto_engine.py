@@ -1963,48 +1963,123 @@ def modal_copiloto_rocco():
 
 def render_boton_flotante_rocco():
     """Renderiza el botón flotante omnipresente de Rocco en la esquina inferior derecha con su identidad visual."""
+    rocco_b64 = obtener_rocco_b64()
+    
+    # CSS con múltiples selectores directos a st-key para garantizar fijación en cualquier navegador/dispositivo
     st.markdown(
-        """
+        f"""
         <style>
-        /* Contenedor flotante de Rocco fijo en esquina inferior derecha */
-        div[data-testid="stVerticalBlock"]:has(> div.rocco-fab-anchor) {
+        /* Contenedor flotante fijado a la ventana del navegador */
+        div.st-key-rocco_omnipresent_fab_btn,
+        div[class*="st-key-rocco_omnipresent_fab_btn"] {{
             position: fixed !important;
-            bottom: 24px !important;
+            bottom: 26px !important;
             right: 28px !important;
-            z-index: 999999 !important;
+            z-index: 999999999 !important;
             width: auto !important;
             height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
-        }
-        div.rocco-fab-anchor button {
-            background: linear-gradient(135deg, #4c1d95 0%, #7c3aed 50%, #0284c7 100%) !important;
+            display: block !important;
+            filter: drop-shadow(0 10px 25px rgba(124, 58, 237, 0.65)) !important;
+        }}
+
+        /* Estilo premium del botón de Rocco */
+        div.st-key-rocco_omnipresent_fab_btn button,
+        div[class*="st-key-rocco_omnipresent_fab_btn"] button {{
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 10px !important;
+            background: linear-gradient(135deg, #3b0764 0%, #6b21a8 50%, #0284c7 100%) !important;
             color: #ffffff !important;
             font-weight: 700 !important;
-            border-radius: 35px !important;
-            border: 2px solid #c084fc !important;
-            padding: 11px 22px !important;
-            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.6), 0 0 18px rgba(192, 132, 252, 0.45) !important;
-            font-size: 14px !important;
+            font-size: 14.5px !important;
             letter-spacing: 0.3px !important;
+            border-radius: 50px !important;
+            border: 2.5px solid #c084fc !important;
+            padding: 8px 22px 8px 10px !important;
             cursor: pointer !important;
-            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-        }
-        div.rocco-fab-anchor button:hover {
-            transform: scale(1.08) translateY(-3px) !important;
-            box-shadow: 0 12px 35px rgba(124, 58, 237, 0.8), 0 0 25px rgba(192, 132, 252, 0.6) !important;
+            box-shadow: 0 0 20px rgba(192, 132, 252, 0.5) !important;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+            animation: roccoFabPulse 3s infinite ease-in-out !important;
+        }}
+
+        /* Mascota oficial Rocco como avatar integrado en el botón */
+        div.st-key-rocco_omnipresent_fab_btn button::before,
+        div[class*="st-key-rocco_omnipresent_fab_btn"] button::before {{
+            content: "" !important;
+            display: inline-block !important;
+            width: 40px !important;
+            height: 40px !important;
+            border-radius: 50% !important;
+            background-color: rgba(255, 255, 255, 0.22) !important;
+            background-image: url('data:image/png;base64,{rocco_b64}') !important;
+            background-size: 85% contain !important;
+            background-repeat: no-repeat !important;
+            background-position: center !important;
+            border: 1.5px solid rgba(255, 255, 255, 0.6) !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+            flex-shrink: 0 !important;
+        }}
+
+        /* Texto y tipografía interior */
+        div.st-key-rocco_omnipresent_fab_btn button p,
+        div[class*="st-key-rocco_omnipresent_fab_btn"] button p {{
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            font-size: 14.5px !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }}
+
+        /* Efecto hover interactivo */
+        div.st-key-rocco_omnipresent_fab_btn button:hover,
+        div[class*="st-key-rocco_omnipresent_fab_btn"] button:hover {{
+            transform: scale(1.08) translateY(-4px) !important;
+            box-shadow: 0 0 35px rgba(192, 132, 252, 0.8), 0 15px 40px rgba(124, 58, 237, 0.9) !important;
             border-color: #f5d0fe !important;
-        }
+            background: linear-gradient(135deg, #4c1d95 0%, #7e22ce 50%, #0284c7 100%) !important;
+        }}
+
+        @keyframes roccoFabPulse {{
+            0%, 100% {{
+                box-shadow: 0 0 18px rgba(192, 132, 252, 0.4), 0 8px 25px rgba(124, 58, 237, 0.6);
+            }}
+            50% {{
+                box-shadow: 0 0 30px rgba(192, 132, 252, 0.75), 0 12px 35px rgba(124, 58, 237, 0.9);
+            }}
+        }}
+
+        /* Responsividad móvil */
+        @media (max-width: 640px) {{
+            div.st-key-rocco_omnipresent_fab_btn,
+            div[class*="st-key-rocco_omnipresent_fab_btn"] {{
+                bottom: 18px !important;
+                right: 18px !important;
+            }}
+            div.st-key-rocco_omnipresent_fab_btn button,
+            div[class*="st-key-rocco_omnipresent_fab_btn"] button {{
+                padding: 6px 16px 6px 8px !important;
+            }}
+            div.st-key-rocco_omnipresent_fab_btn button::before,
+            div[class*="st-key-rocco_omnipresent_fab_btn"] button::before {{
+                width: 34px !important;
+                height: 34px !important;
+            }}
+            div.st-key-rocco_omnipresent_fab_btn button p,
+            div[class*="st-key-rocco_omnipresent_fab_btn"] button p {{
+                font-size: 13px !important;
+            }}
+        }}
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    fab_c = st.container()
-    with fab_c:
-        st.markdown('<div class="rocco-fab-anchor"></div>', unsafe_allow_html=True)
-        if st.button("🐙 Hablar con Rocco", key="rocco_omnipresent_fab_btn"):
-            modal_copiloto_rocco()
+    if st.button("Rocco 4DX 🎙️", key="rocco_omnipresent_fab_btn", help="Haz clic para consultar a Rocco por voz o texto desde cualquier sección."):
+        modal_copiloto_rocco()
 
 
 def render_tab_copiloto(agentes_map=None, current_email=""):
