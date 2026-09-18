@@ -98,20 +98,40 @@ def cargar_catalogo_wrapup_codes(token: str, forzar_recarga: bool = False) -> di
     return catalog
 
 
-def resolver_nombre_y_macro_categoria(wid: str, catalog: dict) -> tuple[str, str]:
+def resolver_nombre_y_macro_categoria(wid: str, catalog: dict, servicio: str = "", cola_nombre: str = "") -> tuple[str, str]:
     """
     Traduce el wrapUpCode (UUID o código nativo ININ) a:
     1. Nombre 100% comprensible para la operación (eliminando 'Código ININ-WRA').
-    2. Macro-Categoría de Negocio para análisis ejecutivo.
+    2. Contextualiza los Timeouts con el servicio/cola de procedencia (ej. [Equipajes], [Ventas]).
+    3. Macro-Categoría de Negocio para análisis ejecutivo.
     """
     if not wid:
-        return "⚠️ Sin Tipificar / Abandono en Cola", "⚠️ Sin Tipificar / Incidencias"
+        srv_label = f" [{servicio.replace(' AMC', '')}]" if servicio else ""
+        return f"⚠️ Sin Tipificar{srv_label} / Abandono", "⚠️ Sin Tipificar / Incidencias"
 
     wid_clean = str(wid).strip()
 
     # Códigos de sistema nativos de Genesys (Legacy Interactive Intelligence)
     if wid_clean == "ININ-WRAP-UP-TIMEOUT":
-        return "⚠️ Sin Tipificar (Timeout / Tiempo de ACW Agotado)", "⚠️ Sin Tipificar / Incidencias"
+        srv_clean = str(servicio or cola_nombre).replace(" AMC", "").replace(" SSC", "").replace(" WPP", "").strip()
+        label_srv = f" [{srv_clean}]" if srv_clean else ""
+        
+        # Inferencia de macro-familia por la cola de entrada del pasajero
+        srv_u = str(servicio or cola_nombre).upper()
+        if any(k in srv_u for k in ("BAG", "EQUIP", "MALETA")):
+            m_inf = "🧳 Equipaje (Timeout ACW)"
+        elif any(k in srv_u for k in ("VENTA", "EMIS", "TARIF", "PAQUETE")):
+            m_inf = "💳 Ventas y Tarifas (Timeout ACW)"
+        elif any(k in srv_u for k in ("FFP", "DT", "DREAM", "PASS", "HVC")):
+            m_inf = "🌟 LATAM Pass (Timeout ACW)"
+        elif any(k in srv_u for k in ("LUA", "VUELO", "ALTERA")):
+            m_inf = "✈️ Atención Vuelos (Timeout ACW)"
+        elif any(k in srv_u for k in ("AGENCIA", "CORP", "B2B")):
+            m_inf = "🏢 Agencias B2B (Timeout ACW)"
+        else:
+            m_inf = "⚠️ Sin Tipificar / Incidencias"
+
+        return f"⚠️ Sin Tipificar{label_srv} (Timeout ACW)", m_inf
     elif wid_clean == "ININ-WRAP-UP-DELETED":
         return "⚠️ Código Eliminado en Genesys", "⚠️ Sin Tipificar / Incidencias"
     elif wid_clean == "ININ-WRAP-UP":
@@ -300,7 +320,7 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
         if servicio and servicio.lower() not in srv.lower():
             continue
 
-        motivo_nombre, macro_cat = resolver_nombre_y_macro_categoria(wid, catalog)
+        motivo_nombre, macro_cat = resolver_nombre_y_macro_categoria(wid, catalog, srv, q_name)
         pais_nombre = resolver_pais_origen(dnis_raw, q_name)
 
         # Extraer tHandle (duración y conteo de gestiones tipificadas)
