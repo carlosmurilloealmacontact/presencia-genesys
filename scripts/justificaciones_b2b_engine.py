@@ -500,7 +500,9 @@ def generar_justificacion_automatica_avanzada(datos_m: dict, observacion_manual:
             partes.append(f"AHT controlado en {int(aht_real)}s.")
 
     elif dif_aht >= 60:
-        partes.append(f"Pérdida de NNSS por AHT por fuera de meta cerrando en {int(aht_real)}s lo que representa {dif_aht}s por encima de la meta ({int(meta_aht)}s), afectando la rotación de atención.")
+        canal_nom = str(datos_m.get("canal", "")).upper()
+        tipo_interaccion = "chats entrantes" if "CHAT" in canal_nom else ("casos entrantes" if "CASO" in canal_nom else "llamadas entrantes")
+        partes.append(f"Pérdida de NNSS por AHT por fuera de meta cerrando en {int(aht_real)}s lo que representa {dif_aht}s por encima de la meta ({int(meta_aht)}s), reduciendo la disponibilidad de asesores libres para atender {tipo_interaccion}.")
         if sobredemanda > 0:
             partes.append(f"Con sobredemanda de tráfico del {sobredemanda:.1f}%.")
         if obs_clean:
