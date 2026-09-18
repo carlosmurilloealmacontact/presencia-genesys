@@ -49,6 +49,11 @@ def _calcular_firma_archivos(archivos: list) -> tuple:
             firma.append((f, os.path.getmtime(f), os.path.getsize(f)))
         except OSError:
             pass
+    if os.path.exists(JSON_CONSOLIDADO_PATH):
+        try:
+            firma.append((JSON_CONSOLIDADO_PATH, os.path.getmtime(JSON_CONSOLIDADO_PATH), os.path.getsize(JSON_CONSOLIDADO_PATH)))
+        except OSError:
+            pass
     return tuple(firma)
 
 
