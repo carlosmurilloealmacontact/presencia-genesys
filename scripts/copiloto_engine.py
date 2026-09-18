@@ -26,6 +26,7 @@ DB_PATH = BASE_DIR / "data" / "presencia.db"
 
 SF_CASES_PATH = BASE_DIR / "data" / "salesforce" / "cases_amc_cleaned.csv"
 SF_OMNI_PATH = BASE_DIR / "data" / "salesforce" / "omni_presencia_historico.csv"
+DATA_ZD_DIR = BASE_DIR / "data" / "zendesk"
 
 PROJECT_ID = "project-094fad9d-54da-42d9-880"
 LOCATION = "us-central1"
@@ -685,6 +686,227 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "", supervisor: str =
     }, ensure_ascii=False)
 
 
+def consultar_organigrama_jerarquia(nombre_o_servicio: str) -> str:
+    """Consulta la estructura organizativa y jerarquía operativa oficial:
+    - Si es Coordinador: Servicios a cargo, supervisores que le reportan y cantidad de asesores.
+    - Si es Supervisor: A qué coordinador reporta, en qué servicio está y la lista de sus asesores.
+    - Si es Asesor: Su servicio, su supervisor directo y su coordinador.
+    - Si es Servicio: Quién lo coordina, qué supervisores lo lideran y número de asesores.
+    """
+    if not DB_PATH.exists():
+        return json.dumps({"error": "Base de datos no encontrada."})
+    
+    conn = sqlite3.connect(str(DB_PATH))
+    c = conn.cursor()
+    
+    query_term = str(nombre_o_servicio).strip().upper()
+    palabras = [p for p in query_term.split() if len(p) > 2]
+    
+    # 1. ¿Es un SERVICIO?
+    c.execute("SELECT DISTINCT servicio FROM segments WHERE servicio IS NOT NULL")
+    todos_servicios = [r[0] for r in c.fetchall() if r[0]]
+    servicios_match = [s for s in todos_servicios if all(p in s.upper() for p in palabras)] if palabras else []
+    
+    if servicios_match:
+        serv_oficial = servicios_match[0]
+        c.execute("""
+            SELECT DISTINCT coordinador, jefe_inmediato, COUNT(DISTINCT agente)
+            FROM segments
+            WHERE servicio = ? AND coordinador IS NOT NULL AND coordinador != ''
+            GROUP BY coordinador, jefe_inmediato
+            ORDER BY COUNT(DISTINCT agente) DESC
+        """, (serv_oficial,))
+        rows = c.fetchall()
+        
+        c.execute("SELECT COUNT(DISTINCT agente) FROM segments WHERE servicio = ?", (serv_oficial,))
+        tot_agentes = c.fetchone()[0]
+        conn.close()
+        
+        coordinadores = list(dict.fromkeys([r[0] for r in rows if r[0]]))
+        supervisores = [{"supervisor": r[1], "coordinador": r[0], "asesores": r[2]} for r in rows if r[1]]
+        
+        return json.dumps({
+            "tipo_entidad": "Servicio Operativo",
+            "servicio": serv_oficial,
+            "total_asesores_en_servicio": tot_agentes,
+            "coordinadores_responsables": coordinadores,
+            "supervisores_asignados": supervisores
+        }, ensure_ascii=False)
+    
+    # 2. ¿Es un COORDINADOR?
+    c.execute("SELECT DISTINCT coordinador FROM segments WHERE coordinador IS NOT NULL AND coordinador != ''")
+    coords = [r[0] for r in c.fetchall()]
+    coords_match = [co for co in coords if all(p in co.upper() for p in palabras)] if palabras else []
+    
+    if coords_match:
+        coord_oficial = coords_match[0]
+        c.execute("""
+            SELECT servicio, jefe_inmediato, COUNT(DISTINCT agente)
+            FROM segments
+            WHERE coordinador = ?
+            GROUP BY servicio, jefe_inmediato
+            ORDER BY servicio, COUNT(DISTINCT agente) DESC
+        """, (coord_oficial,))
+        rows = c.fetchall()
+        
+        c.execute("SELECT COUNT(DISTINCT agente) FROM segments WHERE coordinador = ?", (coord_oficial,))
+        tot_agentes = c.fetchone()[0]
+        conn.close()
+        
+        servicios_dict = {}
+        for srv, sup, cant in rows:
+            if srv not in servicios_dict:
+                servicios_dict[srv] = []
+            servicios_dict[srv].append(f"{sup} ({cant} asesores)")
+            
+        return json.dumps({
+            "tipo_entidad": "Coordinador de Operaciones",
+            "coordinador": coord_oficial,
+            "total_asesores_a_cargo": tot_agentes,
+            "total_servicios_coordinados": len(servicios_dict),
+            "estructura_por_servicio": servicios_dict
+        }, ensure_ascii=False)
+        
+    # 3. ¿Es un SUPERVISOR?
+    c.execute("SELECT DISTINCT jefe_inmediato FROM segments WHERE jefe_inmediato IS NOT NULL AND jefe_inmediato != ''")
+    sups = [r[0] for r in c.fetchall()]
+    sups_match = [sp for sp in sups if all(p in sp.upper() for p in palabras)] if palabras else []
+    
+    if sups_match:
+        sup_oficial = sups_match[0]
+        c.execute("""
+            SELECT DISTINCT coordinador, servicio
+            FROM segments
+            WHERE jefe_inmediato = ? AND coordinador IS NOT NULL
+        """, (sup_oficial,))
+        info_lider = c.fetchall()
+        
+        c.execute("""
+            SELECT DISTINCT agente
+            FROM segments
+            WHERE jefe_inmediato = ?
+            ORDER BY agente
+        """, (sup_oficial,))
+        asesores = [r[0] for r in c.fetchall()]
+        conn.close()
+        
+        coords = list(dict.fromkeys([r[0] for r in info_lider if r[0]]))
+        servicios = list(dict.fromkeys([r[1] for r in info_lider if r[1]]))
+        
+        return json.dumps({
+            "tipo_entidad": "Supervisor de Operaciones",
+            "supervisor": sup_oficial,
+            "coordinador_directo": coords[0] if coords else "No asignado",
+            "servicios": servicios,
+            "total_asesores_a_cargo": len(asesores),
+            "lista_asesores": asesores
+        }, ensure_ascii=False)
+        
+    # 4. ¿Es un ASESOR?
+    c.execute("SELECT agente, servicio, jefe_inmediato, coordinador FROM segments")
+    all_seg = c.fetchall()
+    conn.close()
+    
+    asesores_match = [r for r in all_seg if all(p in r[0].upper() for p in palabras)] if palabras else []
+    if asesores_match:
+        primero = asesores_match[0]
+        return json.dumps({
+            "tipo_entidad": "Asesor Operativo",
+            "agente": primero[0],
+            "servicio": primero[1],
+            "supervisor_directo": primero[2],
+            "coordinador": primero[3]
+        }, ensure_ascii=False)
+        
+    return json.dumps({"error": f"No se encontró información de organigrama para '{nombre_o_servicio}'."})
+
+
+def consultar_zendesk_backoffice(grupo_o_servicio: str = "LUA AMC", hora_inicio: int = None, hora_fin: int = None, fecha: str = None) -> str:
+    """Consulta la productividad y tickets gestionados en Zendesk Support para grupos de Back Office (BO):
+    - Grupos disponibles: 'BO LUA AMC', 'LUA AMC', 'DT FFP AMC', 'BO EQUIPAJES AMC', 'CÉLULA PI AMC', 'AUTORIZACIÓN SUPERVISOR'.
+    - Permite filtrar por franjas horarias (ej. 8 a 12) y por fecha.
+    """
+    f_live = DATA_ZD_DIR / "productividad_hoy_en_vivo.csv"
+    
+    df = None
+    if f_live.exists():
+        try:
+            df = pd.read_csv(f_live)
+        except Exception:
+            pass
+        
+    if df is None or df.empty:
+        return json.dumps({"error": "No hay datos disponibles de productividad de Zendesk."})
+        
+    mapa_sinonimos = {
+        "BO LUA": "LUA AMC",
+        "LUA": "LUA AMC",
+        "BO LUA AMC": "LUA AMC",
+        "BOLUA": "LUA AMC",
+        "DT FFP": "DT FFP AMC",
+        "FFP": "DT FFP AMC",
+        "EQUIPAJES": "Equipajes AMC SSC",
+        "BO EQUIPAJES": "Equipajes AMC SSC",
+        "PI": "Célula PI AMC ES",
+        "CELULA PI": "Célula PI AMC ES"
+    }
+    
+    target_grp = mapa_sinonimos.get(str(grupo_o_servicio).strip().upper(), str(grupo_o_servicio).strip())
+    
+    mask = df["grupo"].astype(str).str.upper().str.contains(target_grp.upper(), na=False)
+    df_sub = df[mask].copy()
+    
+    if df_sub.empty:
+        grupos_disp = df["grupo"].dropna().unique().tolist()
+        return json.dumps({
+            "error": f"No se encontraron tickets para el grupo '{grupo_o_servicio}'.",
+            "grupos_disponibles_zendesk": grupos_disp
+        }, ensure_ascii=False)
+        
+    if "updated_at" in df_sub.columns:
+        df_sub["dt_col"] = pd.to_datetime(df_sub["updated_at"], utc=True).dt.tz_convert("America/Bogota")
+        df_sub["hora"] = df_sub["dt_col"].dt.hour
+    elif "Fecha_Timestamp" in df_sub.columns:
+        df_sub["dt_col"] = pd.to_datetime(df_sub["Fecha_Timestamp"], errors="coerce")
+        df_sub["hora"] = df_sub["dt_col"].dt.hour
+    else:
+        df_sub["hora"] = None
+        
+    total_gestionados_grupo = len(df_sub)
+    
+    franja_txt = "Día Completo"
+    if hora_inicio is not None and hora_fin is not None and "hora" in df_sub.columns:
+        df_sub = df_sub[(df_sub["hora"] >= int(hora_inicio)) & (df_sub["hora"] < int(hora_fin))].copy()
+        franja_txt = f"{int(hora_inicio):02d}:00 a {int(hora_fin):02d}:00 (Hora Colombia UTC-5)"
+    elif hora_inicio is not None and "hora" in df_sub.columns:
+        df_sub = df_sub[df_sub["hora"] == int(hora_inicio)].copy()
+        franja_txt = f"{int(hora_inicio):02d}:00 a {int(hora_inicio):02d}:59 (Hora Colombia UTC-5)"
+        
+    total_en_filtro = len(df_sub)
+    
+    desglose_horas = {}
+    if "hora" in df_sub.columns:
+        desglose_horas = df_sub["hora"].value_counts().sort_index().to_dict()
+        desglose_horas = {f"{h:02d}:00 - {h:02d}:59": count for h, count in desglose_horas.items()}
+        
+    col_asesor = "Nombre_Asesor" if "Nombre_Asesor" in df_sub.columns else "TICKET_ASSIGNEE_PRIMARY_EMAIL"
+    top_asesores = df_sub[col_asesor].value_counts().head(5).to_dict() if col_asesor in df_sub.columns else {}
+    
+    col_tipologia = "Tipo_de_Gestion" if "Tipo_de_Gestion" in df_sub.columns else "tipo_raw"
+    top_tipologias = df_sub[col_tipologia].value_counts().head(5).to_dict() if col_tipologia in df_sub.columns else {}
+    
+    return json.dumps({
+        "plataforma": "Zendesk Support (Back Office)",
+        "grupo_consultado": target_grp,
+        "franja_horaria": franja_txt,
+        "total_tickets_gestionados_en_franja": total_en_filtro,
+        "total_acumulado_dia_grupo": total_gestionados_grupo,
+        "desglose_por_hora": desglose_horas,
+        "top_asesores_productivos": top_asesores,
+        "top_tipologias_gestionadas": top_tipologias
+    }, ensure_ascii=False)
+
+
 def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_coordinador: str = "") -> str:
     """Consulta el Nivel de Servicio (% NS, llamadas/chats ofrecidos, atendidos, abandono y AHT) de las colas de Genesys Cloud."""
     try:
@@ -877,6 +1099,30 @@ TOOLS_DECLARATIONS = [
                 "servicio": {"type": "STRING", "description": "Filtro opcional por servicio o área, ej. 'VENTAS' o 'WPP LUA AMC'"}
             }
         }
+    },
+    {
+        "name": "consultar_zendesk_backoffice",
+        "description": "Consulta la gestión y productividad de tickets de Back Office (BO) en Zendesk Support (ej. 'BO LUA AMC', 'LUA AMC', 'DT FFP AMC', 'Equipajes AMC SSC', 'Célula PI AMC ES'). Permite filtrar por grupo y por franja horaria (ej. 8 a 12) o por hora puntual.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "grupo_o_servicio": {"type": "STRING", "description": "Grupo o servicio de Back Office, ej. 'BO LUA AMC', 'LUA AMC', 'DT FFP', 'Equipajes'"},
+                "hora_inicio": {"type": "INTEGER", "description": "Hora inicial en formato 24h (ej. 8 para 08:00)"},
+                "hora_fin": {"type": "INTEGER", "description": "Hora final en formato 24h (ej. 12 para 12:00)"},
+                "fecha": {"type": "STRING", "description": "Fecha opcional YYYY-MM-DD"}
+            }
+        }
+    },
+    {
+        "name": "consultar_organigrama_jerarquia",
+        "description": "Consulta el organigrama y estructura de liderazgo oficial (Coordinadores, Supervisores, Asesores y Servicios). Si preguntas por un Coordinador, muestra sus servicios y supervisores. Si preguntas por un Supervisor, muestra su coordinador y sus asesores. Si preguntas por un Asesor, muestra su jefatura. Si preguntas por un Servicio, muestra quién lo lidera.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "nombre_o_servicio": {"type": "STRING", "description": "Nombre de la persona (Coordinador, Supervisor, Asesor) o nombre del Servicio"}
+            },
+            "required": ["nombre_o_servicio"]
+        }
     }
 ]
 
@@ -887,7 +1133,9 @@ TOOLS_MAP = {
     "consultar_nivel_servicio": lambda a: consultar_nivel_servicio(a.get("servicio", ""), a.get("fecha", ""), a.get("supervisor_o_coordinador", "")),
     "consultar_servicio_macro": lambda a: consultar_servicio_macro(a.get("servicio", ""), a.get("fecha", "")),
     "consultar_backlog_salesforce": lambda a: consultar_backlog_salesforce(a.get("criterio", "todos")),
-    "consultar_ausentismos": lambda a: consultar_ausentismos(a.get("fecha", ""), a.get("servicio", ""), a.get("supervisor", ""))
+    "consultar_ausentismos": lambda a: consultar_ausentismos(a.get("fecha", ""), a.get("servicio", ""), a.get("supervisor", "")),
+    "consultar_zendesk_backoffice": lambda a: consultar_zendesk_backoffice(a.get("grupo_o_servicio", "LUA AMC"), a.get("hora_inicio"), a.get("hora_fin"), a.get("fecha")),
+    "consultar_organigrama_jerarquia": lambda a: consultar_organigrama_jerarquia(a.get("nombre_o_servicio", ""))
 }
 
 SYSTEM_INSTRUCTION = """
@@ -895,33 +1143,37 @@ Eres el **Copiloto Operacional 4DX**, el asistente de inteligencia artificial an
 Tu propósito es responder con máxima precisión, agilidad e intuición las consultas de Carlos Murillo, Coordinadores, Jefaturas y Supervisores.
 
 REGLAS TEMPORALES Y OPERATIVAS CLAVE:
-1. AÑO OPERATIVO: El año de la base de datos es **2026** (específicamente registros de agosto y septiembre de 2026). La fecha de referencia activa y más reciente es **2026-09-17**.
+1. AÑO OPERATIVO: El año de la base de datos de Genesys/presencia es **2026** (específicamente registros de agosto y septiembre de 2026). La fecha de referencia activa y más reciente es **2026-09-17** (o en vivo hoy para Zendesk).
 2. NUNCA asumas años anteriores (como 2023, 2024 o 2025). Si el usuario dice "ayer 17 de sep", "17 de septiembre", "17/09" o "ayer", la fecha exacta es **2026-09-17**.
 
-3. DISTINCIÓN CRÍTICA ENTRE "NIVEL DE SERVICIO" Y "DATOS OPERACIONALES":
-   - Si el usuario pregunta por: **"NIVEL DE SERVICIO"**, **"NIVELES DE SERVICIO"**, **"% NS"**, **"SLA"**, **"CÓMO CERRARON LOS NIVELES DE SERVICIO"**, **"TRÁFICO"**, **"ATENCIÓN"**, **"ABANDONO"** o **"AHT"**:
-     👉 DEBES LLAMAR INMEDIATAMENTE A LA HERRAMIENTA `consultar_nivel_servicio`.
-     NUNCA respondas solo con horas de conexión o pausas si te están preguntando por Niveles de Servicio.
-     Ejemplo: "cierre de los niveles de servicio de Yineidis" -> Llama a `consultar_nivel_servicio(supervisor_o_coordinador='Yineidis', fecha='2026-09-17')`.
-     Presenta la tabla con:
-     * **% NS alcanzado** y si cumple la meta contractual (75.3% en Voz, 80% en Chat/WPP).
-     * **Volumen Ofrecido vs Atendido**.
-     * **% Abandono**.
-     * **AHT (Tiempo de Operación)**.
-   - Si el usuario pregunta por "adherencia", "pausas", "asistencia", "ausentismos", "quién faltó" o "tiempos en available":
-     👉 Llama a `consultar_equipo_supervisor`.
+3. DISTINCIÓN CRÍTICA ENTRE PLATAFORMAS (ZENDESK vs GENESYS vs SALESFORCE):
+   - **ZENDESK SUPPORT (BACK OFFICE)**:
+     * Si el usuario pregunta por: **"BO LUA"**, **"BACK OFFICE"**, **"CASOS/TICKETS DE BO LUA"**, **"EQUIPAJES"**, **"DT FFP"**, **"CÉLULA PI"**, **"TICKETS GESTIONADOS"**, **"CASOS RESUELTOS EN LA MAÑANA / ENTRE LAS 8 Y LAS 12"**:
+       👉 DEBES LLAMAR INMEDIATAMENTE A `consultar_zendesk_backoffice`.
+       NUNCA vayas a Salesforce ni a Genesys para casos de Back Office BO LUA.
+   - **GENESYS CLOUD (VOZ, WHATSAPP, PRESENCIA, ADHERENCIA Y TRÁFICO)**:
+     * Si el usuario pregunta por: **"NIVEL DE SERVICIO"**, **"% NS"**, **"SLA"**, **"TRÁFICO"**, **"LLAMADAS ATENDIDAS"**, **"ABANDONO"**, **"AHT"**:
+       👉 Llama a `consultar_nivel_servicio`.
+     * Si el usuario pregunta por: **"PAUSAS"**, **"TURNOS"**, **"ADHERENCIA"**, **"ASISTENCIA"**, **"AUSENCIAS"**, **"QUIÉN FALTÓ"**:
+       👉 Llama a `consultar_equipo_supervisor` o `consultar_asesor`.
+   - **SALESFORCE B2B (CRM COMERCIAL / AGENCIAS / CORPORATE)**:
+     * Si el usuario pregunta por: **"BACKLOG SALESFORCE"**, **"CASOS B2B >24H"**, **"AGENCIAS TARGET"**, **"INFRACCIÓN SLA 24H"**:
+       👉 Llama a `consultar_backlog_salesforce`.
 
-4. RESOLUCIÓN INTUITIVA DE SUPERVISORES Y COORDINADORES:
-   - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC).
-   - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Supervisor de Agencias B2B / Corporativo Pyme).
+4. ORGANIGRAMA Y ESTRUCTURA DE EQUIPOS:
+   - Si el usuario pregunta por: **"ORGANIGRAMA"**, **"ESTRUCTURA"**, **"QUIÉN LE REPORTA A"**, **"CUÁL ES EL EQUIPO DE"**, **"QUIÉNES SON LOS ASESORES DE"**, **"QUIÉN COORDINA"**, **"QUÉ SERVICIOS TIENE A CARGO"**:
+     👉 Llama a `consultar_organigrama_jerarquia(nombre_o_servicio=...)`.
+
+5. RESOLUCIÓN INTUITIVA DE LÍDERES:
+   - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC bajo la coordinación de Yineidis Carbono).
+   - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Coordinadora de Operaciones de Corporativo Pyme y Agencias B2B).
+   - "Yineidis" o "Yineidis Carbono" -> Corresponde a **CARBONO PEDROZA YINEIDIS YESENIA** (Coordinadora de LUA AMC, WPP LUA AMC, LUA ING, CARGO BOOKING).
    - "Jhon Villa" -> **VILLA CADAVID JHON FERNANDO**.
-   - **YINEIDIS CARBONO** (`CARBONO PEDROZA YINEIDIS YESENIA`): Es la **Coordinadora de Operaciones** de 4 servicios clave (`LUA AMC`, `WPP LUA AMC`, `LUA AMC ING`, `CARGO BOOKING`, `Soporte LUA AMC`).
-     * Si preguntan por los niveles de servicio de Yineidis, evalúa sus colas en `consultar_nivel_servicio(supervisor_o_coordinador='Yineidis')`.
 
 RESPUESTA DIRECTA, INTUITIVA Y EJECUTIVA:
 - Responde DIRECTAMENTE a lo que se te está preguntando sin rodeos teóricos ni disculpas.
-- Presenta tablas Markdown limpias para comparar niveles de servicio (% NS, meta, ofrecidas, atendidas, abandono, AHT).
-- Usa negritas en los nombres y cifras numéricas precisas.
+- Presenta tablas Markdown limpias con cifras claras, franjas horarias y porcentajes.
+- Usa negritas en los nombres de líderes, asesores y métricas clave.
 """
 
 
