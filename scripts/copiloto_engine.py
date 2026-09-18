@@ -612,7 +612,12 @@ def consultar_backlog_salesforce(criterio: str = "todos") -> str:
 
 
 def consultar_ausentismos(fecha: str = "", servicio: str = "", supervisor: str = "") -> str:
-    """Detecta asesores con turnos programados que no tuvieron conexión en Genesys ni actividad en Salesforce (posible ausentismo)."""
+    """Calcula y audita el ausentismo operativo:
+    - Cruza los turnos programados en malla (>0 horas) contra las conexiones reales en Genesys.
+    - Discrimina entre Ausentismo Justificado (con incapacidad médica, licencia, permiso o novedad) y Ausentismo Injustificado (sin conexión y sin novedad).
+    - Calcula la Tasa de Ausentismo (%) y la compara contra la meta oficial (Tolerancia: 10%, Meta óptima: 8%).
+    - Permite filtrar por supervisor, por servicio o ver el consolidado general.
+    """
     if not DB_PATH.exists():
         return json.dumps({"error": "Base de datos no encontrada."})
 
@@ -626,63 +631,112 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "", supervisor: str =
 
     sup_oficial = resolver_supervisor(conn, supervisor, fecha) if supervisor else ""
 
-    if sup_oficial:
-        # Asesores conectados bajo este supervisor en Genesys
-        c.execute("""
-            SELECT DISTINCT agente FROM segments
-            WHERE fecha = ? AND (jefe_inmediato = ? OR coordinador = ?)
-        """, (fecha, sup_oficial, sup_oficial))
-        agentes_genesys = [r[0] for r in c.fetchall()]
-
-        # Turnos programados para el servicio del supervisor
-        c.execute("""
-            SELECT DISTINCT servicio FROM segments
-            WHERE fecha = ? AND (jefe_inmediato = ? OR coordinador = ?)
-        """, (fecha, sup_oficial, sup_oficial))
-        servicios_sup = [r[0] for r in c.fetchall() if r[0]]
-
-        conn.close()
-        return json.dumps({
-            "fecha": fecha,
-            "supervisor": sup_oficial,
-            "servicios": servicios_sup,
-            "total_asesores_conectados": len(agentes_genesys),
-            "total_ausentes": 0,
-            "diagnostico": f"✅ En el equipo de {sup_oficial} no se registraron ausentismos en la fecha {fecha}. Los {len(agentes_genesys)} asesores se conectaron y operaron en Genesys."
-        }, ensure_ascii=False)
-
-    query_t = "SELECT nombre_agente, servicio, horas_programadas, turno_ini, turno_fin, novedad FROM turnos_detallados WHERE fecha = ?"
-    params_t = [fecha]
+    query_seg = "SELECT DISTINCT agente, servicio, jefe_inmediato, coordinador FROM segments WHERE fecha = ?"
+    params_seg = [fecha]
     if servicio:
-        query_t += " AND servicio LIKE ?"
-        params_t.append(f"%{servicio}%")
-    c.execute(query_t, params_t)
-    turnos = c.fetchall()
+        query_seg += " AND servicio LIKE ?"
+        params_seg.append(f"%{servicio}%")
+    if sup_oficial:
+        query_seg += " AND (jefe_inmediato = ? OR coordinador = ?)"
+        params_seg.extend([sup_oficial, sup_oficial])
 
-    c.execute("SELECT DISTINCT agente FROM segments WHERE fecha = ?", (fecha,))
-    agentes_genesys = [r[0] for r in c.fetchall()]
+    c.execute(query_seg, params_seg)
+    agentes_conectados_rows = c.fetchall()
+
+    genesys_bps = set()
+    genesys_tokens = []
+    for r in agentes_conectados_rows:
+        ag = r[0]
+        parts = ag.split(" - ")
+        bp = parts[0].strip().upper()
+        genesys_bps.add(bp)
+        nom_txt = parts[1] if len(parts) > 1 else ag
+        tokens = set(p.strip().upper() for p in nom_txt.split() if len(p.strip()) > 2)
+        genesys_tokens.append((bp, tokens, ag))
+
+    query_turnos = "SELECT nombre_agente, bp, servicio, turno_ini, turno_fin, horas_programadas, novedad FROM turnos_detallados WHERE fecha = ? AND horas_programadas > 0"
+    params_turnos = [fecha]
+    if servicio:
+        query_turnos += " AND servicio LIKE ?"
+        params_turnos.append(f"%{servicio}%")
+    if sup_oficial:
+        c.execute("SELECT DISTINCT agente FROM segments WHERE jefe_inmediato = ? OR coordinador = ?", (sup_oficial, sup_oficial))
+        bps_del_sup = [r[0].split(" - ")[0].strip().upper() for r in c.fetchall()]
+        if bps_del_sup:
+            placeholders = ",".join(["?"] * len(bps_del_sup))
+            query_turnos += f" AND bp IN ({placeholders})"
+            params_turnos.extend(bps_del_sup)
+
+    c.execute(query_turnos, params_turnos)
+    turnos = c.fetchall()
     conn.close()
 
-    ausentes = []
+    total_programados = len(turnos)
+    if total_programados == 0:
+        return json.dumps({
+            "fecha": fecha,
+            "mensaje": f"No se encontraron turnos programados activos (>0 hrs) para el criterio especificado (Servicio: {servicio}, Supervisor: {supervisor})."
+        }, ensure_ascii=False)
+
+    conectados = 0
+    ausentes_justificados = []
+    ausentes_injustificados = []
+
     for t in turnos:
-        nombre = t[0]
-        serv = t[1]
-        novedad = t[5]
-        en_genesys = any(nombre.lower() in g.lower() or g.lower() in nombre.lower() for g in agentes_genesys)
-        if not en_genesys:
-            ausentes.append({
-                "agente": nombre,
+        nom, bp, serv, t_ini, t_fin, h_prog, nov = t
+        bp_clean = str(bp).strip().upper() if bp else ""
+        nom_tokens = set(p.strip().upper() for p in str(nom).split() if len(p.strip()) > 2)
+
+        is_conn = False
+        if bp_clean and bp_clean in genesys_bps:
+            is_conn = True
+        else:
+            for g_bp, g_toks, g_ag in genesys_tokens:
+                if len(nom_tokens.intersection(g_toks)) >= 2:
+                    is_conn = True
+                    break
+
+        if is_conn:
+            conectados += 1
+        else:
+            nov_str = str(nov).strip() if nov else ""
+            item = {
+                "agente": nom,
+                "bp": bp,
                 "servicio": serv,
-                "turno": f"{t[3]} a {t[4]}" if t[3] else "No especificado",
-                "horas_programadas": t[2],
-                "novedad_reportada": novedad if novedad else "Sin novedad (Posible Ausentismo Injustificado)"
-            })
+                "turno": f"{t_ini} a {t_fin}",
+                "horas_programadas": h_prog,
+                "novedad": nov_str if nov_str and nov_str != "TUR" else "Sin novedad reportada (Ausencia Injustificada)"
+            }
+            if nov_str and nov_str not in ["TUR", ""]:
+                ausentes_justificados.append(item)
+            else:
+                ausentes_injustificados.append(item)
+
+    total_ausentes = len(ausentes_justificados) + len(ausentes_injustificados)
+    tasa_ausentismo = round(total_ausentes / total_programados * 100, 1)
+
+    cumple_meta = tasa_ausentismo <= 10.0
+    estado_meta = "🟢 Dentro de meta (<=10%)" if cumple_meta else "🔴 Sobre meta de tolerancia (10.0%)"
 
     return json.dumps({
         "fecha": fecha,
-        "total_turnos_evaluados": len(turnos),
-        "total_sin_conexion_genesys": len(ausentes),
-        "lista_ausentes_o_con_novedad": ausentes[:20]
+        "filtro_aplicado": {
+            "supervisor": sup_oficial if sup_oficial else "Todos",
+            "servicio": servicio if servicio else "Consolidado General"
+        },
+        "resumen_ausentismo": {
+            "total_turnos_programados": total_programados,
+            "total_asesores_conectados": conectados,
+            "total_ausencias": total_ausentes,
+            "tasa_ausentismo": f"{tasa_ausentismo}%",
+            "meta_tolerancia": "10.0%",
+            "estado_cumplimiento": estado_meta,
+            "ausencias_justificadas": len(ausentes_justificados),
+            "ausencias_injustificadas": len(ausentes_injustificados)
+        },
+        "detalle_ausencias_injustificadas": ausentes_injustificados[:10],
+        "detalle_ausencias_justificadas": ausentes_justificados[:10]
     }, ensure_ascii=False)
 
 
