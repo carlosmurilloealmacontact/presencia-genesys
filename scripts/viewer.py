@@ -6,8 +6,14 @@ import re
 import unicodedata
 
 import sqlite3
+import sys
 from io import BytesIO
 from pathlib import Path
+
+# Asegurar que el directorio de scripts esté en sys.path
+_scripts_dir = str(Path(__file__).resolve().parent)
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
 
 import pandas as pd
 import plotly.express as px
