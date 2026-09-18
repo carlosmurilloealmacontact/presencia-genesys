@@ -1283,7 +1283,8 @@ CARLOS_MURILLO_EMAILS = {
 
 es_carlos = (
     current_email in CARLOS_MURILLO_EMAILS
-    or "carlosmurillo" in current_email.lower()
+    or ("carlos" in current_email.lower() and "murillo" in current_email.lower())
+    or ("carlos" in current_name.lower() and "murillo" in current_name.lower())
     or current_email in ADMINS_AUTORIZADOS
     or not auth_configurado
 )
@@ -1405,7 +1406,7 @@ if "seccion_audit_actual" not in st.session_state or st.session_state["seccion_a
     registrar_evento(current_email, current_name, seccion_activa, "cambio_seccion")
 
 # ── BOTÓN FLOTANTE OMNIPRESENTE DE ROCCO (DISPONIBLE EN TODAS LAS PANTALLAS) ──
-if es_carlos and seccion_activa not in ("🐙 Rocco Copiloto", "🤖 Copiloto 4DX"):
+if es_carlos:
     try:
         from copiloto_engine import render_boton_flotante_rocco
         render_boton_flotante_rocco()

@@ -2049,54 +2049,64 @@ def render_boton_flotante_rocco():
     """Renderiza el botón flotante omnipresente de Rocco en la esquina inferior derecha con su identidad visual."""
     rocco_b64 = obtener_rocco_b64()
     
-    # CSS con múltiples selectores directos a st-key para garantizar fijación en cualquier navegador/dispositivo
+    # CSS con liberación de contención de layout y z-index máximo para fijación absoluta en el viewport
     st.markdown(
         f"""
         <style>
-        /* Contenedor flotante fijado a la ventana del navegador */
+        /* 1. Liberar cualquier contención de Streamlit que atrape position:fixed */
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"],
+        section.main,
+        .block-container,
+        [data-testid="stVerticalBlock"] {{
+            contain: none !important;
+        }}
+
+        /* 2. Contenedor del botón flotante anclado al viewport */
         div.st-key-rocco_omnipresent_fab_btn,
         div[class*="st-key-rocco_omnipresent_fab_btn"] {{
             position: fixed !important;
-            bottom: 26px !important;
+            bottom: 24px !important;
             right: 28px !important;
-            z-index: 999999999 !important;
+            z-index: 2147483647 !important;
             width: auto !important;
             height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
             display: block !important;
-            filter: drop-shadow(0 10px 25px rgba(124, 58, 237, 0.65)) !important;
+            pointer-events: auto !important;
         }}
 
-        /* Estilo premium del botón de Rocco */
+        /* 3. Estilo del botón nativo */
         div.st-key-rocco_omnipresent_fab_btn button,
         div[class*="st-key-rocco_omnipresent_fab_btn"] button {{
-            display: flex !important;
+            display: inline-flex !important;
             flex-direction: row !important;
             align-items: center !important;
             justify-content: center !important;
             gap: 10px !important;
             background: linear-gradient(135deg, #3b0764 0%, #6b21a8 50%, #0284c7 100%) !important;
             color: #ffffff !important;
-            font-weight: 700 !important;
-            font-size: 14.5px !important;
+            font-weight: 800 !important;
+            font-size: 15px !important;
             letter-spacing: 0.3px !important;
             border-radius: 50px !important;
             border: 2.5px solid #c084fc !important;
-            padding: 8px 22px 8px 10px !important;
+            padding: 10px 24px 10px 12px !important;
             cursor: pointer !important;
-            box-shadow: 0 0 20px rgba(192, 132, 252, 0.5) !important;
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+            box-shadow: 0 10px 35px rgba(124, 58, 237, 0.75), 0 0 20px rgba(192, 132, 252, 0.5) !important;
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
             animation: roccoFabPulse 3s infinite ease-in-out !important;
+            min-height: 52px !important;
         }}
 
-        /* Mascota oficial Rocco como avatar integrado en el botón */
+        /* 4. Avatar de la mascota Rocco */
         div.st-key-rocco_omnipresent_fab_btn button::before,
         div[class*="st-key-rocco_omnipresent_fab_btn"] button::before {{
             content: "" !important;
             display: inline-block !important;
-            width: 40px !important;
-            height: 40px !important;
+            width: 42px !important;
+            height: 42px !important;
             border-radius: 50% !important;
             background-color: rgba(255, 255, 255, 0.22) !important;
             background-image: url('data:image/png;base64,{rocco_b64}') !important;
@@ -2108,44 +2118,44 @@ def render_boton_flotante_rocco():
             flex-shrink: 0 !important;
         }}
 
-        /* Texto y tipografía interior */
+        /* 5. Texto interior */
         div.st-key-rocco_omnipresent_fab_btn button p,
         div[class*="st-key-rocco_omnipresent_fab_btn"] button p {{
             color: #ffffff !important;
-            font-weight: 700 !important;
-            font-size: 14.5px !important;
+            font-weight: 800 !important;
+            font-size: 15px !important;
             margin: 0 !important;
             padding: 0 !important;
         }}
 
-        /* Efecto hover interactivo */
+        /* 6. Hover */
         div.st-key-rocco_omnipresent_fab_btn button:hover,
         div[class*="st-key-rocco_omnipresent_fab_btn"] button:hover {{
             transform: scale(1.08) translateY(-4px) !important;
-            box-shadow: 0 0 35px rgba(192, 132, 252, 0.8), 0 15px 40px rgba(124, 58, 237, 0.9) !important;
+            box-shadow: 0 14px 40px rgba(124, 58, 237, 0.95), 0 0 35px rgba(192, 132, 252, 0.8) !important;
             border-color: #f5d0fe !important;
             background: linear-gradient(135deg, #4c1d95 0%, #7e22ce 50%, #0284c7 100%) !important;
         }}
 
         @keyframes roccoFabPulse {{
             0%, 100% {{
-                box-shadow: 0 0 18px rgba(192, 132, 252, 0.4), 0 8px 25px rgba(124, 58, 237, 0.6);
+                box-shadow: 0 8px 25px rgba(124, 58, 237, 0.6), 0 0 18px rgba(192, 132, 252, 0.4);
             }}
             50% {{
-                box-shadow: 0 0 30px rgba(192, 132, 252, 0.75), 0 12px 35px rgba(124, 58, 237, 0.9);
+                box-shadow: 0 12px 35px rgba(124, 58, 237, 0.9), 0 0 30px rgba(192, 132, 252, 0.75);
             }}
         }}
 
-        /* Responsividad móvil */
+        /* 7. Responsividad móvil */
         @media (max-width: 640px) {{
             div.st-key-rocco_omnipresent_fab_btn,
             div[class*="st-key-rocco_omnipresent_fab_btn"] {{
-                bottom: 18px !important;
-                right: 18px !important;
+                bottom: 16px !important;
+                right: 16px !important;
             }}
             div.st-key-rocco_omnipresent_fab_btn button,
             div[class*="st-key-rocco_omnipresent_fab_btn"] button {{
-                padding: 6px 16px 6px 8px !important;
+                padding: 6px 14px 6px 8px !important;
             }}
             div.st-key-rocco_omnipresent_fab_btn button::before,
             div[class*="st-key-rocco_omnipresent_fab_btn"] button::before {{
