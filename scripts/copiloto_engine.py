@@ -11,6 +11,9 @@ import pandas as pd
 import streamlit as st
 import sys
 
+import importlib
+import subprocess
+
 VERTEX_ERROR = ""
 try:
     from google import genai
@@ -18,8 +21,19 @@ try:
     from google.oauth2 import service_account
     VERTEX_AVAILABLE = True
 except Exception as _ve:
-    VERTEX_AVAILABLE = False
-    VERTEX_ERROR = str(_ve)
+    # Auto-recuperación en Streamlit Cloud: si el contenedor no corrió pip install al reiniciar
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "google-genai", "--quiet"])
+        importlib.invalidate_caches()
+        if "google" in sys.modules:
+            importlib.reload(sys.modules["google"])
+        from google import genai
+        from google.genai import types
+        from google.oauth2 import service_account
+        VERTEX_AVAILABLE = True
+    except Exception as _install_err:
+        VERTEX_AVAILABLE = False
+        VERTEX_ERROR = f"Error al importar/instalar google-genai: {_ve} | {_install_err}"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "data" / "presencia.db"
