@@ -57,6 +57,67 @@ def servicio_autorizado_casos_bo(servicio: str) -> bool:
     return any(c in s for c in celulas)
 
 
+_last_neon_token_sync = 0
+
+
+def _sincronizar_token_a_neon_silencioso(token: str):
+    """Sincroniza el token local renovado hacia Neon Postgres en segundo plano para consumo de la nube."""
+    global _last_neon_token_sync
+    import time
+    now = time.time()
+    if now - _last_neon_token_sync < 900:  # Cada 15 minutos
+        return
+    _last_neon_token_sync = now
+
+    try:
+        from threading import Thread
+        def _bg():
+            neon_url = None
+            try:
+                if "NEON_DB_URL" in st.secrets:
+                    neon_url = str(st.secrets["NEON_DB_URL"]).strip()
+            except Exception:
+                pass
+            if not neon_url:
+                neon_url = os.environ.get("NEON_DB_URL")
+            if not neon_url:
+                sec_path = os.path.normpath(os.path.join(BASE_DIR, "..", ".streamlit", "secrets.toml"))
+                if os.path.exists(sec_path):
+                    try:
+                        with open(sec_path, "r", encoding="utf-8") as f_sec:
+                            for line in f_sec:
+                                if line.strip().startswith("NEON_DB_URL"):
+                                    neon_url = line.split("=", 1)[1].strip().strip('"').strip("'")
+                                    break
+                    except Exception:
+                        pass
+            if neon_url:
+                try:
+                    import psycopg2
+                    conn = psycopg2.connect(neon_url, connect_timeout=5)
+                    cur = conn.cursor()
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS genesys_config (
+                            key VARCHAR(50) PRIMARY KEY,
+                            value TEXT,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        );
+                        INSERT INTO genesys_config (key, value, updated_at)
+                        VALUES ('GENESYS_TOKEN', %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (key) DO UPDATE SET
+                            value = EXCLUDED.value,
+                            updated_at = CURRENT_TIMESTAMP;
+                    """, (token,))
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                except Exception:
+                    pass
+        Thread(target=_bg, daemon=True).start()
+    except Exception:
+        pass
+
+
 def obtener_token_genesys() -> str | None:
     """Busca el token en archivo local, st.secrets o base de datos Neon Postgres."""
     # 1. Archivo local de renovación automática (entorno local)
@@ -65,6 +126,7 @@ def obtener_token_genesys() -> str | None:
             with open(TOKEN_PATH_DEFAULT, "r", encoding="utf-8") as f:
                 t = f.read().strip()
                 if t:
+                    _sincronizar_token_a_neon_silencioso(t)
                     return t
         except Exception:
             pass
