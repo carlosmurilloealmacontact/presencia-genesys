@@ -224,16 +224,86 @@ def obtener_servicios_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     return todos
 
 
+@st.cache_data(ttl=1800)
+def obtener_actividad_salesforce_por_fecha(fecha: str) -> dict:
+    """
+    Retorna mapa { bp: { 'casos_count': int, 'primer_caso': str, 'ultimo_caso': str, 'duracion_horas': float } }
+    extraído de cases_amc_cleaned para la fecha indicada (YYYY-MM-DD).
+    Permite validar y rescatar la presencia real de asesores B2B en Salesforce (Back Office / Casos)
+    para no penalizarlos como ausentes cuando no atienden telefonía de Genesys.
+    """
+    res = {}
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "data", "salesforce")
+    pkl_path = os.path.join(data_dir, "cases_amc_cleaned.pkl")
+    csv_path = os.path.join(data_dir, "cases_amc_cleaned.csv")
+
+    df_sf = None
+    if os.path.exists(pkl_path):
+        try:
+            df_sf = pd.read_pickle(pkl_path)
+        except Exception:
+            pass
+    if df_sf is None and os.path.exists(csv_path):
+        try:
+            df_sf = pd.read_csv(csv_path)
+            if "Fecha_Inicio_dt" in df_sf.columns:
+                df_sf["Fecha_Inicio_dt"] = pd.to_datetime(df_sf["Fecha_Inicio_dt"], errors="coerce")
+            if "Fecha_Finalizacion_dt" in df_sf.columns:
+                df_sf["Fecha_Finalizacion_dt"] = pd.to_datetime(df_sf["Fecha_Finalizacion_dt"], errors="coerce")
+        except Exception:
+            pass
+
+    if df_sf is None or df_sf.empty:
+        return res
+
+    if "BP" not in df_sf.columns or "Fecha_Inicio_dt" not in df_sf.columns:
+        return res
+
+    try:
+        df_sf["_f_ini"] = df_sf["Fecha_Inicio_dt"].dt.strftime("%Y-%m-%d")
+        df_sub = df_sf[df_sf["_f_ini"] == fecha].copy()
+        if df_sub.empty and "fecha_outflow" in df_sf.columns:
+            df_sub = df_sf[df_sf["fecha_outflow"].astype(str) == fecha].copy()
+
+        if df_sub.empty:
+            return res
+
+        for bp_val, grp in df_sub.groupby("BP"):
+            bp_str = str(bp_val).split(".")[0].strip()
+            if not bp_str or bp_str in ("nan", "None", ""):
+                continue
+            t_min = grp["Fecha_Inicio_dt"].min()
+            t_max = grp["Fecha_Finalizacion_dt"].max() if "Fecha_Finalizacion_dt" in grp.columns else grp["Fecha_Inicio_dt"].max()
+            if pd.isna(t_max):
+                t_max = grp["Fecha_Inicio_dt"].max()
+
+            dur_h = (t_max - t_min).total_seconds() / 3600.0 if (pd.notna(t_min) and pd.notna(t_max)) else 0.0
+            p_str = t_min.strftime("%H:%M") if pd.notna(t_min) else "--"
+            u_str = t_max.strftime("%H:%M") if pd.notna(t_max) else "--"
+
+            res[bp_str] = {
+                "casos_count": len(grp),
+                "primer_caso": p_str,
+                "ultimo_caso": u_str,
+                "duracion_horas": round(dur_h, 2)
+            }
+    except Exception:
+        pass
+    return res
+
+
 def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, supervisor: str = None, servicio: str = None, ambito: str = "TODOS") -> pd.DataFrame:
     """
     Evalúa el cumplimiento de horas de la jornada laboral:
     Horas Programadas vs Horas Reales Conectado (productivo + pausas de ley).
     Calcula: % Cumplimiento, Horas Faltantes/Sobrantes, y clasifica en semáforo.
+    Incluye rescate y validación de presencia en Salesforce para Agencias B2B.
     """
     bp_to_coord, bp_to_superv = obtener_mapa_bp_jerarquia()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
     bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
+    sf_activity = obtener_actividad_salesforce_por_fecha(fecha)
 
     with _get_db() as conn:
         query_turnos = """
@@ -331,17 +401,41 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
             h_pri = "--"
             h_ult = "--"
 
-        pct_cumpl = round((h_conectado / h_prog * 100.0), 1) if h_prog > 0 else 0.0
-        brecha_h = round(h_conectado - h_prog, 2)
+        # Rescate y validación de presencia en Salesforce para personal B2B / Back Office:
+        act_sf = sf_activity.get(bp)
+        if h_conectado == 0.0 and act_sf and act_sf.get("casos_count", 0) > 0:
+            c_count = act_sf["casos_count"]
+            dur_sf = act_sf["duracion_horas"]
+            h_pri_sf = act_sf["primer_caso"]
+            h_ult_sf = act_sf["ultimo_caso"]
 
-        if h_conectado == 0.0:
+            # Si gestionó casos a lo largo de su turno (ventana >= h_prog - 1.5h o >= 4 casos distribuidos),
+            # se le reconoce el cumplimiento de su jornada programada.
+            if dur_sf >= (h_prog - 1.5) or c_count >= 4:
+                h_conectado = h_prog
+            else:
+                # Estimación proporcional: mínimo 1 hora por caso o duración de ventana entre primer y último caso
+                h_conectado = min(h_prog, max(round(dur_sf, 2), round(c_count * 1.0, 2)))
+
+            h_prod = h_conectado
+            h_pri = h_pri_sf
+            h_ult = f"{h_ult_sf} (SF)"
+            pct_cumpl = round((h_conectado / h_prog * 100.0), 1) if h_prog > 0 else 100.0
+            brecha_h = round(h_conectado - h_prog, 2)
+            estado = f"🔵 Conectado en Salesforce ({c_count} Casos)"
+        elif h_conectado == 0.0:
+            pct_cumpl = 0.0
+            brecha_h = round(-h_prog, 2)
             estado = "❌ Ausente / Sin Conexión"
-        elif pct_cumpl >= 98.0 or brecha_h >= -0.15:
-            estado = "🟢 Cumple Jornada Completa"
-        elif pct_cumpl >= 90.0:
-            estado = "🟡 Déficit Leve (< 1h)"
         else:
-            estado = "🔴 Déficit Severo (> 1h faltante)"
+            pct_cumpl = round((h_conectado / h_prog * 100.0), 1) if h_prog > 0 else 0.0
+            brecha_h = round(h_conectado - h_prog, 2)
+            if pct_cumpl >= 98.0 or brecha_h >= -0.15:
+                estado = "🟢 Cumple Jornada Completa"
+            elif pct_cumpl >= 90.0:
+                estado = "🟡 Déficit Leve (< 1h)"
+            else:
+                estado = "🔴 Déficit Severo (> 1h faltante)"
 
         res_list.append({
             "BP": bp,
@@ -666,6 +760,7 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
             options=[
                 "Todos los Estados",
                 "🟢 Cumple Jornada Completa",
+                "🔵 Conectado en Salesforce",
                 "🟡 Déficit Leve (< 1h)",
                 "🔴 Déficit Severo (> 1h faltante)",
                 "❌ Ausente / Sin Conexión",
@@ -694,6 +789,8 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
     # Aplicar filtros de estado y búsqueda
     if estado_sel == "🟢 Cumple Jornada Completa":
         df_unif = df_unif[df_unif["Estado Turno"] == "🟢 Cumple Jornada Completa"]
+    elif estado_sel == "🔵 Conectado en Salesforce":
+        df_unif = df_unif[df_unif["Estado Turno"].str.contains("Salesforce", case=False, na=False)]
     elif estado_sel == "🟡 Déficit Leve (< 1h)":
         df_unif = df_unif[df_unif["Estado Turno"] == "🟡 Déficit Leve (< 1h)"]
     elif estado_sel == "🔴 Déficit Severo (> 1h faltante)":
@@ -753,18 +850,23 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
         st.markdown("##### 🎯 Distribución Cumplimiento de Jornada")
         dist_turnos = df_unif["Estado Turno"].value_counts().reset_index()
         dist_turnos.columns = ["Estado", "Cantidad"]
+        pie_colors = {
+            "🟢 Cumple Jornada Completa": "#10b981",
+            "🟡 Déficit Leve (< 1h)": "#f59e0b",
+            "🔴 Déficit Severo (> 1h faltante)": "#ef4444",
+            "❌ Ausente / Sin Conexión": "#64748b"
+        }
+        for est_val in dist_turnos["Estado"].unique():
+            if "Salesforce" in str(est_val):
+                pie_colors[est_val] = "#3b82f6"
+
         fig_pie = px.pie(
             dist_turnos,
             names="Estado",
             values="Cantidad",
             hole=0.45,
             color="Estado",
-            color_discrete_map={
-                "🟢 Cumple Jornada Completa": "#10b981",
-                "🟡 Déficit Leve (< 1h)": "#f59e0b",
-                "🔴 Déficit Severo (> 1h faltante)": "#ef4444",
-                "❌ Ausente / Sin Conexión": "#64748b"
-            }
+            color_discrete_map=pie_colors
         )
         fig_pie.update_layout(
             height=280,

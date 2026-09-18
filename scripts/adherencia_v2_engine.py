@@ -191,7 +191,7 @@ def _render_vista_diaria(ambito_code: str, ambito_label: str):
     with c_f5:
         estado_turno_filtro = st.selectbox(
             "🚥 Estado",
-            options=["Todos", "Cumple", "Déficit", "Exceso Pausas", "Ausente"],
+            options=["Todos", "Cumple", "Conectado en Salesforce", "Déficit", "Exceso Pausas", "Ausente"],
             key=f"v2_diaria_est_{ambito_code}"
         )
 
@@ -211,7 +211,9 @@ def _render_vista_diaria(ambito_code: str, ambito_label: str):
 
     # Filtro opcional por estado
     if estado_turno_filtro == "Cumple":
-        df_unif = df_unif[df_unif["Estado Turno"].str.contains("Cumple", case=False, na=False)]
+        df_unif = df_unif[df_unif["Estado Turno"].str.contains("Cumple|Salesforce", case=False, na=False)]
+    elif estado_turno_filtro == "Conectado en Salesforce":
+        df_unif = df_unif[df_unif["Estado Turno"].str.contains("Salesforce", case=False, na=False)]
     elif estado_turno_filtro == "Déficit":
         df_unif = df_unif[df_unif["Estado Turno"].str.contains("Déficit", case=False, na=False)]
     elif estado_turno_filtro == "Exceso Pausas":
