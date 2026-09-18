@@ -65,8 +65,9 @@ except Exception as _adh_v2_err:
 try:
     from copiloto_engine import render_tab_copiloto
 except Exception as _cop_err:
+    _cop_err_msg = str(_cop_err)
     def render_tab_copiloto(*args, **kwargs):
-        st.error(f"Error cargando módulo Copiloto 4DX: {_cop_err}")
+        st.error(f"Error cargando módulo Copiloto 4DX: {_cop_err_msg}")
 
 
 st.set_page_config(page_title="Radar Operacional | Almaexperience", page_icon="🛰️", layout="wide", initial_sidebar_state="collapsed")

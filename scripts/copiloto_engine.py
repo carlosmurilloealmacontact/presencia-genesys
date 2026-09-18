@@ -1,19 +1,17 @@
 # copiloto_engine.py - Motor de Inteligencia Operativa y Copiloto Conversacional 4DX
 # Impulsado por Vertex AI (Google Cloud) & Gemini 2.5 Flash
-# Implementación nativa vía REST API con google-auth + httpx (100% compatible con Streamlit Cloud)
+# Implementación 100% nativa vía REST API con authlib + httpx (Cero dependencias pesadas en Streamlit Cloud)
 
 import os
 import sqlite3
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
 import streamlit as st
 import httpx
-from google.oauth2 import service_account
-import google.auth
-import google.auth.transport.requests
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "data" / "presencia.db"
@@ -25,24 +23,52 @@ LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-flash"
 
 
+def _generar_token_jwt_authlib(sa_info: dict):
+    """Genera token OAuth2 de Google Cloud firmando JWT con authlib (librería ya presente en Streamlit Cloud)."""
+    try:
+        from authlib.jose import jwt
+        now = int(time.time())
+        header = {"alg": "RS256", "typ": "JWT"}
+        if "private_key_id" in sa_info:
+            header["kid"] = sa_info["private_key_id"]
+            
+        payload = {
+            "iss": sa_info["client_email"],
+            "sub": sa_info["client_email"],
+            "aud": "https://oauth2.googleapis.com/token",
+            "iat": now,
+            "exp": now + 3600,
+            "scope": "https://www.googleapis.com/auth/cloud-platform"
+        }
+        assertion = jwt.encode(header, payload, sa_info["private_key"])
+        if isinstance(assertion, bytes):
+            assertion = assertion.decode("utf-8")
+
+        r = httpx.post(
+            "https://oauth2.googleapis.com/token",
+            data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": assertion},
+            timeout=15.0
+        )
+        if r.status_code == 200:
+            return r.json().get("access_token"), None
+        return None, f"Error en Google OAuth endpoint (HTTP {r.status_code}): {r.text}"
+    except Exception as e:
+        return None, f"Error firmando JWT de service account: {e}"
+
+
 def _obtener_token_vertex():
     """Obtiene un token de acceso OAuth2 para Vertex AI desde Streamlit Secrets o credenciales locales."""
     # 1. Intentar desde st.secrets["gcp_service_account"] (Streamlit Cloud)
     if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
         try:
             sa_raw = st.secrets["gcp_service_account"]
-            if isinstance(sa_raw, str):
-                sa_info = json.loads(sa_raw)
-            else:
-                sa_info = dict(sa_raw)
-            creds = service_account.Credentials.from_service_account_info(
-                sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            auth_req = google.auth.transport.requests.Request()
-            creds.refresh(auth_req)
-            return creds.token, None
+            sa_info = json.loads(sa_raw) if isinstance(sa_raw, str) else dict(sa_raw)
+            token, err = _generar_token_jwt_authlib(sa_info)
+            if token:
+                return token, None
+            return None, err
         except Exception as e:
-            return None, f"Error leyendo credenciales de `[gcp_service_account]` en Streamlit Secrets: {e}"
+            return None, f"Error leyendo `[gcp_service_account]` en Streamlit Secrets: {e}"
 
     # 2. Intentar desde archivo local común si existe
     local_key = Path(r"C:\Users\cames\.gcp\pipeline-service-account.json")
@@ -50,26 +76,16 @@ def _obtener_token_vertex():
         try:
             with open(local_key, "r") as f:
                 sa_info = json.load(f)
-            creds = service_account.Credentials.from_service_account_info(
-                sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            auth_req = google.auth.transport.requests.Request()
-            creds.refresh(auth_req)
-            return creds.token, None
+            token, _ = _generar_token_jwt_authlib(sa_info)
+            if token:
+                return token, None
         except Exception:
             pass
 
-    # 3. Fallback a credenciales por defecto de entorno
-    try:
-        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-        auth_req = google.auth.transport.requests.Request()
-        creds.refresh(auth_req)
-        return creds.token, None
-    except Exception as e:
-        return None, (
-            "No se encontraron credenciales válidas de Google Cloud en Streamlit Secrets. "
-            "Por favor verifica que `[gcp_service_account]` esté configurado en share.streamlit.io (Settings > Secrets)."
-        )
+    return None, (
+        "No se encontraron credenciales de Google Cloud en Streamlit Secrets. "
+        "Por favor asegúrate de agregar el bloque `[gcp_service_account]` en Settings > Secrets de share.streamlit.io."
+    )
 
 
 # ── HERRAMIENTAS ANALÍTICAS LOCALES ──────────────────────────────────────────
