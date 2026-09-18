@@ -152,12 +152,78 @@ def resolver_nombre_y_macro_categoria(wid: str, catalog: dict) -> tuple[str, str
     return nom, m
 
 
+def resolver_pais_origen(dnis: str = "", cola_nombre: str = "") -> str:
+    """
+    Identifica el país o mercado de origen de la llamada o interacción a partir de:
+    1. El prefijo telefónico internacional del DNIS o ANI (norma ITU-T E.164).
+    2. Nomenclatura oficial de colas por país/idioma/mercado en Genesys y Salesforce.
+    """
+    d_clean = str(dnis or "").strip().lower()
+    for prefix in ("tel:", "sip:", "whatsapp:", "+"):
+        if d_clean.startswith(prefix):
+            d_clean = d_clean[len(prefix):]
+
+    if d_clean.startswith("00"):
+        d_clean = d_clean[2:]
+    elif d_clean.startswith("0") and len(d_clean) > 8:
+        d_clean = d_clean[1:]
+
+    # 1. Reglas telefónicas de DNIS / ANI
+    if d_clean.startswith("56") or d_clean.startswith("22"):
+        return "🇨🇱 Chile"
+    elif d_clean.startswith("57"):
+        return "🇨🇴 Colombia"
+    elif d_clean.startswith("51"):
+        return "🇵🇪 Perú"
+    elif d_clean.startswith("55"):
+        return "🇧🇷 Brasil"
+    elif d_clean.startswith("54"):
+        return "🇦🇷 Argentina"
+    elif d_clean.startswith("593"):
+        return "🇪🇨 Ecuador"
+    elif d_clean.startswith("1") and len(d_clean) >= 10:
+        return "🇺🇸 USA / Canadá"
+    elif d_clean.startswith("34"):
+        return "🇪🇸 España"
+    elif d_clean.startswith("52"):
+        return "🇲🇽 México"
+    elif d_clean.startswith("598"):
+        return "🇺🇾 Uruguay"
+    elif d_clean.startswith("591"):
+        return "🇧🇴 Bolivia"
+    elif d_clean.startswith("595"):
+        return "🇵🇾 Paraguay"
+
+    # 2. Reglas por nombre de la cola o canal
+    q_u = str(cola_nombre or "").upper()
+    if any(k in q_u for k in ("_BR", "_PT", "BRASIL", "BRAZIL")):
+        return "🇧🇷 Brasil"
+    elif any(k in q_u for k in ("_ING", "_EN", "INTER NA", "NORTH AMERICA", "USA")):
+        return "🇺🇸 USA / Norteamérica"
+    elif any(k in q_u for k in ("_ESP", " ESP", "ESPAÑA", "SPAIN", "EUROPA")):
+        return "🇪🇸 España"
+    elif any(k in q_u for k in ("_CO", "COLOMBIA")):
+        return "🇨🇴 Colombia"
+    elif any(k in q_u for k in ("_CL", "CHILE")):
+        return "🇨🇱 Chile"
+    elif any(k in q_u for k in ("_PE", "PERU")):
+        return "🇵🇪 Perú"
+    elif any(k in q_u for k in ("_EC", "ECUADOR")):
+        return "🇪🇨 Ecuador"
+    elif any(k in q_u for k in ("_AR", "ARGENTINA")):
+        return "🇦🇷 Argentina"
+    elif "SSC" in q_u:
+        return "🌎 Sudamérica (SSC)"
+
+    return "🌎 Multimercado LATAM"
+
+
 # ── 2. EXTRACCIÓN DE TIPOLOGÍAS EN GENESYS CLOUD ──────────────────────────────
 
 def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "") -> pd.DataFrame:
     """
-    Consulta a la Analytics API de Genesys Cloud las métricas agrupadas por cola y código de finalización.
-    Devuelve DataFrame con: servicio, nombre_cola, wrapup_id, motivo_tipologia, macro_categoria, canal, volumen, aht_segundos, aht_formato, porcentaje.
+    Consulta a la Analytics API de Genesys Cloud las métricas agrupadas por cola, código de finalización y DNIS (país).
+    Devuelve DataFrame con: fuente, pais, servicio, cola, canal, wrapup_id, motivo_contacto, macro_categoria, volumen, aht_segundos, aht_formato, porcentaje.
     """
     if not token:
         return pd.DataFrame()
@@ -198,7 +264,7 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
 
     body = {
         "interval": interval_str,
-        "groupBy": ["queueId", "wrapUpCode"],
+        "groupBy": ["queueId", "wrapUpCode", "dnis"],
         "metrics": ["tHandle", "nOffered", "tAnswered"]
     }
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -217,6 +283,7 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
         group_meta = g.get("group", {})
         qid = group_meta.get("queueId")
         wid = group_meta.get("wrapUpCode")
+        dnis_raw = group_meta.get("dnis")
         media_type = group_meta.get("mediaType", "voice")
 
         q_info = queues_cfg.get(qid, {})
@@ -234,6 +301,7 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
             continue
 
         motivo_nombre, macro_cat = resolver_nombre_y_macro_categoria(wid, catalog)
+        pais_nombre = resolver_pais_origen(dnis_raw, q_name)
 
         # Extraer tHandle (duración y conteo de gestiones tipificadas)
         handle_count = 0
@@ -252,6 +320,7 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
         if handle_count > 0:
             records.append({
                 "fuente": "Genesys Cloud",
+                "pais": pais_nombre,
                 "servicio": srv,
                 "cola": q_name,
                 "canal": canal,
@@ -266,8 +335,8 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
         return pd.DataFrame()
 
     df = pd.DataFrame(records)
-    # Agrupar por servicio, cola, macro_categoria y motivo de contacto
-    df_agg = df.groupby(["fuente", "servicio", "cola", "canal", "macro_categoria", "motivo_contacto"]).agg({
+    # Agrupar por fuente, país, servicio, cola, macro_categoria y motivo de contacto
+    df_agg = df.groupby(["fuente", "pais", "servicio", "cola", "canal", "macro_categoria", "motivo_contacto"]).agg({
         "volumen": "sum",
         "tiempo_total_sec": "sum"
     }).reset_index()
@@ -310,6 +379,7 @@ def obtener_tipologias_salesforce(fecha: str = "hoy") -> pd.DataFrame:
 
             for _, row in df_chats.iterrows():
                 raw_q = str(row["queue_name"]).strip()
+                pais_sf = resolver_pais_origen("", raw_q)
                 # Limpiar nombres técnicos de bot a descripciones amigables
                 motivo = raw_q.replace("BOT AMC ", "").replace("15 unidades...", "").strip()
                 if "DUDAS OP" in raw_q:
@@ -324,6 +394,7 @@ def obtener_tipologias_salesforce(fecha: str = "hoy") -> pd.DataFrame:
                 vol_aprox = int(row["max_espera"] * 5) + int(row["snapshots"] / 10)
                 records.append({
                     "fuente": "Salesforce Omni-Chat",
+                    "pais": pais_sf,
                     "servicio": "Agencias & Pyme B2B",
                     "cola": raw_q,
                     "canal": "CHAT",
@@ -346,6 +417,7 @@ def obtener_tipologias_salesforce(fecha: str = "hoy") -> pd.DataFrame:
                     q_ctrl = str(r_c["Work Queue Control"])
                     orig = str(r_c["Origen del caso"])
                     cnt = int(r_c["conteo"])
+                    pais_sf = resolver_pais_origen("", q_ctrl)
                     q_u = q_ctrl.upper()
                     if "EMISION" in q_u or "PAGO" in q_u:
                         m_sf = "💳 Emisiones, Tarifas y Pagos"
@@ -358,6 +430,7 @@ def obtener_tipologias_salesforce(fecha: str = "hoy") -> pd.DataFrame:
 
                     records.append({
                         "fuente": "Salesforce CRM Casos",
+                        "pais": pais_sf,
                         "servicio": "BO Agencias B2B",
                         "cola": q_ctrl,
                         "canal": orig.upper() if orig else "CASO",
@@ -520,9 +593,9 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
     ws_res[f"A{curr_row}"].fill = fill_sub
     curr_row += 1
 
-    headers_top = ["Ranking", "Fuente", "Servicio", "Motivo de Contacto", "Volumen", "% Participación"]
+    headers_top = ["Ranking", "País / Mercado", "Fuente", "Servicio", "Motivo de Contacto", "Volumen", "% Participación"]
     ws_res.append(headers_top)
-    for col_num in range(1, 7):
+    for col_num in range(1, len(headers_top) + 1):
         c = ws_res.cell(row=curr_row, column=col_num)
         c.font = font_header
         c.fill = fill_header
@@ -531,7 +604,10 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
     curr_row += 1
 
     if not df_combo.empty:
-        df_top15 = df_combo.groupby(["fuente", "servicio", "motivo_contacto"])["volumen"].sum().reset_index()
+        cols_grp = ["fuente", "servicio", "motivo_contacto"]
+        if "pais" in df_combo.columns:
+            cols_grp.insert(0, "pais")
+        df_top15 = df_combo.groupby(cols_grp)["volumen"].sum().reset_index()
         tot_all = df_top15["volumen"].sum()
         df_top15["pct"] = ((df_top15["volumen"] / tot_all) * 100.0).round(1) if tot_all > 0 else 0.0
         df_top15 = df_top15.sort_values(by="volumen", ascending=False).head(15).reset_index(drop=True)
@@ -539,19 +615,20 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
         for idx, r_t in df_top15.iterrows():
             ws_res.append([
                 idx + 1,
+                r_t.get("pais", "Multimercado"),
                 r_t["fuente"],
                 r_t["servicio"],
                 r_t["motivo_contacto"],
                 int(r_t["volumen"]),
                 f"{r_t['pct']}%"
             ])
-            for col_num in range(1, 7):
+            for col_num in range(1, len(headers_top) + 1):
                 cell = ws_res.cell(row=curr_row, column=col_num)
                 cell.font = font_bold if idx < 3 else font_body
                 if idx % 2 == 1:
                     cell.fill = fill_zebra
                 cell.border = thin_border
-                cell.alignment = Alignment(horizontal="center" if col_num in [1, 2, 5, 6] else "left", vertical="center")
+                cell.alignment = Alignment(horizontal="center" if col_num in [1, 2, 3, 6, 7] else "left", vertical="center")
             curr_row += 1
 
     # Ajustar ancho de columnas Hoja 1
@@ -565,7 +642,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
         ws_gen = wb.create_sheet(title="Genesys Cloud (Voz & WPP)")
         ws_gen.views.sheetView[0].showGridLines = True
 
-        cols_gen = ["Servicio", "Cola Genesys", "Canal", "Macro-Categoría", "Motivo de Contacto (Wrap-Up)", "Volumen", "% Participación", "AHT (MM:SS)"]
+        cols_gen = ["País / Mercado", "Servicio", "Cola Genesys", "Canal", "Macro-Categoría", "Motivo de Contacto (Wrap-Up)", "Volumen", "% Participación", "AHT (MM:SS)"]
         ws_gen.append(cols_gen)
         for col_num in range(1, len(cols_gen) + 1):
             c = ws_gen.cell(row=1, column=col_num)
@@ -575,6 +652,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
 
         for r_idx, row in df_genesys.iterrows():
             ws_gen.append([
+                row.get("pais", "Multimercado"),
                 row["servicio"],
                 row["cola"],
                 row["canal"],
@@ -591,7 +669,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
                 if r_idx % 2 == 1:
                     cell.fill = fill_zebra
                 cell.border = thin_border
-                cell.alignment = Alignment(horizontal="center" if col_num in [3, 4, 6, 7, 8] else "left", vertical="center")
+                cell.alignment = Alignment(horizontal="center" if col_num in [1, 4, 5, 7, 8, 9] else "left", vertical="center")
 
         for col in ws_gen.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
@@ -603,7 +681,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
         ws_sf = wb.create_sheet(title="Salesforce (Chat & Casos)")
         ws_sf.views.sheetView[0].showGridLines = True
 
-        cols_sf = ["Fuente Salesforce", "Servicio", "Cola / Origen", "Canal", "Macro-Categoría", "Motivo / Tipología", "Volumen / Espera", "% Participación"]
+        cols_sf = ["País / Mercado", "Fuente Salesforce", "Servicio", "Cola / Origen", "Canal", "Macro-Categoría", "Motivo / Tipología", "Volumen / Espera", "% Participación"]
         ws_sf.append(cols_sf)
         for col_num in range(1, len(cols_sf) + 1):
             c = ws_sf.cell(row=1, column=col_num)
@@ -613,6 +691,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
 
         for r_idx, row in df_salesforce.iterrows():
             ws_sf.append([
+                row.get("pais", "Multimercado"),
                 row["fuente"],
                 row["servicio"],
                 row["cola"],
@@ -629,7 +708,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
                 if r_idx % 2 == 1:
                     cell.fill = fill_zebra
                 cell.border = thin_border
-                cell.alignment = Alignment(horizontal="center" if col_num in [4, 5, 7, 8] else "left", vertical="center")
+                cell.alignment = Alignment(horizontal="center" if col_num in [1, 5, 6, 8, 9] else "left", vertical="center")
 
         for col in ws_sf.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
@@ -715,27 +794,53 @@ def render_seccion_tipologias(current_email: str = ""):
         st.warning("⚠️ No se registraron datos de tipología para la fecha y filtros seleccionados.")
         return
 
+    # ── BARRA DE FILTROS DINÁMICOS SUPERIORES ──
+    paises_disp = ["Todos los Países / Mercados"] + sorted([p for p in df_total["pais"].dropna().unique() if p])
+    macros_disp = ["Todas las Familias / Macro-Categorías"] + sorted([m for m in df_total["macro_categoria"].dropna().unique() if m])
+
+    fc_1, fc_2, fc_3 = st.columns([1.5, 1.5, 1.2], vertical_alignment="bottom")
+    with fc_1:
+        pais_sel = st.selectbox("🌎 País / Mercado de Origen", paises_disp, key="tipol_pais_sel")
+    with fc_2:
+        macro_sel = st.selectbox("🏷️ Familia / Macro-Categoría de Negocio", macros_disp, key="tipol_macro_sel")
+    with fc_3:
+        ocultar_timeouts = st.checkbox(
+            "🚫 Aislar Demanda Real",
+            value=False,
+            help="Oculta '⚠️ Sin Tipificar (Timeout / Tiempo de ACW Agotado)' para analizar únicamente los motivos reales de los pasajeros.",
+            key="tipol_ocultar_timeouts"
+        )
+
+    # Filtrar por país si se seleccionó uno específico
+    df_base = df_total.copy()
+    if pais_sel != "Todos los Países / Mercados":
+        df_base = df_base[df_base["pais"] == pais_sel].copy()
+
+    if df_base.empty:
+        st.info(f"ℹ️ No se registraron interacciones para {pais_sel} con los filtros actuales.")
+        return
+
     # Recalcular porcentajes globales sobre la vista actual
-    tot_vol = df_total["volumen"].sum()
-    df_total["porcentaje"] = ((df_total["volumen"] / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
+    tot_vol = df_base["volumen"].sum()
+    df_base["porcentaje"] = ((df_base["volumen"] / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
 
     # ── IDENTIFICAR LLAMADAS SIN TIPIFICAR (TIMEOUTS ACW) VS DEMANDA REAL ──
     mask_sin_tipificar = (
-        df_total["macro_categoria"].str.contains("Sin Tipificar", case=False, na=False) |
-        df_total["motivo_contacto"].str.contains("Timeout", case=False, na=False) |
-        df_total["motivo_contacto"].str.contains("ININ", case=False, na=False)
+        df_base["macro_categoria"].str.contains("Sin Tipificar", case=False, na=False) |
+        df_base["motivo_contacto"].str.contains("Timeout", case=False, na=False) |
+        df_base["motivo_contacto"].str.contains("ININ", case=False, na=False)
     )
-    vol_sin_tipificar = int(df_total.loc[mask_sin_tipificar, "volumen"].sum())
+    vol_sin_tipificar = int(df_base.loc[mask_sin_tipificar, "volumen"].sum())
     vol_tipificadas = tot_vol - vol_sin_tipificar
     pct_calidad_tipif = ((vol_tipificadas / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
     pct_sin_tipificar = ((vol_sin_tipificar / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
 
     # Top 1 motivo real de cliente (excluyendo llamadas sin tipificar)
-    df_clientes = df_total[~mask_sin_tipificar]
+    df_clientes = df_base[~mask_sin_tipificar]
     if not df_clientes.empty:
         df_clientes_agg = df_clientes.groupby("motivo_contacto")["volumen"].sum().reset_index().sort_values(by="volumen", ascending=False)
         top1_cliente_row = df_clientes_agg.iloc[0]
-        top1_nom = str(top1_row["motivo_contacto"]) if (top1_row := top1_cliente_row) is not None else "-"
+        top1_nom = str(top1_cliente_row["motivo_contacto"])
         top1_vol = int(top1_cliente_row["volumen"])
         top1_pct = ((top1_vol / vol_tipificadas) * 100.0).round(1) if vol_tipificadas > 0 else 0.0
     else:
@@ -743,12 +848,13 @@ def render_seccion_tipologias(current_email: str = ""):
         top1_vol = 0
         top1_pct = 0.0
 
-    aht_prom = df_total["aht_segundos"].mean() if "aht_segundos" in df_total.columns else 0.0
+    aht_prom = df_base["aht_segundos"].mean() if "aht_segundos" in df_base.columns else 0.0
 
     # ── TARJETAS DE KPIS EJECUTIVOS ──
     k_c1, k_c2, k_c3, k_c4 = st.columns(4)
     with k_c1:
-        st.metric("Total Interacciones", f"{tot_vol:,}")
+        etiqueta_tot = f"Total Interacciones ({pais_sel.split(' ')[-1]})" if pais_sel != "Todos los Países / Mercados" else "Total Interacciones"
+        st.metric(etiqueta_tot, f"{tot_vol:,}")
     with k_c2:
         st.metric(
             "Calidad de Tipificación",
@@ -773,7 +879,7 @@ def render_seccion_tipologias(current_email: str = ""):
         )
 
     # ── BANNER DE ALERTA DE CONTINGENCIA / PICOS ──
-    contingencias = detectar_picos_y_contingencias(df_clientes if not df_clientes.empty else df_total, umbral_pct=25.0)
+    contingencias = detectar_picos_y_contingencias(df_clientes if not df_clientes.empty else df_base, umbral_pct=25.0)
     if vol_sin_tipificar > 0 and pct_sin_tipificar >= 20.0:
         st.warning(
             f"⏱️ **Oportunidad de Calidad Operativa**: El **{pct_sin_tipificar:.1f}%** de las llamadas ({vol_sin_tipificar:,}) cerraron en **Timeout de ACW** sin que el asesor seleccionara tipología. Esto oculta motivos reales y distorsiona el análisis de demanda.",
@@ -790,20 +896,8 @@ def render_seccion_tipologias(current_email: str = ""):
 
     st.markdown("---")
 
-    # ── FILTROS DE MACRO-CATEGORÍAS Y AISLAMIENTO DE DEMANDA ──
-    fc_1, fc_2 = st.columns([1.7, 1.3], vertical_alignment="bottom")
-    with fc_1:
-        macros_disp = ["Todas las Familias / Macro-Categorías"] + sorted([m for m in df_total["macro_categoria"].dropna().unique() if m])
-        macro_sel = st.selectbox("🏷️ Filtrar por Familia / Macro-Categoría de Negocio", macros_disp, key="tipol_macro_sel")
-    with fc_2:
-        ocultar_timeouts = st.checkbox(
-            "🚫 Aislar Demanda Real (Ocultar llamadas sin tipificar / Timeouts)",
-            value=False,
-            help="Oculta '⚠️ Sin Tipificar (Timeout / Tiempo de ACW Agotado)' para analizar únicamente los motivos reales de los clientes.",
-            key="tipol_ocultar_timeouts"
-        )
-
-    df_graficos = df_total.copy()
+    # ── FILTROS ADICIONALES PARA GRÁFICOS ──
+    df_graficos = df_base.copy()
     if ocultar_timeouts:
         df_graficos = df_graficos[~mask_sin_tipificar]
 
@@ -860,12 +954,63 @@ def render_seccion_tipologias(current_email: str = ""):
         else:
             st.info("No hay datos para mostrar.")
 
+    # ── VISTA CRUZADA: PAÍS DE ORIGEN VS CASUÍSTICA DE DEMANDA ──
+    st.markdown("---")
+    st.subheader("🗺️ Radiografía Cruzada: País de Origen vs. Casuística de Demanda")
+    st.caption("Permite identificar en un solo panel de qué país provienen las llamadas y cuáles son las mayores casuísticas y afectaciones por mercado.")
+
+    rx_c1, rx_c2 = st.columns([1.2, 1.8])
+    with rx_c1:
+        st.markdown("##### 🏆 Ranking de Demanda por País / Mercado")
+        df_pais_agg = df_graficos.groupby("pais")["volumen"].sum().reset_index().sort_values(by="volumen", ascending=True)
+        if not df_pais_agg.empty:
+            fig_pais = px.bar(
+                df_pais_agg,
+                x="volumen",
+                y="pais",
+                orientation="h",
+                color="volumen",
+                color_continuous_scale="Blues",
+                text="volumen",
+                labels={"volumen": "Interacciones", "pais": "País / Mercado"}
+            )
+            fig_pais.update_layout(
+                height=350,
+                margin=dict(l=10, r=20, t=10, b=10),
+                coloraxis_showscale=False,
+                font=dict(size=11)
+            )
+            fig_pais.update_traces(textposition="outside")
+            st.plotly_chart(fig_pais, use_container_width=True)
+        else:
+            st.info("Sin datos de país disponibles.")
+
+    with rx_c2:
+        st.markdown("##### 🧭 Concentración Cruzada (País ➔ Familia ➔ Motivo)")
+        if not df_graficos.empty:
+            fig_tree_geo = px.treemap(
+                df_graficos.head(50),
+                path=["pais", "macro_categoria", "motivo_contacto"],
+                values="volumen",
+                color="volumen",
+                color_continuous_scale="Purples"
+            )
+            fig_tree_geo.update_layout(
+                height=350,
+                margin=dict(l=10, r=10, t=10, b=10),
+                coloraxis_showscale=False
+            )
+            st.plotly_chart(fig_tree_geo, use_container_width=True)
+        else:
+            st.info("Sin datos de concentración.")
+
     # ── TABLA DE DETALLE Y EXPORTADOR ──
+    st.markdown("---")
     st.subheader("📋 Detalle Exhaustivo de Tipologías y Motivos")
 
     d_c1, d_c2 = st.columns([2.5, 1.0], vertical_alignment="bottom")
     with d_c1:
-        filtro_txt = st.text_input("🔍 Buscar motivo, macro-categoría o cola...", placeholder="Ej. Pago, Check-in, PNR, Asientos, Equipaje, Vuelo...", key="tipol_txt_search")
+        filtro_txt = st.text_input("🔍 Buscar motivo, país, macro-categoría o cola...", placeholder="Ej. Chile, Colombia, Pago, Check-in, Equipaje, Vuelo...", key="tipol_txt_search")
     with d_c2:
         excel_bytes = generar_reporte_diario_excel(df_genesys, df_salesforce, fecha_label=fecha_str)
         st.download_button(
@@ -881,17 +1026,19 @@ def render_seccion_tipologias(current_email: str = ""):
     if filtro_txt:
         df_mostrar = df_mostrar[
             df_mostrar["motivo_contacto"].str.contains(filtro_txt, case=False, na=False) |
+            df_mostrar["pais"].str.contains(filtro_txt, case=False, na=False) |
             df_mostrar["macro_categoria"].str.contains(filtro_txt, case=False, na=False) |
             df_mostrar["cola"].str.contains(filtro_txt, case=False, na=False) |
             df_mostrar["servicio"].str.contains(filtro_txt, case=False, na=False)
         ]
 
-    cols_ver = ["fuente", "servicio", "cola", "canal", "macro_categoria", "motivo_contacto", "volumen", "porcentaje", "aht_formato"]
+    cols_ver = ["fuente", "pais", "servicio", "cola", "canal", "macro_categoria", "motivo_contacto", "volumen", "porcentaje", "aht_formato"]
     cols_existentes = [c for c in cols_ver if c in df_mostrar.columns]
     
     st.dataframe(
         df_mostrar[cols_existentes].rename(columns={
             "fuente": "Fuente",
+            "pais": "País / Mercado",
             "servicio": "Servicio",
             "cola": "Cola / Canal",
             "canal": "Tipo",
@@ -903,5 +1050,5 @@ def render_seccion_tipologias(current_email: str = ""):
         }),
         use_container_width=True,
         hide_index=True,
-        height=400
+        height=420
     )
