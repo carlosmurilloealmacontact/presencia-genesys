@@ -9718,6 +9718,8 @@
 2026-09-18,DT FFP AMC,linatuberquia.almacontact@outsourcing-account.com,LATAM PASS:: Actualización de Email / Datos,2,2026-09-18 00:00:00,LATAM PASS:: Actualización de Email / Datos
 2026-09-18,DT FFP AMC,linatuberquia.almacontact@outsourcing-account.com,LATAM PASS::Actualización Datos Ebiz,4,2026-09-18 00:00:00,LATAM PASS::Actualización Datos Ebiz
 2026-09-18,DT FFP AMC,linatuberquia.almacontact@outsourcing-account.com,LATAM PASS::Inconsistencia en Cartola ( Aereo / no aereo),1,2026-09-18 00:00:00,LATAM PASS::Inconsistencia en Cartola ( Aereo / no aereo)
+2026-09-18,DT FFP AMC,linatuberquia.almacontact@outsourcing-account.com,LATAM PASS::Sospecha de alto riesgo,1,2026-09-18 00:00:00,LATAM PASS::Sospecha de alto riesgo
+2026-09-18,DT FFP AMC,linatuberquia.almacontact@outsourcing-account.com,LATAM PASS::Transferencia de millas,1,2026-09-18 00:00:00,LATAM PASS::Transferencia de millas
 2026-09-18,DT FFP AMC,ludismorelo.almacontact@outsourcing-account.com,LATAM PASS:: Actualización de Email / Datos,3,2026-09-18 00:00:00,LATAM PASS:: Actualización de Email / Datos
 2026-09-18,DT FFP AMC,ludismorelo.almacontact@outsourcing-account.com,LATAM PASS::Actualización Datos Ebiz,2,2026-09-18 00:00:00,LATAM PASS::Actualización Datos Ebiz
 2026-09-18,DT FFP AMC,ludismorelo.almacontact@outsourcing-account.com,LATAM PASS::Sospecha de alto riesgo,2,2026-09-18 00:00:00,LATAM PASS::Sospecha de alto riesgo
@@ -9868,13 +9870,13 @@
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Cambios Involuntarios::Atraso SIN responsabilidad,1,2026-09-18 00:00:00,Cambios Involuntarios::Atraso SIN responsabilidad
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Cambios Voluntarios::Adelanto - Postergación,1,2026-09-18 00:00:00,Cambios Voluntarios::Adelanto - Postergación
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Check-in::Asignación Asientos,2,2026-09-18 00:00:00,Check-in::Asignación Asientos
-2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Compras en LATAM::Compra ,1,2026-09-18 00:00:00,Compras en LATAM::Compra 
+2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Compras en LATAM::Compra ,2,2026-09-18 00:00:00,Compras en LATAM::Compra 
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Compras en LATAM::Facturas,1,2026-09-18 00:00:00,Compras en LATAM::Facturas
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Devoluciones / Anulaciones::Solicitud de Devolución,1,2026-09-18 00:00:00,Devoluciones / Anulaciones::Solicitud de Devolución
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Equipaje::Información general ,1,2026-09-18 00:00:00,Equipaje::Información general 
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Excepciones::Endoso Ley Chile,1,2026-09-18 00:00:00,Excepciones::Endoso Ley Chile
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Experiencia A Bordo::Silla de ruedas,1,2026-09-18 00:00:00,Experiencia A Bordo::Silla de ruedas
-2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Información de Viaje::Información de Vuelo,1,2026-09-18 00:00:00,Información de Viaje::Información de Vuelo
+2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,Información de Viaje::Información de Vuelo,2,2026-09-18 00:00:00,Información de Viaje::Información de Vuelo
 2026-09-18,LUA AMC,katherineposso.almacontact@outsourcing-account.com,SSEE::AVIH/PETC,1,2026-09-18 00:00:00,SSEE::AVIH/PETC
 2026-09-18,LUA AMC,kellisromero.alma@outsourcing-account.com,Cambios Voluntarios::Adelanto - Postergación,1,2026-09-18 00:00:00,Cambios Voluntarios::Adelanto - Postergación
 2026-09-18,LUA AMC,kellisromero.alma@outsourcing-account.com,Experiencia Aeropuerto::Atención Aeropuertos,1,2026-09-18 00:00:00,Experiencia Aeropuerto::Atención Aeropuertos
@@ -9910,6 +9912,7 @@
 2026-09-18,LUA AMC,mariatuirann.almacontact@outsourcing-account.com,Información de Viaje::Información de Vuelo,5,2026-09-18 00:00:00,Información de Viaje::Información de Vuelo
 2026-09-18,LUA AMC,mariatuirann.almacontact@outsourcing-account.com,SSEE::Solicitud de otros Pasajeros Especiales,3,2026-09-18 00:00:00,SSEE::Solicitud de otros Pasajeros Especiales
 2026-09-18,LUA AMC,marlonbarrera.almacontact@outsourcing-account.com,Experiencia con Contact Center::Reclamo por error ejecutivo,1,2026-09-18 00:00:00,Experiencia con Contact Center::Reclamo por error ejecutivo
+2026-09-18,LUA AMC,mayragarcia.almacontact@outsourcing-account.com,Experiencia Aeropuerto::Atención Aeropuertos,1,2026-09-18 00:00:00,Experiencia Aeropuerto::Atención Aeropuertos
 2026-09-18,LUA AMC,mmarulanda.almacontact@outsourcing-account.com,Excepciones::Endoso Ley Chile,1,2026-09-18 00:00:00,Excepciones::Endoso Ley Chile
 2026-09-18,LUA AMC,oscarpretel.almacontact@outsourcing-account.com,Sin Tipificar / Null,1,2026-09-18 00:00:00,Sin Tipificar / Null
 2026-09-18,LUA AMC,rafaelrodelo.almacontact@outsourcing-account.com,Experiencia con Contact Center::Reclamo por error ejecutivo,1,2026-09-18 00:00:00,Experiencia con Contact Center::Reclamo por error ejecutivo
@@ -9937,6 +9940,6 @@
 2026-09-18,LUA AMC,system@latam.com,Cambios Involuntarios::Gastos Incurridos,1,2026-09-18 00:00:00,Cambios Involuntarios::Gastos Incurridos
 2026-09-18,LUA AMC,system@latam.com,Cambios Voluntarios::Adelanto - Postergación,1,2026-09-18 00:00:00,Cambios Voluntarios::Adelanto - Postergación
 2026-09-18,LUA AMC,system@latam.com,Compras en LATAM::Compra ,4,2026-09-18 00:00:00,Compras en LATAM::Compra 
-2026-09-18,LUA AMC,system@latam.com,Excepciones::Graves,1,2026-09-18 00:00:00,Excepciones::Graves
-2026-09-18,LUA AMC,valentinaprado.alma@outsourcing-account.com,Cambios Involuntarios::Cancelaciones CON responsabilidad,1,2026-09-18 00:00:00,Cambios Involuntarios::Cancelaciones CON responsabilidad
+2026-09-18,LUA AMC,system@latam.com,Excepciones::Graves,2,2026-09-18 00:00:00,Excepciones::Graves
 2026-09-18,LUA AMC,valentinaprado.alma@outsourcing-account.com,Cambios Involuntarios::Cancelaciones SIN responsabilidad,1,2026-09-18 00:00:00,Cambios Involuntarios::Cancelaciones SIN responsabilidad
+2026-09-18,LUA AMC,valentinaprado.alma@outsourcing-account.com,Cambios Voluntarios::Cambio de pasaje,1,2026-09-18 00:00:00,Cambios Voluntarios::Cambio de pasaje
