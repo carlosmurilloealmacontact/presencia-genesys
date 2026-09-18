@@ -93,6 +93,65 @@ def filtrar_df_exclusiones(df: pd.DataFrame) -> pd.DataFrame:
     return df[mascara]
 
 
+# ── Reglas Maestras de Identificación de la Cuenta LATAM ───────────────────────
+CAMPANAS_NO_LATAM = [
+    "CLARO", "COLMEDICA", "HISENSE", "CHANGAN", "CHILCO", "DINISSAN", 
+    "GOL", "SWAT", "GAS PAIS", "NET PAIS", "LEADS", "PQR", "INB", "OUT", 
+    "EMAIL", "MERCADEO", "COMERCIAL", "MONITOREO TRANSACCIONAL", 
+    "GESTION TASA", "BOLETINES DE SEGURIDAD", "BACKOFFICE PREMIUM"
+]
+
+
+def es_campana_ajena(servicio: str) -> bool:
+    """Detecta si un servicio o campaña pertenece a cuentas externas (Claro, Chec, Colmédica, etc.)."""
+    if not servicio:
+        return False
+    s_u = str(servicio).upper().strip()
+    if s_u in ("CHAT", "RRSS", "BACKOFFICE"):
+        return True
+    if re.search(r"\bCHEC\b", s_u) or "CHEC_" in s_u:
+        return True
+    for pat in CAMPANAS_NO_LATAM:
+        if pat in s_u:
+            return True
+    return False
+
+
+def es_servicio_latam(servicio: str) -> bool:
+    """
+    Regla Definitiva de Cuenta LATAM:
+    Verifica si un servicio pertenece estrictamente a la cuenta LATAM
+    (Pasajeros Inbound/Digital/BO, Agencias B2B o Staff de la cuenta).
+    Excluye categóricamente campañas de clientes externos.
+    """
+    if not servicio:
+        return False
+    if es_campana_ajena(servicio):
+        return False
+    s_u = str(servicio).upper().strip()
+    latam_pats = [
+        "AMC", "LATAM", "LUA", "AG ", "AG_", "AGY", "AGENCIA", "TARGET", 
+        "CORPORATE", "PYME", "BO_", "BO ", "FFP", "DREAM TEAM", "DT ", 
+        "CARGO", "CALIDAD", "FORMACION", "PLANEACION", "SPEECH", 
+        "ANTIFRAUDE", "BUSINESS ANALYTICS", "OPERACION MEDELLIN"
+    ]
+    return any(p in s_u for p in latam_pats)
+
+
+def filtrar_df_solo_latam(df: pd.DataFrame, col_servicio: str = "servicio") -> pd.DataFrame:
+    """Filtra cualquier DataFrame para retener exclusivamente registros de la cuenta LATAM."""
+    if df is None or df.empty:
+        return df
+    col_enc = None
+    for c in [col_servicio, "Servicio", "servicio", "SERVICIO", "campana", "Campaña"]:
+        if c in df.columns:
+            col_enc = c
+            break
+    if col_enc:
+        return df[df[col_enc].astype(str).apply(es_servicio_latam)]
+    return df
+
+
 # ── Estructura Organizacional Oficial ──────────────────────────────────────────
 ESTRUCTURA_GERENCIAS = {
     "HEAD": {

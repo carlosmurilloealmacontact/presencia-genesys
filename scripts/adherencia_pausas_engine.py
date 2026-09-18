@@ -18,12 +18,16 @@ import plotly.graph_objects as go
 import streamlit as st
 
 try:
-    from exclusion_list import es_persona_excluida
+    from exclusion_list import es_persona_excluida, es_servicio_latam, es_campana_ajena
 except ImportError:
     try:
-        from scripts.exclusion_list import es_persona_excluida
+        from scripts.exclusion_list import es_persona_excluida, es_servicio_latam, es_campana_ajena
     except ImportError:
         def es_persona_excluida(val):
+            return False
+        def es_servicio_latam(val):
+            return True
+        def es_campana_ajena(val):
             return False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -199,7 +203,7 @@ def obtener_supervisores_disponibles(coordinador: str = None, ambito: str = "TOD
 
 @st.cache_data(ttl=3600)
 def obtener_servicios_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
-    """Retorna los servicios programados por ámbito ('TODOS', 'PASAJEROS', 'B2B')."""
+    """Retorna los servicios programados por ámbito ('TODOS', 'PASAJEROS', 'B2B'), garantizando solo cuenta LATAM."""
     try:
         with _get_db() as conn:
             cur = conn.cursor()
@@ -207,6 +211,10 @@ def obtener_servicios_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
             todos = [r[0] for r in cur.fetchall()]
     except Exception:
         todos = []
+
+    # REGLA MAESTRA DE CUENTA LATAM:
+    # Excluir categóricamente cualquier campaña externa (Claro, Chec, Colmédica, Hisense, etc.)
+    todos = [s for s in todos if es_servicio_latam(s)]
 
     b2b_keywords = ["AGENCIA", "AGY", "CORPORATE", "PYME", "BO_CUS", "BO_WAIVERS", "BO_CORPORATE", "BO AGENCIAS", "AG CELULA", "AG CHECK", "AG CORPORATE"]
     if filtro_tipo == "B2B":
@@ -269,6 +277,11 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
         t_fin_val = row.get("turno_fin")
         t_ini = str(t_ini_val).strip() if pd.notna(t_ini_val) and str(t_ini_val).strip() not in ("", "None", "nan") else "--"
         t_fin = str(t_fin_val).strip() if pd.notna(t_fin_val) and str(t_fin_val).strip() not in ("", "None", "nan") else "--"
+
+        # REGLA MAESTRA DE CUENTA LATAM:
+        # Descartar inmediatamente personal o turnos de campañas externas (Claro, Chec, Colmédica, etc.)
+        if not es_servicio_latam(srv):
+            continue
 
         sub_seg = seg_by_bp.get(bp)
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
@@ -414,7 +427,12 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
     for _, row in df_t.iterrows():
         bp = str(row["bp"]).strip()
         nom = row["nombre_agente"] or f"Asesor BP {bp}"
-        srv = row["servicio"] or "LATAM"
+        srv = str(row["servicio"]).strip() if pd.notna(row.get("servicio")) and str(row["servicio"]).strip() else "LATAM"
+
+        # REGLA MAESTRA DE CUENTA LATAM:
+        # Descartar inmediatamente personal o turnos de campañas externas (Claro, Chec, Colmédica, etc.)
+        if not es_servicio_latam(srv):
+            continue
 
         sub_seg = seg_by_bp.get(bp)
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
