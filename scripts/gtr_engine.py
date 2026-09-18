@@ -732,15 +732,25 @@ def render_tab_gtr(agentes_map: dict):
                     st.session_state[f"{k_pfx}dia_input"] = hoy_col - timedelta(days=1)
                     st.rerun()
         else:  # Rango de Fechas
-            c_p1, c_p2, c_p3 = st.columns([1, 1, 2])
+            c_p1, c_p2, c_p3, c_p4, c_p5 = st.columns([1, 1, 1, 1, 2])
             with c_p1:
                 if st.button("7 días", key=f"{k_pfx}r7", use_container_width=True):
                     st.session_state[f"{k_pfx}r_desde"] = hoy_col - timedelta(days=6)
                     st.session_state[f"{k_pfx}r_hasta"] = hoy_col
                     st.rerun()
             with c_p2:
-                if st.button("14 días", key=f"{k_pfx}r14", use_container_width=True):
-                    st.session_state[f"{k_pfx}r_desde"] = hoy_col - timedelta(days=13)
+                if st.button("15 días", key=f"{k_pfx}r15", use_container_width=True):
+                    st.session_state[f"{k_pfx}r_desde"] = hoy_col - timedelta(days=14)
+                    st.session_state[f"{k_pfx}r_hasta"] = hoy_col
+                    st.rerun()
+            with c_p3:
+                if st.button("30 días", key=f"{k_pfx}r30", use_container_width=True):
+                    st.session_state[f"{k_pfx}r_desde"] = hoy_col - timedelta(days=29)
+                    st.session_state[f"{k_pfx}r_hasta"] = hoy_col
+                    st.rerun()
+            with c_p4:
+                if st.button("Mes actual", key=f"{k_pfx}rmes", use_container_width=True):
+                    st.session_state[f"{k_pfx}r_desde"] = hoy_col.replace(day=1)
                     st.session_state[f"{k_pfx}r_hasta"] = hoy_col
                     st.rerun()
             with c_p3:
@@ -1685,8 +1695,8 @@ def render_tab_gtr_historico(token: str, gtr_cfg: dict):
             set_rango_gtr(7)
             st.rerun()
     with col_p2:
-        if st.button("14 días", key="btn_gtr_14d", use_container_width=True):
-            set_rango_gtr(14)
+        if st.button("15 días", key="btn_gtr_15d", use_container_width=True):
+            set_rango_gtr(15)
             st.rerun()
     with col_p3:
         if st.button("30 días", key="btn_gtr_30d", use_container_width=True):

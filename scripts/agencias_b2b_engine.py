@@ -1191,10 +1191,46 @@ def render_subtab_niveles_servicio_unificado():
             fecha_param = sel_dia.strftime("%Y-%m-%d")
             st.caption(f"📅 Mostrando Cierre Oficial Auditado para el día: **{fecha_param}**")
     elif modo_vista == "📆 Rango de Fechas":
+        col_pb1, col_pb2, col_pb3, col_pb4, col_pb5 = st.columns(5)
+        def set_preset_b2b(dias):
+            from datetime import timedelta
+            if dias == 0:
+                st.session_state["b2b_ns_sel_desde"] = max_d_csl.replace(day=1)
+                st.session_state["b2b_ns_sel_hasta"] = max_d_csl
+            elif dias is None:
+                st.session_state["b2b_ns_sel_desde"] = min_d_csl
+                st.session_state["b2b_ns_sel_hasta"] = max_d_csl
+            else:
+                st.session_state["b2b_ns_sel_desde"] = max(date(2026, 9, 1), max_d_csl - timedelta(days=dias - 1))
+                st.session_state["b2b_ns_sel_hasta"] = max_d_csl
+
+        with col_pb1:
+            if st.button("7 días", key="b2b_btn_7d", use_container_width=True, help="Últimos 7 días"):
+                set_preset_b2b(7)
+                st.rerun()
+        with col_pb2:
+            if st.button("15 días", key="b2b_btn_15d", use_container_width=True, help="Últimos 15 días"):
+                set_preset_b2b(15)
+                st.rerun()
+        with col_pb3:
+            if st.button("30 días", key="b2b_btn_30d", use_container_width=True, help="Últimos 30 días"):
+                set_preset_b2b(30)
+                st.rerun()
+        with col_pb4:
+            if st.button("Mes actual", key="b2b_btn_mes", use_container_width=True, help="Mes en curso"):
+                set_preset_b2b(0)
+                st.rerun()
+        with col_pb5:
+            if st.button("Todo", key="b2b_btn_todo", use_container_width=True, help="Todo el mes disponible"):
+                set_preset_b2b(None)
+                st.rerun()
+
         with c_f1:
-            sel_desde = st.date_input("Desde:", value=min_d_csl, min_value=date(2026, 9, 1), max_value=date.today(), key="b2b_ns_sel_desde")
+            val_desde = st.session_state.get("b2b_ns_sel_desde", min_d_csl)
+            sel_desde = st.date_input("Desde:", value=val_desde, min_value=date(2026, 9, 1), max_value=date.today(), key="b2b_ns_sel_desde")
         with c_f2:
-            sel_hasta = st.date_input("Hasta:", value=max_d_csl, min_value=date(2026, 9, 1), max_value=date.today(), key="b2b_ns_sel_hasta")
+            val_hasta = st.session_state.get("b2b_ns_sel_hasta", max_d_csl)
+            sel_hasta = st.date_input("Hasta:", value=val_hasta, min_value=date(2026, 9, 1), max_value=date.today(), key="b2b_ns_sel_hasta")
         f_ini_param = sel_desde.strftime("%Y-%m-%d")
         f_fin_param = sel_hasta.strftime("%Y-%m-%d")
         st.caption(f"📆 Consolidado Ponderado Acumulado: del **{f_ini_param}** al **{f_fin_param}**")
@@ -1536,6 +1572,41 @@ def render_subtab_backlog_casos_b2b():
         )].copy()
 
     st.markdown("##### 🎛️ Filtros de Backlog Agencias B2B")
+
+    col_pbk1, col_pbk2, col_pbk3, col_pbk4, col_pbk5, _ = st.columns([1, 1, 1, 1, 1, 4])
+    def set_preset_bk_b2b(dias):
+        from datetime import timedelta
+        if dias == 0:
+            st.session_state["agb2b_bk_desde"] = max_d.replace(day=1)
+            st.session_state["agb2b_bk_hasta"] = max_d
+        elif dias is None:
+            st.session_state["agb2b_bk_desde"] = min_d
+            st.session_state["agb2b_bk_hasta"] = max_d
+        else:
+            st.session_state["agb2b_bk_desde"] = max(min_d, max_d - timedelta(days=dias - 1))
+            st.session_state["agb2b_bk_hasta"] = max_d
+
+    with col_pbk1:
+        if st.button("7 días", key="agb2b_btn_bk_7d", use_container_width=True, help="Últimos 7 días"):
+            set_preset_bk_b2b(7)
+            st.rerun()
+    with col_pbk2:
+        if st.button("15 días", key="agb2b_btn_bk_15d", use_container_width=True, help="Últimos 15 días"):
+            set_preset_bk_b2b(15)
+            st.rerun()
+    with col_pbk3:
+        if st.button("30 días", key="agb2b_btn_bk_30d", use_container_width=True, help="Últimos 30 días"):
+            set_preset_bk_b2b(30)
+            st.rerun()
+    with col_pbk4:
+        if st.button("Mes actual", key="agb2b_btn_bk_mes", use_container_width=True, help="Mes en curso"):
+            set_preset_bk_b2b(0)
+            st.rerun()
+    with col_pbk5:
+        if st.button("Todo", key="agb2b_btn_bk_todo", use_container_width=True, help="Todo el historial"):
+            set_preset_bk_b2b(None)
+            st.rerun()
+
     sf_f0, sf_f1, sf_f2, sf_f3, sf_f4 = st.columns([1.3, 1.0, 1.0, 1.3, 1.4])
     min_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().min()
     max_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().max()
@@ -1545,9 +1616,11 @@ def render_subtab_backlog_casos_b2b():
     with sf_f0:
         sf_estado = st.selectbox("Estado de Casos:", ["🟢 Solo Abiertos / En Proceso", "📂 Histórico Total 2026", "✅ Solo Cerrados"], key="agb2b_bk_estado")
     with sf_f1:
-        sf_desde = st.date_input("Desde:", value=min_d, min_value=min_d, max_value=max_d, key="agb2b_bk_desde")
+        val_bk_desde = st.session_state.get("agb2b_bk_desde", min_d)
+        sf_desde = st.date_input("Desde:", value=val_bk_desde, min_value=min_d, max_value=max_d, key="agb2b_bk_desde")
     with sf_f2:
-        sf_hasta = st.date_input("Hasta:", value=max_d, min_value=min_d, max_value=max_d, key="agb2b_bk_hasta")
+        val_bk_hasta = st.session_state.get("agb2b_bk_hasta", max_d)
+        sf_hasta = st.date_input("Hasta:", value=val_bk_hasta, min_value=min_d, max_value=max_d, key="agb2b_bk_hasta")
     with sf_f3:
         serv_opts = ["Todos los Servicios"] + sorted([s for s in df_cases_raw["Work Queue Control"].dropna().unique() if str(s).strip()])
         sf_serv = st.selectbox("Servicio / Cola:", serv_opts, key="agb2b_bk_serv")

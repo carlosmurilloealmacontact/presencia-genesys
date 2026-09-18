@@ -1386,20 +1386,27 @@ def render_tab_asesores_historico(coordinador_forzado: str = None, key_prefix: s
     with col_estado:
         st.selectbox("Estado", ["Activos", "Retiros", "Todos"], index=0, key=k_estado)
     
-    col_rango1, col_rango2, col_rango3, col_rango4, _, col_caption = st.columns([1, 1, 1, 1, 1, 4])
+    col_rango1, col_rango2, col_rango3, col_rango4, col_rango5, col_caption = st.columns([1, 1, 1, 1, 1, 3])
     def set_rango(dias):
         st.session_state[k_hasta] = fecha_max_disp_d
-        st.session_state[k_desde] = fecha_max_disp_d - pd.Timedelta(days=dias - 1) if dias else fecha_min_disp_d
+        if dias == 0:
+            st.session_state[k_desde] = fecha_max_disp_d.replace(day=1)
+        elif dias is None:
+            st.session_state[k_desde] = fecha_min_disp_d
+        else:
+            st.session_state[k_desde] = fecha_max_disp_d - pd.Timedelta(days=dias - 1)
         if st.session_state[k_desde] < fecha_min_disp_d:
             st.session_state[k_desde] = fecha_min_disp_d
     
     with col_rango1:
         st.button("7 días", key=f"{key_prefix}btn_7d", on_click=set_rango, args=(7,), use_container_width=True)
     with col_rango2:
-        st.button("14 días", key=f"{key_prefix}btn_14d", on_click=set_rango, args=(14,), use_container_width=True)
+        st.button("15 días", key=f"{key_prefix}btn_15d", on_click=set_rango, args=(15,), use_container_width=True)
     with col_rango3:
         st.button("30 días", key=f"{key_prefix}btn_30d", on_click=set_rango, args=(30,), use_container_width=True)
     with col_rango4:
+        st.button("Mes actual", key=f"{key_prefix}btn_mes", on_click=set_rango, args=(0,), use_container_width=True)
+    with col_rango5:
         st.button("Todo", key=f"{key_prefix}btn_todo", on_click=set_rango, args=(None,), use_container_width=True)
     with col_caption:
         st.markdown(

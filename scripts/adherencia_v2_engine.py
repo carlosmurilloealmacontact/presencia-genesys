@@ -425,19 +425,26 @@ def _render_vista_multidia(ambito_code: str, ambito_label: str):
         st.session_state[k_d_desde] = max(d_min, d_max - timedelta(days=6))
         st.session_state[k_d_hasta] = d_max
 
-    c_b1, c_b2, c_b3, c_b4, c_date1, c_date2 = st.columns([0.8, 0.8, 0.8, 0.8, 1.2, 1.2])
+    c_b1, c_b2, c_b3, c_b4, c_b5, c_date1, c_date2 = st.columns([0.8, 0.8, 0.8, 0.9, 0.8, 1.2, 1.2])
 
     def _set_rango_dias(num_dias):
         st.session_state[k_d_hasta] = d_max
-        st.session_state[k_d_desde] = max(d_min, d_max - timedelta(days=num_dias - 1)) if num_dias else d_min
+        if num_dias == 0:
+            st.session_state[k_d_desde] = d_max.replace(day=1)
+        elif num_dias is None:
+            st.session_state[k_d_desde] = d_min
+        else:
+            st.session_state[k_d_desde] = max(d_min, d_max - timedelta(days=num_dias - 1))
 
     with c_b1:
         st.button("7 Días", key=f"v2_btn7_{ambito_code}", on_click=_set_rango_dias, args=(7,), use_container_width=True)
     with c_b2:
-        st.button("14 Días", key=f"v2_btn14_{ambito_code}", on_click=_set_rango_dias, args=(14,), use_container_width=True)
+        st.button("15 Días", key=f"v2_btn15_{ambito_code}", on_click=_set_rango_dias, args=(15,), use_container_width=True)
     with c_b3:
         st.button("30 Días", key=f"v2_btn30_{ambito_code}", on_click=_set_rango_dias, args=(30,), use_container_width=True)
     with c_b4:
+        st.button("Mes actual", key=f"v2_btnmes_{ambito_code}", on_click=_set_rango_dias, args=(0,), use_container_width=True)
+    with c_b5:
         st.button("Todo", key=f"v2_btntodo_{ambito_code}", on_click=_set_rango_dias, args=(None,), use_container_width=True)
 
     with c_date1:

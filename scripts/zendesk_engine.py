@@ -187,14 +187,21 @@ MAPA_GRUPO_A_SERVICIO = {
     "Clula PI AMC ES": "CÉLULA PI AMC ES",
     "Celula PI AMC ES": "CÉLULA PI AMC ES",
     "Latam Travel": "LATAM TRAVEL AMC",
+    "Autorización SOP LUA AMC": "SOPORTE LUA AMC",
+    "Autorizacion SOP LUA AMC": "SOPORTE LUA AMC",
     "Autorización Supervisor HVC AMC ES": "AUTORIZACIÓN SUPERVISOR",
     "Autorización Supervisor AMC": "AUTORIZACIÓN SUPERVISOR",
     "Autorizacion Supervisor AMC": "AUTORIZACIÓN SUPERVISOR",
-    "Back Office Reclamos": "BO_CUS_COL",
-    "BO_WAIVERS": "BO_WAIVERS",
-    "BO ANTIFRAUDE AMC": "BO ANTIFRAUDE AMC",
-    "BO_CORPORATE": "BO_CORPORATE",
-    "BO AGENCIAS TARGET": "BO AGENCIAS TARGET"
+}
+
+SERVICIOS_VALIDOS_ZENDESK = {
+    "BO LUA AMC",
+    "DT FFP AMC",
+    "BO EQUIPAJES AMC",
+    "CÉLULA PI AMC ES",
+    "SOPORTE LUA AMC",
+    "LATAM TRAVEL AMC",
+    "AUTORIZACIÓN SUPERVISOR",
 }
 
 
@@ -303,28 +310,26 @@ def enriquecer_con_socio(df: pd.DataFrame, solo_almacontact: bool = True) -> pd.
                         matched_info = data
                         break
 
+        # En Zendesk Support, el Servicio Operativo del ticket se rige PRIMERO por la cola/grupo del ticket
+        grp_str = str(grupo).strip() if grupo and pd.notna(grupo) else ""
+        if grp_str in MAPA_GRUPO_A_SERVICIO:
+            srv_res = MAPA_GRUPO_A_SERVICIO[grp_str]
+        elif grp_str and grp_str.lower() not in ("nan", "none", "", "sin grupo"):
+            srv_res = grp_str
+        elif em_str in mapa_asesor_srv:
+            srv_res = mapa_asesor_srv[em_str]
+        elif matched_info and matched_info.get("servicio") in SERVICIOS_VALIDOS_ZENDESK:
+            srv_res = matched_info.get("servicio")
+        else:
+            srv_res = "BO LUA AMC"
+
         if matched_info:
             nom_res = str(matched_info.get("nombre", zd_name)).title()
             jef_res = str(matched_info.get("jefe", "Por Asignar"))
             coo_res = str(matched_info.get("coordinador", "Por Asignar"))
-            srv_res = str(matched_info.get("servicio", "Back Office AMC"))
-
-            # Refinar servicio genérico con la cola del ticket o con el servicio operativo del asesor
-            if srv_res in ("Back Office AMC", "Almacontact Operación", "Por Definir", "OPERACION MEDELLIN", "Sin Servicio"):
-                if grupo:
-                    srv_res = MAPA_GRUPO_A_SERVICIO.get(str(grupo).strip(), srv_res)
-                elif em_str in mapa_asesor_srv:
-                    srv_res = mapa_asesor_srv[em_str]
-
-            if srv_res in MAPA_GRUPO_A_SERVICIO:
-                srv_res = MAPA_GRUPO_A_SERVICIO[srv_res]
-
             res = (nom_res, jef_res, coo_res, srv_res)
         else:
-            srv_fallback = MAPA_GRUPO_A_SERVICIO.get(str(grupo).strip()) if grupo else mapa_asesor_srv.get(em_str, "Back Office AMC")
-            if srv_fallback in MAPA_GRUPO_A_SERVICIO:
-                srv_fallback = MAPA_GRUPO_A_SERVICIO[srv_fallback]
-            res = (zd_name.title(), "Por Asignar", "Por Asignar", srv_fallback)
+            res = (zd_name.title(), "Por Asignar", "Por Asignar", srv_res)
 
         cache_matches[cache_key] = res
         return res
@@ -874,15 +879,58 @@ def render_tab_zendesk(email_usuario: str = ""):
     # ── FILTROS SUPERIORES DE OPERACIÓN (EN MEMORIA / SIN LATENCIA) ──────────
     st.markdown("#### 🎯 Filtros de Operación y Segmentación")
 
-    c_f1, c_f2, c_f3, c_f4 = st.columns([1.5, 1.2, 1.2, 1.2])
-
     f_min_def = bundle["f_min_def"]
     f_max_def = bundle["f_max_def"]
 
+    if "zd_f_ini" not in st.session_state:
+        st.session_state["zd_f_ini"] = f_min_def
+        st.session_state["zd_f_fin"] = f_max_def
+
+    def set_preset_zd(dias):
+        from datetime import timedelta
+        if dias == 0:
+            st.session_state["zd_f_ini"] = f_max_def.replace(day=1)
+            st.session_state["zd_f_fin"] = f_max_def
+        elif dias is None:
+            st.session_state["zd_f_ini"] = f_min_def
+            st.session_state["zd_f_fin"] = f_max_def
+        else:
+            st.session_state["zd_f_ini"] = max(f_min_def, f_max_def - timedelta(days=dias - 1))
+            st.session_state["zd_f_fin"] = f_max_def
+
+    # Selectores rápidos de rangos de fechas
+    col_p1, col_p2, col_p3, col_p4, col_p5, _ = st.columns([1, 1, 1, 1, 1, 3.5])
+    with col_p1:
+        if st.button("7 días", key="zd_btn_7d", use_container_width=True, help="Últimos 7 días"):
+            set_preset_zd(7)
+            st.rerun()
+    with col_p2:
+        if st.button("15 días", key="zd_btn_15d", use_container_width=True, help="Últimos 15 días"):
+            set_preset_zd(15)
+            st.rerun()
+    with col_p3:
+        if st.button("30 días", key="zd_btn_30d", use_container_width=True, help="Últimos 30 días"):
+            set_preset_zd(30)
+            st.rerun()
+    with col_p4:
+        if st.button("Mes actual", key="zd_btn_mes", use_container_width=True, help="Mes en curso"):
+            set_preset_zd(0)
+            st.rerun()
+    with col_p5:
+        if st.button("Todo", key="zd_btn_todo", use_container_width=True, help="Todo el historial disponible"):
+            set_preset_zd(None)
+            st.rerun()
+
+    c_f1, c_f2, c_f3, c_f4 = st.columns([1.5, 1.2, 1.2, 1.2])
+
     with c_f1:
+        cur_ini = st.session_state.get("zd_f_ini", f_min_def)
+        cur_fin = st.session_state.get("zd_f_fin", f_max_def)
+        cur_ini = max(f_min_def, min(cur_ini, f_max_def))
+        cur_fin = max(cur_ini, min(cur_fin, f_max_def))
         sel_fechas = st.date_input(
             "📅 Rango de Fechas:",
-            value=(f_min_def, f_max_def),
+            value=(cur_ini, cur_fin),
             min_value=f_min_def,
             max_value=f_max_def,
             key="zd_sel_fechas",
@@ -892,10 +940,13 @@ def render_tab_zendesk(email_usuario: str = ""):
     # Procesar rango seleccionado
     if isinstance(sel_fechas, (tuple, list)) and len(sel_fechas) == 2:
         fecha_ini, fecha_fin = sel_fechas
+        st.session_state["zd_f_ini"], st.session_state["zd_f_fin"] = fecha_ini, fecha_fin
     elif isinstance(sel_fechas, (tuple, list)) and len(sel_fechas) == 1:
         fecha_ini = fecha_fin = sel_fechas[0]
+        st.session_state["zd_f_ini"] = st.session_state["zd_f_fin"] = fecha_ini
     else:
         fecha_ini = fecha_fin = sel_fechas
+        st.session_state["zd_f_ini"] = st.session_state["zd_f_fin"] = fecha_ini
 
     c_sub1, c_sub2 = st.columns([1.2, 3.8])
     with c_sub1:

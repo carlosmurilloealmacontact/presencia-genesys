@@ -520,11 +520,46 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
             st.warning("No hay datos de casos cargados en `data/salesforce/`.")
         else:
             st.markdown("##### 🎛️ Filtros de Backlog")
-            sf_f0, sf_f1, sf_f2, sf_f3, sf_f4 = st.columns([1.3, 1.1, 1.1, 1.4, 1.5])
             min_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().min()
             max_date_raw = df_cases_raw["Fecha_Inicio_dt"].dropna().max()
             min_d = min_date_raw.date() if pd.notna(min_date_raw) else date.today()
             max_d = max_date_raw.date() if pd.notna(max_date_raw) else date.today()
+
+            col_psfb1, col_psfb2, col_psfb3, col_psfb4, col_psfb5, _ = st.columns([1, 1, 1, 1, 1, 4])
+            def set_preset_sf_bk(dias):
+                from datetime import timedelta
+                if dias == 0:
+                    st.session_state["bk_b2b_desde"] = max_d.replace(day=1)
+                    st.session_state["bk_b2b_hasta"] = max_d
+                elif dias is None:
+                    st.session_state["bk_b2b_desde"] = min_d
+                    st.session_state["bk_b2b_hasta"] = max_d
+                else:
+                    st.session_state["bk_b2b_desde"] = max(min_d, max_d - timedelta(days=dias - 1))
+                    st.session_state["bk_b2b_hasta"] = max_d
+
+            with col_psfb1:
+                if st.button("7 días", key="sf_bk_btn_7d", use_container_width=True, help="Últimos 7 días"):
+                    set_preset_sf_bk(7)
+                    st.rerun()
+            with col_psfb2:
+                if st.button("15 días", key="sf_bk_btn_15d", use_container_width=True, help="Últimos 15 días"):
+                    set_preset_sf_bk(15)
+                    st.rerun()
+            with col_psfb3:
+                if st.button("30 días", key="sf_bk_btn_30d", use_container_width=True, help="Últimos 30 días"):
+                    set_preset_sf_bk(30)
+                    st.rerun()
+            with col_psfb4:
+                if st.button("Mes actual", key="sf_bk_btn_mes", use_container_width=True, help="Mes en curso"):
+                    set_preset_sf_bk(0)
+                    st.rerun()
+            with col_psfb5:
+                if st.button("Todo", key="sf_bk_btn_todo", use_container_width=True, help="Todo el historial"):
+                    set_preset_sf_bk(None)
+                    st.rerun()
+
+            sf_f0, sf_f1, sf_f2, sf_f3, sf_f4 = st.columns([1.3, 1.1, 1.1, 1.4, 1.5])
 
             with sf_f0:
                 sf_estado = st.selectbox(
@@ -533,9 +568,11 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                     key="bk_b2b_estado"
                 )
             with sf_f1:
-                sf_desde = st.date_input("Desde:", value=min_d, min_value=min_d, max_value=max_d, key="bk_b2b_desde")
+                val_sf_bk_desde = st.session_state.get("bk_b2b_desde", min_d)
+                sf_desde = st.date_input("Desde:", value=val_sf_bk_desde, min_value=min_d, max_value=max_d, key="bk_b2b_desde")
             with sf_f2:
-                sf_hasta = st.date_input("Hasta:", value=max_d, min_value=min_d, max_value=max_d, key="bk_b2b_hasta")
+                val_sf_bk_hasta = st.session_state.get("bk_b2b_hasta", max_d)
+                sf_hasta = st.date_input("Hasta:", value=val_sf_bk_hasta, min_value=min_d, max_value=max_d, key="bk_b2b_hasta")
             with sf_f3:
                 if "Work Queue Control" in df_cases_raw.columns:
                     serv_opts = ["Todos los Servicios"] + sorted([s for s in df_cases_raw["Work Queue Control"].dropna().unique() if str(s).strip()])
@@ -647,6 +684,40 @@ def render_tab_salesforce_b2b(email_usuario: str = ""):
                 st.session_state["b2b_prod_hasta"] = max_date_val
 
             st.markdown("##### 🎛️ Filtros de Productividad")
+
+            col_psfp1, col_psfp2, col_psfp3, col_psfp4, col_psfp5, _ = st.columns([1, 1, 1, 1, 1, 4])
+            def set_preset_sf_prod(dias):
+                if dias == 0:
+                    st.session_state["b2b_prod_desde"] = max_date_val.replace(day=1)
+                    st.session_state["b2b_prod_hasta"] = max_date_val
+                elif dias is None:
+                    st.session_state["b2b_prod_desde"] = min_date_val
+                    st.session_state["b2b_prod_hasta"] = max_date_val
+                else:
+                    st.session_state["b2b_prod_desde"] = max(min_date_val, max_date_val - timedelta(days=dias - 1))
+                    st.session_state["b2b_prod_hasta"] = max_date_val
+
+            with col_psfp1:
+                if st.button("7 días", key="sf_prod_btn_7d", use_container_width=True, help="Últimos 7 días"):
+                    set_preset_sf_prod(7)
+                    st.rerun()
+            with col_psfp2:
+                if st.button("15 días", key="sf_prod_btn_15d", use_container_width=True, help="Últimos 15 días"):
+                    set_preset_sf_prod(15)
+                    st.rerun()
+            with col_psfp3:
+                if st.button("30 días", key="sf_prod_btn_30d", use_container_width=True, help="Últimos 30 días"):
+                    set_preset_sf_prod(30)
+                    st.rerun()
+            with col_psfp4:
+                if st.button("Mes actual", key="sf_prod_btn_mes", use_container_width=True, help="Mes en curso"):
+                    set_preset_sf_prod(0)
+                    st.rerun()
+            with col_psfp5:
+                if st.button("Todo", key="sf_prod_btn_todo", use_container_width=True, help="Todo el historial"):
+                    set_preset_sf_prod(None)
+                    st.rerun()
+
             f_c1, f_c2, f_c3, f_c4, f_c5 = st.columns([1.1, 1.1, 1.4, 1.5, 1.1])
 
             with f_c1:
