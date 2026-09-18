@@ -32,6 +32,17 @@ import salesforce_engine as sfe
 import salesforce_live_engine as sle
 import mapeo_socios_engine as mse
 import gtr_engine as gtr
+
+try:
+    from b2b_scope_engine import es_equipo_marely_cardona, filtrar_df_por_ambito
+except ImportError:
+    try:
+        from scripts.b2b_scope_engine import es_equipo_marely_cardona, filtrar_df_por_ambito
+    except ImportError:
+        def es_equipo_marely_cardona(*args, **kwargs):
+            return True
+        def filtrar_df_por_ambito(df, *args, **kwargs):
+            return df
 try:
     import cierres_semanales_loader as csl
 except ImportError:
@@ -104,17 +115,32 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
             st.rerun(scope="fragment")
 
     # 1. Obtener estados de ambas plataformas
-    # A. Genesys Cloud
+    # A. Genesys Cloud (Exclusivo equipo de Marely Cardona)
     agentes_scope = {
         k: v for k, v in agentes_map.items()
-        if "MARELYN" in (v.get("coordinador") or "").upper() or "CARDONA" in (v.get("coordinador") or "").upper()
+        if es_equipo_marely_cardona(
+            coordinador=v.get("coordinador", ""),
+            jefe_inmediato=v.get("jefe_inmediato", ""),
+            bp=str(v.get("agente", "")).split(" - ")[0].strip(),
+            nombre=str(v.get("agente", "")).split(" - ")[1].strip() if " - " in str(v.get("agente", "")) else "",
+            servicio=v.get("servicio", "")
+        )
     }
     df_live_genesys = pd.DataFrame()
     if token:
         try:
             df_live_genesys = obtener_presencia_en_vivo(token, agentes_scope, catalog)
-            if not df_live_genesys.empty and "coordinador" in df_live_genesys.columns:
-                df_live_genesys = df_live_genesys[df_live_genesys["coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
+            if not df_live_genesys.empty:
+                df_live_genesys = df_live_genesys[df_live_genesys.apply(
+                    lambda r: es_equipo_marely_cardona(
+                        coordinador=r.get("coordinador", ""),
+                        jefe_inmediato=r.get("supervisor", ""),
+                        bp=r.get("bp", ""),
+                        nombre=r.get("nombre", ""),
+                        servicio=r.get("servicio", "")
+                    ),
+                    axis=1
+                )]
         except Exception:
             pass
 
@@ -1075,8 +1101,17 @@ def render_subtab_pausas_adherencia_productividad(render_tab_historico_fn=None):
         st.caption("Casos cerrados, cumplimiento de SLA 24h y pausas de los asesores de la coordinación de **Marelyn Cardona**.")
 
         df_cases = sfe.load_and_clean_cases_data()
-        if not df_cases.empty and "Coordinador" in df_cases.columns:
-            df_cases_m = df_cases[df_cases["Coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
+        if not df_cases.empty:
+            df_cases_m = df_cases[df_cases.apply(
+                lambda r: es_equipo_marely_cardona(
+                    coordinador=r.get("Coordinador", ""),
+                    jefe_inmediato=r.get("Supervisor", ""),
+                    supervisor=r.get("Supervisor", ""),
+                    bp=r.get("BP", ""),
+                    nombre=r.get("Nombre_Real", "")
+                ),
+                axis=1
+            )].copy()
         else:
             df_cases_m = df_cases
 
@@ -1128,8 +1163,17 @@ def render_subtab_backlog_casos_b2b():
         st.warning("No hay datos de casos cargados en `data/salesforce/`.")
         return
 
-    if "Coordinador" in df_cases_raw.columns:
-        df_cases_raw = df_cases_raw[df_cases_raw["Coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
+    if not df_cases_raw.empty:
+        df_cases_raw = df_cases_raw[df_cases_raw.apply(
+            lambda r: es_equipo_marely_cardona(
+                coordinador=r.get("Coordinador", ""),
+                jefe_inmediato=r.get("Supervisor", ""),
+                supervisor=r.get("Supervisor", ""),
+                bp=r.get("BP", ""),
+                nombre=r.get("Nombre_Real", "")
+            ),
+            axis=1
+        )].copy()
 
     st.markdown("##### 🎛️ Filtros de Backlog Agencias B2B")
     sf_f0, sf_f1, sf_f2, sf_f3, sf_f4 = st.columns([1.3, 1.0, 1.0, 1.3, 1.4])

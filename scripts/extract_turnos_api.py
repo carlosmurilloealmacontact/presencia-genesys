@@ -178,7 +178,7 @@ def sync_turnos_databases(rows_turnos: list[dict], rows_detallados: list[dict]):
     print(f"   Total acumulado master: {total_master[0]} turnos básicos ({total_master[1]} a {total_master[2]}), {total_det_master} detallados.")
 
     # 2. Sincronizar en presencia.db (usado por el visor y Streamlit)
-    cloud_db = Path(__file__).resolve().parent.parent / CLOUD_EXPORT_PATH
+    cloud_db = (Path(__file__).resolve().parent / CLOUD_EXPORT_PATH).resolve()
     if cloud_db.exists():
         import sqlite3
         conn_cloud = sqlite3.connect(cloud_db)

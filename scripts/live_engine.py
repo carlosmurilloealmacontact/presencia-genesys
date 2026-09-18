@@ -23,6 +23,15 @@ TOKEN_PATH_DEFAULT = os.path.normpath(
 
 ESTADOS_SISTEMA = {"Offline", "Available", "Conectado", "On Queue"}
 
+try:
+    from b2b_scope_engine import es_equipo_marely_cardona
+except ImportError:
+    try:
+        from scripts.b2b_scope_engine import es_equipo_marely_cardona
+    except ImportError:
+        def es_equipo_marely_cardona(*args, **kwargs):
+            return False
+
 
 def servicio_autorizado_casos_bo(servicio: str) -> bool:
     """Casos Backoffice está autorizado para servicios BO y células de Chat/Redes autorizadas."""
@@ -388,12 +397,29 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
 
     catalog = cargar_catalogo_presencias(token)
 
-    # Filtrar mapa de agentes si hay coordinador forzado
-    agentes_scope = agentes_map
+    # Filtrar mapa de agentes según ámbito (Regla de Oro Marely Cardona):
     if coordinador_forzado:
         agentes_scope = {
             k: v for k, v in agentes_map.items()
-            if "MARELYN" in (v.get("coordinador") or "").upper() or "CARDONA" in (v.get("coordinador") or "").upper()
+            if es_equipo_marely_cardona(
+                coordinador=v.get("coordinador", ""),
+                jefe_inmediato=v.get("jefe_inmediato", ""),
+                bp=str(v.get("agente", "")).split(" - ")[0].strip(),
+                nombre=str(v.get("agente", "")).split(" - ")[1].strip() if " - " in str(v.get("agente", "")) else "",
+                servicio=v.get("servicio", "")
+            )
+        }
+    else:
+        # En LATAM Pasajeros: EXCLUIR categóricamente al equipo de Marely Cardona
+        agentes_scope = {
+            k: v for k, v in agentes_map.items()
+            if not es_equipo_marely_cardona(
+                coordinador=v.get("coordinador", ""),
+                jefe_inmediato=v.get("jefe_inmediato", ""),
+                bp=str(v.get("agente", "")).split(" - ")[0].strip(),
+                nombre=str(v.get("agente", "")).split(" - ")[1].strip() if " - " in str(v.get("agente", "")) else "",
+                servicio=v.get("servicio", "")
+            )
         }
 
     # Encabezado
@@ -414,8 +440,23 @@ def render_tab_en_vivo(agentes_map: dict, coordinador_forzado: str = None, key_p
     df_live = obtener_presencia_en_vivo(token, agentes_scope, catalog)
     t_descarga = time.time() - t0
 
-    if coordinador_forzado and not df_live.empty and "coordinador" in df_live.columns:
-        df_live = df_live[df_live["coordinador"].astype(str).str.contains("CARDONA|MARELYN", case=False, na=False)]
+    if not df_live.empty:
+        if coordinador_forzado:
+            df_live = df_live[df_live.apply(lambda r: es_equipo_marely_cardona(
+                coordinador=r.get("coordinador", ""),
+                jefe_inmediato=r.get("supervisor", ""),
+                bp=r.get("bp", ""),
+                nombre=r.get("nombre", ""),
+                servicio=r.get("servicio", "")
+            ), axis=1)]
+        else:
+            df_live = df_live[~df_live.apply(lambda r: es_equipo_marely_cardona(
+                coordinador=r.get("coordinador", ""),
+                jefe_inmediato=r.get("supervisor", ""),
+                bp=r.get("bp", ""),
+                nombre=r.get("nombre", ""),
+                servicio=r.get("servicio", "")
+            ), axis=1)]
 
     if df_live.empty:
         st.info("Sin datos recibidos de Genesys Cloud en este momento.")

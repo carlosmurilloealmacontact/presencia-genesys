@@ -38,6 +38,17 @@ except ImportError:
     def es_persona_excluida(val):
         return False
 
+try:
+    from b2b_scope_engine import es_equipo_marely_cardona, filtrar_df_por_ambito
+except ImportError:
+    try:
+        from scripts.b2b_scope_engine import es_equipo_marely_cardona, filtrar_df_por_ambito
+    except ImportError:
+        def es_equipo_marely_cardona(*args, **kwargs):
+            return False
+        def filtrar_df_por_ambito(df, *args, **kwargs):
+            return df
+
 
 def _obtener_rango_fechas_segments():
     """Retorna fecha mínima y máxima con datos de presencia."""
@@ -492,13 +503,30 @@ def _render_vista_multidia(ambito_code: str, ambito_label: str):
     if not df_t_multi.empty:
         df_t_multi["horas_programadas"] = pd.to_numeric(df_t_multi["horas_programadas"], errors="coerce").fillna(8.0)
     
-    # Filtro ámbito
-    b2b_keywords = ["CARDONA", "RODRIGUEZ URIBE"]
-    if ambito_code == "B2B":
-        df_seg_multi = df_seg_multi[df_seg_multi["coordinador"].astype(str).apply(lambda c: any(k in c.upper() for k in b2b_keywords))]
-    else:
-        df_seg_multi = df_seg_multi[~df_seg_multi["coordinador"].astype(str).apply(lambda c: any(k in c.upper() for k in b2b_keywords))]
+    # Filtro ámbito autoritativo (Regla de Oro Marely Cardona)
+    df_seg_multi = filtrar_df_por_ambito(
+        df_seg_multi,
+        ambito=ambito_code,
+        col_coord="coordinador",
+        col_jefe="jefe_inmediato",
+        col_superv="supervisor",
+        col_bp="bp",
+        col_nombre="nombre",
+        col_servicio="servicio"
+    )
+    if ambito_code != "B2B":
         df_seg_multi = df_seg_multi[~df_seg_multi["servicio"].astype(str).str.upper().str.contains("CARGO", na=False)]
+
+    if not df_t_multi.empty:
+        # Alinear turnos programados con el mismo ámbito para no distorsionar horas del período
+        df_t_multi = filtrar_df_por_ambito(
+            df_t_multi,
+            ambito=ambito_code,
+            col_bp="bp",
+            col_servicio="servicio"
+        )
+        if ambito_code != "B2B":
+            df_t_multi = df_t_multi[~df_t_multi["servicio"].astype(str).str.upper().str.contains("CARGO", na=False)]
 
     if coord_sel != "Todos los Coordinadores":
         df_seg_multi = df_seg_multi[df_seg_multi["coordinador"].astype(str).str.contains(coord_sel, case=False, na=False)]

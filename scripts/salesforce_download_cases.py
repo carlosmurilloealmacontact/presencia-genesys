@@ -195,6 +195,301 @@ def descargar_reporte_casos_2026(headless: bool = True):
             return False
 
 
+def descargar_reporte_logins(headless: bool = True):
+    """
+    Descarga el reporte de Historial de Logins de Salesforce (00OVK00000APn9R2AT).
+    Captura: primer logueo, plataforma (PC vs Celular), navegador y estado.
+    """
+    print("=" * 70)
+    print("INICIANDO DESCARGA AUTOMATIZADA DE LOGINS SALESFORCE (PC vs CELULAR)")
+    print(f"Modo: {'Headless (Segundo Plano)' if headless else 'Visible (Interactivo)'}")
+    print("=" * 70)
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(PROFILE_DIR, exist_ok=True)
+
+    report_url = "https://latamneworg.lightning.force.com/lightning/r/Report/00OVK00000APn9R2AT/view"
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                if cfg.get("logins_report_url"):
+                    report_url = cfg["logins_report_url"]
+        except Exception:
+            pass
+
+    print(f"[*] URL del reporte: {report_url}")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled"]
+        )
+        context_kwargs = {
+            "viewport": {"width": 1600, "height": 1000},
+            "accept_downloads": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        if os.path.exists(STATE_PATH):
+            context_kwargs["storage_state"] = STATE_PATH
+
+        context = browser.new_context(**context_kwargs)
+        page = context.new_page()
+
+        try:
+            print("[*] 1. Accediendo al reporte de Logins...")
+            page.goto(report_url, wait_until="domcontentloaded", timeout=45000)
+            time.sleep(5)
+
+            curr_url = page.url.lower()
+            page_title = page.title().lower()
+            if "login" in curr_url or "ec=302" in curr_url or "identity" in curr_url or "iniciar sesión" in page_title:
+                print("[!] Sesión inactiva o desafío detectado. Autenticando...")
+                sam.asegurar_sesion_salesforce(page, context, report_url)
+                time.sleep(4)
+
+            print("[*] 2. Esperando que compile y renderice el informe...")
+            report_frame = page.frame_locator("iframe[name*='builder'], iframe[src*='lightningReportApp']").first
+            mod_btn = report_frame.locator("button:has-text('Modificar'), button:has-text('Edit')").first
+
+            try:
+                mod_btn.wait_for(state="visible", timeout=60000)
+                print("[+] Barra de acciones del reporte cargada con éxito.")
+            except Exception as e_w:
+                print(f"[*] Continuando tras espera de renderizado: {e_w}")
+
+            print("[*] 3. Desplegando menú de acciones del reporte...")
+            arrow_btn = mod_btn.locator("xpath=following::button[1]")
+            arrow_btn.click()
+            time.sleep(1.2)
+
+            print("[*] 4. Abriendo modal de exportación...")
+            export_item = report_frame.locator("a:has-text('Exportar'), button:has-text('Exportar'), [role='menuitem']:has-text('Exportar'), lightning-menu-item:has-text('Exportar')").first
+            export_item.click()
+            time.sleep(2)
+
+            # 5. Modal de exportación: seleccionar "Solo detalles"
+            print("[*] 5. Configurando opciones de exportación (Solo detalles)...")
+            modal = page.locator(".slds-modal, section[role='dialog']").first
+            time.sleep(1)
+            details_card = page.locator(".slds-modal label:has-text('Solo detalles'), .slds-modal div:has-text('Solo detalles')").last
+            if details_card.is_visible(timeout=4000):
+                details_card.click()
+                time.sleep(1)
+                print("[+] 'Solo detalles' seleccionado.")
+
+            # Formato CSV
+            try:
+                format_select = modal.locator("select").first
+                if format_select.is_visible(timeout=2000):
+                    options = format_select.evaluate("el => Array.from(el.options).map(o => o.text)")
+                    for opt in options:
+                        if "csv" in opt.lower() or "coma" in opt.lower():
+                            format_select.select_option(label=opt)
+                            print(f"[+] Formato seleccionado: {opt}")
+                            break
+            except Exception:
+                pass
+
+            download_path = os.path.join(DATA_DIR, "logins_amc_downloaded.csv")
+            export_success = False
+            downloads = []
+            context.on("download", lambda d: downloads.append(d))
+            page.on("download", lambda d: downloads.append(d))
+
+            modal_export_btn = modal.locator("button.uiButton--brand, button:has-text('Exportar')").last
+            print("[*] 6. Disparando descarga del archivo CSV...")
+            modal_export_btn.click(no_wait_after=True)
+            print("[+] Solicitud de exportación enviada. Monitoreando descarga / verificación...")
+
+            # Monitorear por 45 segundos por descargas o popups de verificación
+            for _ in range(45):
+                if downloads:
+                    break
+                for p_extra in context.pages:
+                    if p_extra != page and ("verification" in p_extra.url.lower() or "identity" in p_extra.url.lower()):
+                        print("[*] Desafío 2FA detectado en popup. Resolviendo con Outlook MAPI...")
+                        sam.completar_desafio_mfa_si_es_necesario(p_extra)
+                        time.sleep(3)
+                        break
+                time.sleep(1)
+
+            if downloads:
+                download = downloads[0]
+                download.save_as(download_path)
+                print(f"\n[✓] ¡REPORTE DE LOGINS DESCARGADO EXITOSAMENTE!")
+                print(f"Ruta: {download_path} ({os.path.getsize(download_path)/1024:.1f} KB)")
+                export_success = True
+            else:
+                print("[!] No se detectó evento de descarga en el tiempo esperado.")
+                diag_screen = os.path.join(DATA_DIR, "export_modal_after_click.png")
+                page.screenshot(path=diag_screen)
+                print(f"Captura guardada en: {diag_screen}")
+                try:
+                    txt = modal.inner_text()
+                    print(f"Texto del modal: {txt[:300]}")
+                except Exception:
+                    pass
+
+            browser.close()
+            return download_path if export_success else None
+
+        except Exception as e:
+            print(f"[!] Error durante la descarga de logins: {e}")
+            try:
+                browser.close()
+            except Exception:
+                pass
+            return None
+
+
+def descargar_reporte_omni(headless: bool = True):
+    """
+    Descarga el reporte de Omni-Channel User Presences Status de Salesforce (00OVK00000APrzR2AT).
+    Captura: estado (Available, Busy, On_Break), fecha inicio, fin, duracion segundos.
+    """
+    print("=" * 70)
+    print("INICIANDO DESCARGA AUTOMATIZADA DE PRESENCIA OMNI-CHANNEL SALESFORCE")
+    print(f"Modo: {'Headless (Segundo Plano)' if headless else 'Visible (Interactivo)'}")
+    print("=" * 70)
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(PROFILE_DIR, exist_ok=True)
+
+    report_url = "https://latamneworg.lightning.force.com/lightning/r/Report/00OVK00000APrzR2AT/view"
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                if cfg.get("omni_report_url"):
+                    report_url = cfg["omni_report_url"]
+        except Exception:
+            pass
+
+    print(f"[*] URL del reporte Omni: {report_url}")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled"]
+        )
+        context_kwargs = {
+            "viewport": {"width": 1600, "height": 1000},
+            "accept_downloads": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        if os.path.exists(STATE_PATH):
+            context_kwargs["storage_state"] = STATE_PATH
+
+        context = browser.new_context(**context_kwargs)
+        page = context.new_page()
+
+        try:
+            print("[*] 1. Accediendo al reporte de Presencia Omni-Channel...")
+            page.goto(report_url, wait_until="domcontentloaded", timeout=45000)
+            time.sleep(5)
+
+            curr_url = page.url.lower()
+            page_title = page.title().lower()
+            if "login" in curr_url or "ec=302" in curr_url or "identity" in curr_url or "iniciar sesión" in page_title:
+                print("[!] Sesión inactiva o desafío detectado. Autenticando...")
+                sam.asegurar_sesion_salesforce(page, context, report_url)
+                time.sleep(4)
+
+            print("[*] 2. Esperando que compile y renderice el informe...")
+            report_frame = page.frame_locator("iframe[name*='builder'], iframe[src*='lightningReportApp']").first
+            mod_btn = report_frame.locator("button:has-text('Modificar'), button:has-text('Edit')").first
+
+            try:
+                mod_btn.wait_for(state="visible", timeout=60000)
+                print("[+] Barra de acciones del reporte cargada con éxito.")
+            except Exception as e_w:
+                print(f"[*] Continuando tras espera de renderizado: {e_w}")
+
+            print("[*] 3. Desplegando menú de acciones del reporte...")
+            arrow_btn = mod_btn.locator("xpath=following::button[1]")
+            arrow_btn.click()
+            time.sleep(1.2)
+
+            print("[*] 4. Abriendo modal de exportación...")
+            export_item = report_frame.locator("a:has-text('Exportar'), button:has-text('Exportar'), [role='menuitem']:has-text('Exportar'), lightning-menu-item:has-text('Exportar')").first
+            export_item.click()
+            time.sleep(2)
+
+            print("[*] 5. Configurando opciones de exportación (Solo detalles)...")
+            modal = page.locator(".slds-modal, section[role='dialog']").first
+            time.sleep(1)
+            details_card = page.locator(".slds-modal label:has-text('Solo detalles'), .slds-modal div:has-text('Solo detalles')").last
+            if details_card.is_visible(timeout=4000):
+                details_card.click()
+                time.sleep(1)
+                print("[+] 'Solo detalles' seleccionado.")
+
+            try:
+                format_select = modal.locator("select").first
+                if format_select.is_visible(timeout=2000):
+                    options = format_select.evaluate("el => Array.from(el.options).map(o => o.text)")
+                    for opt in options:
+                        if "csv" in opt.lower() or "coma" in opt.lower():
+                            format_select.select_option(label=opt)
+                            print(f"[+] Formato seleccionado: {opt}")
+                            break
+            except Exception:
+                pass
+
+            download_path = os.path.join(DATA_DIR, "omni_presencia_downloaded.csv")
+            export_success = False
+            downloads = []
+            context.on("download", lambda d: downloads.append(d))
+            page.on("download", lambda d: downloads.append(d))
+
+            modal_export_btn = modal.locator("button.uiButton--brand, button:has-text('Exportar')").last
+            print("[*] 6. Disparando descarga del archivo CSV...")
+            modal_export_btn.click(no_wait_after=True)
+            print("[+] Solicitud de exportación enviada. Monitoreando descarga...")
+
+            for _ in range(45):
+                if downloads:
+                    break
+                for p_extra in context.pages:
+                    if p_extra != page and ("verification" in p_extra.url.lower() or "identity" in p_extra.url.lower()):
+                        print("[*] Desafío 2FA detectado en popup. Resolviendo con Outlook MAPI...")
+                        sam.completar_desafio_mfa_si_es_necesario(p_extra)
+                        time.sleep(3)
+                        break
+                time.sleep(1)
+
+            if downloads:
+                download = downloads[0]
+                download.save_as(download_path)
+                print(f"\n[✓] ¡REPORTE DE PRESENCIA OMNI DESCARGADO EXITOSAMENTE!")
+                print(f"Ruta: {download_path} ({os.path.getsize(download_path)/1024:.1f} KB)")
+                # Copiar a historico
+                import shutil
+                hist_path = os.path.join(DATA_DIR, "omni_presencia_historico.csv")
+                shutil.copyfile(download_path, hist_path)
+                export_success = True
+            else:
+                print("[!] No se detectó evento de descarga en el tiempo esperado.")
+
+            browser.close()
+            return download_path if export_success else None
+
+        except Exception as e:
+            print(f"[!] Error durante la descarga de omni: {e}")
+            try:
+                browser.close()
+            except Exception:
+                pass
+            return None
+
+
 if __name__ == "__main__":
     is_visible = "--visible" in sys.argv
-    descargar_reporte_casos_2026(headless=not is_visible)
+    if "--omni" in sys.argv:
+        descargar_reporte_omni(headless=not is_visible)
+    elif "--logins" in sys.argv:
+        descargar_reporte_logins(headless=not is_visible)
+    else:
+        descargar_reporte_casos_2026(headless=not is_visible)
+

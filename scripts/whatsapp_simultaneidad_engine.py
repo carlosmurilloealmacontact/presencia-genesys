@@ -25,6 +25,7 @@ import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
+META_SIMULTANEIDAD_WHATSAPP = 3.0  # Meta estándar de 3 casos simultáneos para todos los servicios WSP
 
 # ── 1. DESCUBRIMIENTO Y MAPEADO DE COLAS WHATSAPP ─────────────────────────────
 
@@ -456,13 +457,16 @@ def render_panel_simultaneidad_whatsapp_historico(token: str, fecha_sel: date, a
     pct_alta_simult = round(df_wsp["% al 2x"].mean() + df_wsp["% al 3x+"].mean(), 1)
     max_pico = df_wsp["Max Concurrencia"].str.replace("x", "").astype(int).max()
 
+    cumplimiento_meta = round((simult_global / META_SIMULTANEIDAD_WHATSAPP) * 100, 1) if META_SIMULTANEIDAD_WHATSAPP > 0 else 0.0
+    delta_color = "normal" if simult_global >= META_SIMULTANEIDAD_WHATSAPP else "off"
+
     k1, k2, k3, k4, k5 = st.columns(5)
     with k1:
         st.metric("💬 Chats WhatsApp", f"{tot_chats:,}", delta="Total Atendidos")
     with k2:
         st.metric("👥 Asesores Activos", tot_asesores, delta="Operación WSP")
     with k3:
-        st.metric("⚡ Simultaneidad Promedio", f"{simult_global}x", delta="Meta Operativa: Pendiente")
+        st.metric("⚡ Simultaneidad Promedio", f"{simult_global}x", delta=f"Meta: {META_SIMULTANEIDAD_WHATSAPP:.1f}x ({cumplimiento_meta}%)", delta_color=delta_color)
     with k4:
         st.metric("🔥 Carga Simultánea (≥2x)", f"{pct_alta_simult}%", delta="% tiempo en 2 o más chats")
     with k5:

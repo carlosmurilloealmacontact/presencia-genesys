@@ -275,8 +275,39 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
                     print(f"[*] Nota navegación: {e_nav}")
             return True
 
-        time.sleep(2)
+    return False
 
+
+def completar_desafio_mfa_si_es_necesario(page) -> bool:
+    """Resuelve el desafío 2FA en una página o popup de verificación."""
+    try:
+        curr_url = page.url.lower()
+        if (
+            "verification" in curr_url
+            or "identity" in curr_url
+            or "verificar su identidad" in page.title().lower()
+            or page.locator("#emc").is_visible(timeout=2000)
+            or page.locator("input[name='emc']").is_visible(timeout=2000)
+        ):
+            print("[*] Desafío 2FA detectado. Obteniendo código desde Outlook...")
+            code = obtener_codigo_verificacion_outlook(min_received_time=datetime.now() - timedelta(minutes=4), max_wait_sec=120)
+            if code:
+                inp = page.locator("#emc, input[name='emc'], input[type='text']").first
+                if inp.is_visible(timeout=3000):
+                    inp.fill(code)
+                try:
+                    chk = page.locator("#rememberUnaccDevice, input[type='checkbox']").first
+                    if chk.is_visible(timeout=2000):
+                        chk.check()
+                except Exception:
+                    pass
+                btn = page.locator("#save, input[type='submit'], input[value='Verificar'], button:has-text('Verificar')").first
+                if btn.is_visible(timeout=3000):
+                    btn.click()
+                    time.sleep(6)
+                return True
+    except Exception as e:
+        print(f"[!] Error completando MFA en página: {e}")
     return False
 
 

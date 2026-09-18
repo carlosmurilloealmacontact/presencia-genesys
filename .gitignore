@@ -22,6 +22,7 @@ secrets.toml
 *.db
 *.sqlite
 data/*.db
+data/auditoria_*.csv
 data/*.png
 data/*.pkl
 log_ejecucion.txt
@@ -34,7 +35,9 @@ scripts/implementation_plan.md
 !data/salesforce/cases_amc_cleaned.csv
 !data/salesforce/maestro_asesores_b2b.json
 !data/salesforce/demanda_diaria_salesforce_bo.csv
+!data/salesforce/omni_presencia_resumen.pkl
 !data/salesforce_live.db
+report*.csv
 
 # Scripts temporales de pruebas y depuración
 scripts/inspect_*.py

@@ -30,6 +30,47 @@ except ImportError:
         def es_campana_ajena(val):
             return False
 
+try:
+    from salesforce_omni_engine import obtener_presencia_omni_por_fecha
+except ImportError:
+    try:
+        from scripts.salesforce_omni_engine import obtener_presencia_omni_por_fecha
+    except ImportError:
+        def obtener_presencia_omni_por_fecha(fecha: str) -> dict:
+            return {}
+
+try:
+    from b2b_scope_engine import (
+        es_equipo_marely_cardona,
+        cargar_universo_bps_marely,
+        obtener_supervisores_disponibles_b2b,
+        obtener_coordinadores_disponibles_b2b,
+        obtener_servicios_disponibles_b2b,
+        COORDINADOR_MARELY_OFICIAL,
+    )
+except ImportError:
+    try:
+        from scripts.b2b_scope_engine import (
+            es_equipo_marely_cardona,
+            cargar_universo_bps_marely,
+            obtener_supervisores_disponibles_b2b,
+            obtener_coordinadores_disponibles_b2b,
+            obtener_servicios_disponibles_b2b,
+            COORDINADOR_MARELY_OFICIAL,
+        )
+    except ImportError:
+        def es_equipo_marely_cardona(*args, **kwargs):
+            return False
+        def cargar_universo_bps_marely():
+            return set(), set()
+        def obtener_supervisores_disponibles_b2b():
+            return []
+        def obtener_coordinadores_disponibles_b2b():
+            return []
+        def obtener_servicios_disponibles_b2b():
+            return []
+        COORDINADOR_MARELY_OFICIAL = "CARDONA RAMIREZ MARELYN"
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.normpath(os.path.join(BASE_DIR, ".."))
 DB_PATH = os.path.join(PROJECT_ROOT, "data", "presencia.db")
@@ -99,45 +140,18 @@ def obtener_mapa_bp_jerarquia() -> tuple[dict[str, str], dict[str, str]]:
 def obtener_bps_b2b_y_cargo() -> tuple[set[str], set[str]]:
     """
     Identifica de forma exhaustiva todos los BPs asignados a:
-    1. Agencias B2B (Marelyn Cardona, Andrés Rodríguez y servicios B2B).
+    1. Agencias B2B (Equipo exclusivo de Marely Cardona).
     2. Cargo Booking (servicios y asesores de carga excluidos para Pasajeros).
     """
     try:
+        bps_b2b, _ = cargar_universo_bps_marely()
+        bps_cargo = set()
         with _get_db() as conn:
             cur = conn.cursor()
-            # B2B en turnos detallados
-            q_b2b_t = """
-                SELECT distinct bp FROM turnos_detallados
-                WHERE UPPER(servicio) LIKE '%AGENCIA%'
-                   OR UPPER(servicio) LIKE '%AGY%'
-                   OR UPPER(servicio) LIKE '%CORPORATE%'
-                   OR UPPER(servicio) LIKE '%PYME%'
-                   OR UPPER(servicio) LIKE '%BO_CUS%'
-                   OR UPPER(servicio) LIKE '%BO_WAIVERS%'
-                   OR UPPER(servicio) LIKE '%BO_CORPORATE%'
-                   OR UPPER(servicio) LIKE '%BO AGENCIAS%'
-                   OR UPPER(servicio) LIKE '%AG CELULA%'
-                   OR UPPER(servicio) LIKE '%AG CHECK%'
-            """
-            cur.execute(q_b2b_t)
-            bps_b2b = set(str(r[0]).strip() for r in cur.fetchall())
-
-            # B2B en segmentos de Genesys
-            q_b2b_s = """
-                SELECT distinct agente FROM segments
-                WHERE UPPER(coordinador) LIKE '%CARDONA%'
-                   OR UPPER(coordinador) LIKE '%RODRIGUEZ URIBE%'
-            """
-            cur.execute(q_b2b_s)
-            for r in cur.fetchall():
-                bp = str(r[0]).split(" - ")[0].strip()
-                if bp:
-                    bps_b2b.add(bp)
-
             # Cargo Booking en turnos
             q_cargo_t = "SELECT distinct bp FROM turnos_detallados WHERE UPPER(servicio) LIKE '%CARGO%'"
             cur.execute(q_cargo_t)
-            bps_cargo = set(str(r[0]).strip() for r in cur.fetchall())
+            bps_cargo.update(str(r[0]).strip() for r in cur.fetchall())
 
             # Cargo Booking en segmentos
             q_cargo_s = "SELECT distinct agente FROM segments WHERE UPPER(servicio) LIKE '%CARGO%'"
@@ -147,7 +161,7 @@ def obtener_bps_b2b_y_cargo() -> tuple[set[str], set[str]]:
                 if bp:
                     bps_cargo.add(bp)
 
-            return bps_b2b, bps_cargo
+        return bps_b2b, bps_cargo
     except Exception:
         return set(), set()
 
@@ -155,6 +169,9 @@ def obtener_bps_b2b_y_cargo() -> tuple[set[str], set[str]]:
 @st.cache_data(ttl=3600)
 def obtener_coordinadores_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     """Retorna la lista ordenada de coordinadores por ámbito ('TODOS', 'PASAJEROS', 'B2B')."""
+    if filtro_tipo == "B2B":
+        return obtener_coordinadores_disponibles_b2b()
+
     try:
         with _get_db() as conn:
             cur = conn.cursor()
@@ -163,17 +180,17 @@ def obtener_coordinadores_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     except Exception:
         todos = []
 
-    b2b_keywords = ["CARDONA", "RODRIGUEZ URIBE"]
-    if filtro_tipo == "B2B":
-        return [c for c in todos if any(k in c.upper() for k in b2b_keywords) and not es_persona_excluida(c)]
-    elif filtro_tipo == "PASAJEROS":
-        return [c for c in todos if not any(k in c.upper() for k in b2b_keywords) and not es_persona_excluida(c)]
+    if filtro_tipo == "PASAJEROS":
+        return [c for c in todos if not es_equipo_marely_cardona(coordinador=c) and not es_persona_excluida(c)]
     return [c for c in todos if not es_persona_excluida(c)]
 
 
 @st.cache_data(ttl=3600)
 def obtener_supervisores_disponibles(coordinador: str = None, ambito: str = "TODOS") -> list[str]:
     """Retorna la lista ordenada de supervisores (jefe_inmediato), filtrada opcionalmente por coordinador y ámbito."""
+    if ambito == "B2B":
+        return [s for s in obtener_supervisores_disponibles_b2b() if not es_persona_excluida(s)]
+
     try:
         with _get_db() as conn:
             query = """
@@ -188,11 +205,9 @@ def obtener_supervisores_disponibles(coordinador: str = None, ambito: str = "TOD
     if df.empty:
         return []
 
-    b2b_coords = ["CARDONA", "RODRIGUEZ URIBE"]
-    if ambito == "B2B":
-        df = df[df["coordinador"].astype(str).apply(lambda c: any(k in c.upper() for k in b2b_coords))]
-    elif ambito == "PASAJEROS":
-        df = df[~df["coordinador"].astype(str).apply(lambda c: any(k in c.upper() for k in b2b_coords))]
+    if ambito == "PASAJEROS":
+        df = df[~df["coordinador"].astype(str).apply(lambda c: es_equipo_marely_cardona(coordinador=c))]
+        df = df[~df["jefe_inmediato"].astype(str).apply(lambda j: es_equipo_marely_cardona(jefe_inmediato=j))]
 
     if coordinador and coordinador != "Todos los Coordinadores":
         df = df[df["coordinador"].astype(str).str.contains(coordinador, case=False, na=False)]
@@ -204,6 +219,9 @@ def obtener_supervisores_disponibles(coordinador: str = None, ambito: str = "TOD
 @st.cache_data(ttl=3600)
 def obtener_servicios_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     """Retorna los servicios programados por ámbito ('TODOS', 'PASAJEROS', 'B2B'), garantizando solo cuenta LATAM."""
+    if filtro_tipo == "B2B":
+        return obtener_servicios_disponibles_b2b()
+
     try:
         with _get_db() as conn:
             cur = conn.cursor()
@@ -212,15 +230,12 @@ def obtener_servicios_disponibles(filtro_tipo: str = "TODOS") -> list[str]:
     except Exception:
         todos = []
 
-    # REGLA MAESTRA DE CUENTA LATAM:
-    # Excluir categóricamente cualquier campaña externa (Claro, Chec, Colmédica, Hisense, etc.)
+    # REGLA MAESTRA DE CUENTA LATAM: Excluir campañas externas
     todos = [s for s in todos if es_servicio_latam(s)]
+    servicios_b2b = set(obtener_servicios_disponibles_b2b())
 
-    b2b_keywords = ["AGENCIA", "AGY", "CORPORATE", "PYME", "BO_CUS", "BO_WAIVERS", "BO_CORPORATE", "BO AGENCIAS", "AG CELULA", "AG CHECK", "AG CORPORATE"]
-    if filtro_tipo == "B2B":
-        return [s for s in todos if any(k in s.upper() for k in b2b_keywords)]
-    elif filtro_tipo == "PASAJEROS":
-        return [s for s in todos if not any(k in s.upper() for k in b2b_keywords) and "CARGO" not in s.upper()]
+    if filtro_tipo == "PASAJEROS":
+        return [s for s in todos if s not in servicios_b2b and "CARGO" not in s.upper()]
     return todos
 
 
@@ -304,6 +319,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
     bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
     sf_activity = obtener_actividad_salesforce_por_fecha(fecha)
+    omni_activity = obtener_presencia_omni_por_fecha(fecha)
 
     with _get_db() as conn:
         query_turnos = """
@@ -357,16 +373,24 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
         superv_real = (sub_seg["jefe_inmediato"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["jefe_inmediato"].iloc[0]) else None) or bp_to_superv.get(bp, "")
 
-        # Exclusiones de ámbito
+        # Exclusiones de ámbito (Regla de Oro Marely Cardona)
+        es_de_marely = es_equipo_marely_cardona(
+            coordinador=coord_real,
+            jefe_inmediato=superv_real,
+            bp=bp,
+            nombre=nom,
+            servicio=srv
+        )
+
         if ambito == "PASAJEROS":
             if bp in bps_cargo or "CARGO" in srv.upper():
                 continue
-            if bp in bps_b2b or (coord_real and coord_real in coords_b2b):
+            if es_de_marely:
                 continue
             if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)) or (superv_real and es_persona_excluida(superv_real)):
                 continue
         elif ambito == "B2B":
-            if coord_real and coord_real not in coords_b2b and coord_real in coords_pasajeros:
+            if not es_de_marely:
                 continue
             if es_persona_excluida(nom):
                 continue
@@ -401,9 +425,27 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
             h_pri = "--"
             h_ult = "--"
 
-        # Rescate y validación de presencia en Salesforce para personal B2B / Back Office:
+        # Rescate y validación de presencia en Salesforce (Omni-Channel Chat y Casos Back Office):
+        omni_act = omni_activity.get(bp)
         act_sf = sf_activity.get(bp)
-        if h_conectado == 0.0 and act_sf and act_sf.get("casos_count", 0) > 0:
+
+        if h_conectado == 0.0 and omni_act:
+            h_pri = omni_act["h_inicio_omni"]
+            h_ult = f"{omni_act['h_fin_omni']} (Omni)"
+            m_con = float(omni_act.get("minutos_conexion", 0.0))
+            m_pau = float(omni_act.get("minutos_pausa", 0.0))
+            tot_m = m_con + m_pau
+            if tot_m >= 30.0:
+                h_conectado = min(h_prog, round(tot_m / 60.0, 2))
+            else:
+                dur_span = max(0.0, _time_to_minutes(omni_act["h_fin_omni"]) - _time_to_minutes(omni_act["h_inicio_omni"]))
+                h_conectado = min(h_prog, round(max(dur_span, 60.0) / 60.0, 2))
+            h_pau = round(m_pau / 60.0, 2)
+            h_prod = max(0.0, round(h_conectado - h_pau, 2))
+            pct_cumpl = round((h_conectado / h_prog * 100.0), 1) if h_prog > 0 else 100.0
+            brecha_h = round(h_conectado - h_prog, 2)
+            estado = f"🔵 Conectado en Salesforce Omni ({h_conectado}h)"
+        elif h_conectado == 0.0 and act_sf and act_sf.get("casos_count", 0) > 0:
             c_count = act_sf["casos_count"]
             dur_sf = act_sf["duracion_horas"]
             h_pri_sf = act_sf["primer_caso"]
@@ -436,6 +478,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
                 estado = "🟡 Déficit Leve (< 1h)"
             else:
                 estado = "🔴 Déficit Severo (> 1h faltante)"
+
 
         res_list.append({
             "BP": bp,
@@ -472,6 +515,7 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
     bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
+    omni_activity = obtener_presencia_omni_por_fecha(fecha)
 
     with _get_db() as conn:
         query_turnos = """
@@ -532,21 +576,30 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
         coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
         superv_real = (sub_seg["jefe_inmediato"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["jefe_inmediato"].iloc[0]) else None) or bp_to_superv.get(bp, "")
 
+        # Exclusiones de ámbito (Regla de Oro Marely Cardona)
+        es_de_marely = es_equipo_marely_cardona(
+            coordinador=coord_real,
+            jefe_inmediato=superv_real,
+            bp=bp,
+            nombre=nom,
+            servicio=srv
+        )
+
         if ambito == "PASAJEROS":
             if bp in bps_cargo or "CARGO" in srv.upper():
                 continue
-            if bp in bps_b2b or (coord_real and coord_real in coords_b2b):
+            if es_de_marely:
                 continue
             if es_persona_excluida(nom) or (coord_real and es_persona_excluida(coord_real)) or (superv_real and es_persona_excluida(superv_real)):
                 continue
         elif ambito == "B2B":
-            if coord_real and coord_real not in coords_b2b and coord_real in coords_pasajeros:
+            if not es_de_marely:
                 continue
             if es_persona_excluida(nom):
                 continue
         else:
-            # En ámbito TODOS, descartar registros de cuentas ajenas (Claro, Chec, Colmedica) que no operan en el conmutador
-            if sub_seg is None and not any(k in srv.upper() for k in ["AMC", "LATAM", "LUA", "VENTAS", "EQUIPAJES", "HVC", "DT", "AGY", "AGENCIA", "CORPORATE", "BO_", "RRSS", "WPP", "CHAT", "SOPORTE"]):
+            # En ámbito TODOS, descartar registros de cuentas ajenas que no operan en LATAM
+            if sub_seg is None and not es_servicio_latam(srv):
                 continue
 
         if coordinador and coordinador != "Todos los Coordinadores":
@@ -602,6 +655,39 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
                     estado_p = "🟡 Desfasada en horario"
                 else:
                     estado_p = "🟢 Puntual y en tiempo"
+            elif bp in omni_activity and omni_activity[bp].get("tramos_pausas"):
+                omni_act = omni_activity[bp]
+                candidatos_omni = []
+                for p in omni_act.get("tramos_pausas", []):
+                    p_ini_m = _time_to_minutes(p["inicio"])
+                    p_fin_m = _time_to_minutes(p["fin"])
+                    p_dur_m = float(p.get("duracion_min", 0.0))
+                    dist = abs(p_ini_m - prog_ini_min)
+                    if dist <= 120:
+                        candidatos_omni.append((dist, p_ini_m, p_fin_m, p_dur_m, p["inicio"], p["fin"]))
+                if candidatos_omni:
+                    candidatos_omni.sort(key=lambda x: x[0])
+                    best_c = candidatos_omni[0]
+                    real_ini_min = best_c[1]
+                    real_fin_min = best_c[2]
+                    real_dur_min = float(best_c[3])
+                    desvio_ini_min = int(round(real_ini_min - prog_ini_min))
+                    exceso_dur_min = int(round(real_dur_min - prog_dur_min))
+                    hora_real_str = f"{best_c[4]} - {best_c[5]} (Omni)"
+                    if abs(desvio_ini_min) <= tolerancia_min and exceso_dur_min <= 3:
+                        estado_p = "🟢 Puntual y en tiempo"
+                    elif exceso_dur_min > 3:
+                        estado_p = "🔴 Exceso de Tiempo"
+                    elif abs(desvio_ini_min) > tolerancia_min:
+                        estado_p = "🟡 Desfasada en horario"
+                    else:
+                        estado_p = "🟢 Puntual y en tiempo"
+                else:
+                    hora_real_str = "--"
+                    real_dur_min = 0.0
+                    desvio_ini_min = None
+                    exceso_dur_min = None
+                    estado_p = "❌ Pausa No Tomada en Ventana"
             else:
                 hora_real_str = "--"
                 real_dur_min = 0.0
