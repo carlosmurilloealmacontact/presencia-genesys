@@ -823,6 +823,108 @@ def obtener_metricas_agencias_b2b_unificadas(fecha_sel: str = None, fecha_inicio
     return pd.DataFrame(filas)
 
 
+def _render_tabla_html_con_texto_completo(df_disp: pd.DataFrame):
+    """
+    Renderiza la tabla de Niveles de Servicio Multicanal en HTML responsivo
+    permitiendo que la columna de Justificación Operativa se ajuste automáticamente
+    en múltiples líneas sin desbordarse ni truncar el texto con puntos suspensivos.
+    """
+    if df_disp.empty:
+        st.info("No hay registros que coincidan con los filtros seleccionados.")
+        return
+
+    filas_html = []
+    for idx, (_, r) in enumerate(df_disp.iterrows()):
+        bg = "#ffffff" if idx % 2 == 0 else "#f8fafc"
+        est = str(r.get("Estado", ""))
+        border_left = "4px solid #ef4444" if "Crítico" in est else ("4px solid #f59e0b" if "Riesgo" in est else "4px solid #10b981")
+
+        if "Crítico" in est:
+            badge_est = '<span style="display:inline-block; padding: 2px 8px; border-radius: 9999px; background: #fee2e2; color: #991b1b; font-weight: 700; font-size: 11px;">🔴 Crítico</span>'
+        elif "Riesgo" in est:
+            badge_est = '<span style="display:inline-block; padding: 2px 8px; border-radius: 9999px; background: #fef3c7; color: #92400e; font-weight: 700; font-size: 11px;">🟡 Riesgo</span>'
+        else:
+            badge_est = '<span style="display:inline-block; padding: 2px 8px; border-radius: 9999px; background: #dcfce7; color: #166534; font-weight: 700; font-size: 11px;">🟢 Cumple</span>'
+
+        canal = str(r.get("Canal", "VOZ")).upper()
+        if "VOZ" in canal:
+            badge_canal = '<span style="padding: 2px 6px; border-radius: 4px; background: #e0f2fe; color: #0369a1; font-weight: 600; font-size: 10.5px;">📞 VOZ</span>'
+        elif "CHAT" in canal:
+            badge_canal = '<span style="padding: 2px 6px; border-radius: 4px; background: #ede9fe; color: #6d28d9; font-weight: 600; font-size: 10.5px;">💬 CHAT</span>'
+        else:
+            badge_canal = '<span style="padding: 2px 6px; border-radius: 4px; background: #fef9c3; color: #854d0e; font-weight: 600; font-size: 10.5px;">📋 CASOS</span>'
+
+        ent = int(r.get("Entrantes", 0))
+        aten = int(r.get("Atendidas", 0))
+        aband = float(r.get("% Aband", 0.0))
+        col_aband = "#dc2626" if aband > 5.0 else "#16a34a"
+        ns_real = float(r.get("NS Real", 0.0))
+        ns_meta = float(r.get("NS Meta", 70.0))
+        dif_ns = float(r.get("Dif NS (pp)", 0.0))
+        col_ns = "#dc2626" if dif_ns < -5.0 else ("#d97706" if dif_ns < 0 else "#16a34a")
+
+        aht_real = int(r.get("AHT Real (s)", 0))
+        meta_aht = int(r.get("AHT Meta (s)", 0))
+        desv_aht = float(r.get("Desv AHT (%)", 0.0))
+        col_aht = "#dc2626" if desv_aht > 10.0 else ("#16a34a" if desv_aht < 0 else "#334155")
+
+        asa = int(r.get("ASA (s)", 0))
+        srv = str(r.get("Servicio", ""))
+        plat = str(r.get("Plataforma", ""))
+        just = str(r.get("Justificación Operativa", ""))
+
+        filas_html.append(f"""
+        <tr style="background: {bg}; border-bottom: 1px solid #e2e8f0; border-left: {border_left};">
+            <td style="padding: 9px 10px; vertical-align: top; white-space: nowrap;">
+                <div style="font-weight: 700; color: #0f172a; font-size: 12px;">{srv}</div>
+                <div style="font-size: 10px; color: #64748b;">{plat}</div>
+            </td>
+            <td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_canal}</td>
+            <td style="padding: 9px 6px; text-align: center; vertical-align: top; white-space: nowrap;">{badge_est}</td>
+            <td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{ent:,}</td>
+            <td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: #1e293b; vertical-align: top; white-space: nowrap;">{aten:,}</td>
+            <td style="padding: 9px 8px; text-align: right; font-weight: 600; font-size: 12px; color: {col_aband}; vertical-align: top; white-space: nowrap;">{aband:.1f}%</td>
+            <td style="padding: 9px 8px; text-align: right; vertical-align: top; white-space: nowrap;">
+                <div style="font-weight: 700; font-size: 12.5px; color: {col_ns};">{ns_real:.1f}%</div>
+                <div style="font-size: 9.5px; color: #64748b;">Meta {ns_meta:.0f}% ({dif_ns:+.1f}pp)</div>
+            </td>
+            <td style="padding: 9px 8px; text-align: right; vertical-align: top; white-space: nowrap;">
+                <div style="font-weight: 700; font-size: 12px; color: {col_aht};">{aht_real}s</div>
+                <div style="font-size: 9.5px; color: #64748b;">Meta {meta_aht}s ({desv_aht:+.1f}%)</div>
+            </td>
+            <td style="padding: 9px 8px; text-align: right; font-size: 11.5px; color: #475569; vertical-align: top; white-space: nowrap;">{asa}s</td>
+            <td style="padding: 9px 12px; vertical-align: top; min-width: 320px; white-space: normal; word-break: break-word; line-height: 1.45; font-size: 11.5px; color: #1e293b;">
+                {just}
+            </td>
+        </tr>
+        """)
+
+    tabla_completa = f"""
+    <div style="overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white; margin-bottom: 1.2rem;">
+        <table style="width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px;">
+            <thead>
+                <tr style="background: #0f172a; color: #f8fafc; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px;">
+                    <th style="padding: 10px 10px;">Servicio</th>
+                    <th style="padding: 10px 6px; text-align: center;">Canal</th>
+                    <th style="padding: 10px 6px; text-align: center;">Estado SLA</th>
+                    <th style="padding: 10px 8px; text-align: right;">Ent</th>
+                    <th style="padding: 10px 8px; text-align: right;">Aten</th>
+                    <th style="padding: 10px 8px; text-align: right;">% Aban</th>
+                    <th style="padding: 10px 8px; text-align: right;">% NS Real (Meta)</th>
+                    <th style="padding: 10px 8px; text-align: right;">AHT (Meta)</th>
+                    <th style="padding: 10px 8px; text-align: right;">ASA</th>
+                    <th style="padding: 10px 12px; min-width: 320px;">📋 Justificación Operativa (Causa Raíz)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {''.join(filas_html)}
+            </tbody>
+        </table>
+    </div>
+    """
+    st.markdown(tabla_completa, unsafe_allow_html=True)
+
+
 @st.fragment(run_every=30)
 def render_subtab_niveles_servicio_unificado():
     """Renderiza la vista unificada de Niveles de Servicio Multicanal para Agencias B2B con histórico y justificaciones."""
@@ -937,30 +1039,45 @@ def render_subtab_niveles_servicio_unificado():
     if sel_est != "Todos los Estados":
         df_disp = df_disp[df_disp["Estado"] == sel_est]
 
-    cols_mostrar = [
-        "Servicio", "Plataforma", "Canal", "Estado", "Entrantes", "Atendidas",
-        "% Aband", "NS Real", "NS Meta", "Umbral NS", "Dif NS (pp)",
-        "AHT Real (s)", "AHT Meta (s)", "Desv AHT (%)", "ASA (s)", "Justificación Operativa"
-    ]
+    t_c1, t_c2 = st.columns([3.2, 1.8])
+    with t_c1:
+        st.markdown("##### 📊 Matriz Detallada de Cumplimiento Contractual")
+    with t_c2:
+        vista_modo = st.radio(
+            "Formato de Tabla:",
+            ["📋 Texto Completo (Sin Desbordes)", "📊 Vista Cuadrícula (Grid)"],
+            horizontal=True,
+            index=0,
+            key="b2b_vista_modo_table",
+            label_visibility="collapsed"
+        )
 
-    st.dataframe(
-        df_disp[cols_mostrar],
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
-            "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
-            "% Aband": st.column_config.NumberColumn("% Aband", format="%.1f%%"),
-            "NS Real": st.column_config.NumberColumn("NS Real", format="%.1f%%"),
-            "NS Meta": st.column_config.NumberColumn("NS Meta", format="%.1f%%"),
-            "Dif NS (pp)": st.column_config.NumberColumn("Dif NS (pp)", format="%+.1f pp"),
-            "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%d s"),
-            "AHT Meta (s)": st.column_config.NumberColumn("AHT Meta (s)", format="%d s"),
-            "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
-            "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%d s"),
-            "Justificación Operativa": st.column_config.TextColumn("📋 Justificación Operativa (Causa Raíz)", width="large")
-        }
-    )
+    if vista_modo == "📋 Texto Completo (Sin Desbordes)":
+        _render_tabla_html_con_texto_completo(df_disp)
+    else:
+        cols_mostrar = [
+            "Servicio", "Plataforma", "Canal", "Estado", "Entrantes", "Atendidas",
+            "% Aband", "NS Real", "NS Meta", "Umbral NS", "Dif NS (pp)",
+            "AHT Real (s)", "AHT Meta (s)", "Desv AHT (%)", "ASA (s)", "Justificación Operativa"
+        ]
+        st.dataframe(
+            df_disp[cols_mostrar],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Entrantes": st.column_config.NumberColumn("Entrantes", format="%d"),
+                "Atendidas": st.column_config.NumberColumn("Atendidas", format="%d"),
+                "% Aband": st.column_config.NumberColumn("% Aband", format="%.1f%%"),
+                "NS Real": st.column_config.NumberColumn("NS Real", format="%.1f%%"),
+                "NS Meta": st.column_config.NumberColumn("NS Meta", format="%.1f%%"),
+                "Dif NS (pp)": st.column_config.NumberColumn("Dif NS (pp)", format="%+.1f pp"),
+                "AHT Real (s)": st.column_config.NumberColumn("AHT Real (s)", format="%d s"),
+                "AHT Meta (s)": st.column_config.NumberColumn("AHT Meta (s)", format="%d s"),
+                "Desv AHT (%)": st.column_config.NumberColumn("Desv AHT (%)", format="%+.1f%%"),
+                "ASA (s)": st.column_config.NumberColumn("ASA (s)", format="%d s"),
+                "Justificación Operativa": st.column_config.TextColumn("📋 Justificación Operativa (Causa Raíz)", width="large")
+            }
+        )
 
     # ── MÓDULO DE DIAGNÓSTICO ANALÍTICO Y AJUSTES CUALITATIVOS (OPCIONAL) ────
     with st.expander("🤖 Motor Analítico de Causa Raíz & Observaciones Cualitativas (Opcional)", expanded=False):
