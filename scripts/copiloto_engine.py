@@ -907,6 +907,290 @@ def consultar_zendesk_backoffice(grupo_o_servicio: str = "LUA AMC", hora_inicio:
     }, ensure_ascii=False)
 
 
+CATALOGO_SERVICIOS_SORE = {
+    "LUA AMC": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 860.0, "meta_aht_formato": "14:20", "meta_ns": "75.0%"},
+    "DT FFP AMC": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 646.0, "meta_aht_formato": "10:46", "meta_ns": "85.0%"},
+    "DT FFP AMC ING": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 582.0, "meta_aht_formato": "09:42", "meta_ns": "85.0%"},
+    "LUA AMC ING": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 900.0, "meta_aht_formato": "15:00", "meta_ns": "75.0%"},
+    "VENTAS AMC": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 780.0, "meta_aht_formato": "13:00", "meta_ns": "75.0%"},
+    "EQUIPAJES AMC": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 500.0, "meta_aht_formato": "08:20", "meta_ns": "75.0%"},
+    "EQUIPAJES AMC ING": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 491.0, "meta_aht_formato": "08:11", "meta_ns": "75.0%"},
+    "HVC AMC": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 709.0, "meta_aht_formato": "11:49", "meta_ns": "80.0%"},
+    "SOPORTE LUA AMC": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 311.0, "meta_aht_formato": "05:11", "meta_ns": "75.0%"},
+    "CORPORATE PYME": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 817.0, "meta_aht_formato": "13:37", "meta_ns": "80.0%"},
+    "AGENCIAS TARGET ES": {"tipo": "Línea / Inbound Voz", "meta_aht_seg": 880.0, "meta_aht_formato": "14:40", "meta_ns": "80.0%"},
+    "WPP LUA AMC": {"tipo": "Canales Digitales (WhatsApp)", "meta_aht_seg": 1600.0, "meta_aht_formato": "26:40", "meta_ns": "80.0%"},
+    "WPP VENTAS AMC": {"tipo": "Canales Digitales (WhatsApp)", "meta_aht_seg": 1700.0, "meta_aht_formato": "28:20", "meta_ns": "80.0%"},
+    "CHAT VENTAS AMC": {"tipo": "Canales Digitales (Chat)", "meta_aht_seg": 1412.0, "meta_aht_formato": "23:32", "meta_ns": "80.0%"},
+    "WPP EQUIPAJES AMC": {"tipo": "Canales Digitales (WhatsApp)", "meta_aht_seg": 1231.0, "meta_aht_formato": "20:31", "meta_ns": "80.0%"},
+    "RRSS AMC": {"tipo": "Canales Digitales (Redes Sociales)", "meta_aht_seg": 1200.0, "meta_aht_formato": "20:00", "meta_ns": "80.0%"},
+    "RRSS AMC ING": {"tipo": "Canales Digitales (Redes Sociales)", "meta_aht_seg": 1200.0, "meta_aht_formato": "20:00", "meta_ns": "80.0%"},
+    "RRSS PORT AMC": {"tipo": "Canales Digitales (Redes Sociales)", "meta_aht_seg": 1200.0, "meta_aht_formato": "20:00", "meta_ns": "80.0%"},
+    "AG CORPORATE CHAT": {"tipo": "Canales Digitales (Chat)", "meta_aht_seg": 1859.0, "meta_aht_formato": "30:59", "meta_ns": "80.0%"},
+}
+
+
+def consultar_metas_servicio(servicio: str = "") -> str:
+    """Consulta las metas oficiales contractuales y parámetros operativos SORE (AHT, Nivel de Servicio, Auxiliares y Ausentismo)."""
+    if not servicio:
+        return json.dumps({
+            "parametros_generales": {
+                "meta_maxima_auxiliares_pausas": "14.0%",
+                "tolerancia_maxima_ausentismo": "10.0%",
+                "tiempo_estandar_break": "30 minutos",
+                "tiempo_estandar_almuerzo": "45 a 60 minutos"
+            },
+            "catalogo_servicios_disponibles": list(CATALOGO_SERVICIOS_SORE.keys())
+        }, ensure_ascii=False)
+        
+    srv_clean = str(servicio).strip().upper()
+    match = [k for k, v in CATALOGO_SERVICIOS_SORE.items() if srv_clean in k.upper() or k.upper() in srv_clean]
+    
+    if match:
+        k = match[0]
+        meta = CATALOGO_SERVICIOS_SORE[k]
+        return json.dumps({
+            "servicio": k,
+            "tipo_canal": meta["tipo"],
+            "meta_nivel_de_servicio": meta["meta_ns"],
+            "meta_aht_segundos": meta["meta_aht_seg"],
+            "meta_aht_tiempo": meta["meta_aht_formato"],
+            "meta_maxima_auxiliares": "14.0%",
+            "tolerancia_ausentismo": "10.0%",
+            "break_permitido": "Hasta 30 minutos",
+            "almuerzo_permitido": "Hasta 60 minutos"
+        }, ensure_ascii=False)
+        
+    return json.dumps({
+        "error": f"No se encontraron metas específicas para '{servicio}'.",
+        "servicios_disponibles": list(CATALOGO_SERVICIOS_SORE.keys())
+    }, ensure_ascii=False)
+
+
+def consultar_cumplimiento_turnos_y_pausas(agente_o_supervisor: str, fecha: str = "") -> str:
+    """Audita detalladamente el cumplimiento de turnos y pausas:
+    - Puntualidad en la hora de conexión (hora de turno programada vs primer login real en Genesys).
+    - Cumplimiento de pausas programadas (almuerzo y descansos) y excesos de break (>30m), almuerzo (>60m) o pre-pausa (>45m).
+    - Si es un supervisor: consolida el ranking de puntualidad y pausas de todo su equipo.
+    - Si es un asesor: auditoría individual segundo a segundo de su jornada.
+    """
+    if not DB_PATH.exists():
+        return json.dumps({"error": "Base de datos no encontrada."})
+
+    fecha = normalizar_fecha(fecha)
+    conn = sqlite3.connect(str(DB_PATH))
+    c = conn.cursor()
+    if not fecha:
+        c.execute("SELECT DISTINCT fecha FROM segments ORDER BY fecha DESC LIMIT 1")
+        row_f = c.fetchone()
+        fecha = row_f[0] if row_f else "2026-09-17"
+
+    query_term = str(agente_o_supervisor).strip().upper()
+    palabras = [p for p in query_term.split() if len(p) > 2]
+    if not palabras:
+        palabras = [query_term]
+
+    # 1. ¿Es un SUPERVISOR?
+    c.execute("SELECT DISTINCT jefe_inmediato FROM segments WHERE jefe_inmediato IS NOT NULL AND jefe_inmediato != ''")
+    sups = [r[0] for r in c.fetchall()]
+    sups_match = [s for s in sups if all(p in s.upper() for p in palabras)]
+
+    if sups_match:
+        sup_oficial = sups_match[0]
+        c.execute("""
+            SELECT DISTINCT s.agente, s.presence_label, s.duracion_min, s.inicio, s.fin,
+                            t.horas_programadas, t.turno_ini, t.turno_fin, t.lunch_ini, t.lunch_fin, t.des_1_ini, t.des_1_fin
+            FROM segments s
+            LEFT JOIN turnos_detallados t ON s.fecha = t.fecha AND (s.agente LIKE '%' || t.bp || '%' OR s.agente LIKE '%' || t.nombre_agente || '%')
+            WHERE s.fecha = ? AND s.jefe_inmediato = ?
+            ORDER BY s.agente, s.inicio
+        """, (fecha, sup_oficial))
+        rows = c.fetchall()
+        conn.close()
+
+        if not rows:
+            return json.dumps({"error": f"No se registraron datos para el equipo de {sup_oficial} en la fecha {fecha}."})
+
+        asesores_data = {}
+        for r in rows:
+            ag = r[0]
+            if ag not in asesores_data:
+                asesores_data[ag] = {
+                    "agente": ag,
+                    "turno_programado": f"{r[6]} a {r[7]}" if r[6] and r[7] else "Sin turno programado",
+                    "turno_ini": r[6],
+                    "turno_fin": r[7],
+                    "lunch_prog": f"{r[8]} a {r[9]}" if r[8] and r[9] else None,
+                    "descanso_prog": f"{r[10]} a {r[11]}" if r[10] and r[11] else None,
+                    "primer_login": r[3],
+                    "estados_minutos": {},
+                    "duracion_total_min": 0
+                }
+            lbl = r[1]
+            dur = float(r[2]) if r[2] else 0.0
+            asesores_data[ag]["estados_minutos"][lbl] = round(asesores_data[ag]["estados_minutos"].get(lbl, 0.0) + dur, 1)
+            asesores_data[ag]["duracion_total_min"] = round(asesores_data[ag]["duracion_total_min"] + dur, 1)
+
+        tardanzas = []
+        puntuales = []
+        excesos_break = []
+        excesos_almuerzo = []
+        cumplimiento_optimo = []
+        detalle_asesores = []
+
+        for ag, data in asesores_data.items():
+            t_ini_prog = data["turno_ini"]
+            primer_log = data["primer_login"]
+
+            puntualidad_status = "Sin turno en malla"
+            if t_ini_prog and primer_log:
+                try:
+                    h_prog = datetime.strptime(str(t_ini_prog).strip(), "%H:%M:%S").time()
+                    dt_log = datetime.strptime(str(primer_log).strip()[:19], "%Y-%m-%d %H:%M:%S")
+                    diff_min = (dt_log.hour * 60 + dt_log.minute) - (h_prog.hour * 60 + h_prog.minute)
+                    if diff_min <= 3:
+                        puntualidad_status = f"🟢 Puntual ({primer_log.split()[1]} vs {t_ini_prog})"
+                        puntuales.append(ag)
+                    elif 3 < diff_min <= 15:
+                        puntualidad_status = f"🟡 Tardanza Leve (+{diff_min} min tardanza: {primer_log.split()[1]})"
+                        tardanzas.append({"agente": ag, "minutos_tarde": diff_min, "hora_login": primer_log.split()[1], "turno": t_ini_prog})
+                    else:
+                        puntualidad_status = f"🔴 Tardanza Severa (+{diff_min} min tardanza: {primer_log.split()[1]})"
+                        tardanzas.append({"agente": ag, "minutos_tarde": diff_min, "hora_login": primer_log.split()[1], "turno": t_ini_prog})
+                except Exception:
+                    puntualidad_status = f"Conectado a las {primer_log.split()[1]}"
+
+            m_break = data["estados_minutos"].get("Break", 0.0)
+            m_lunch = data["estados_minutos"].get("Almuerzo", 0.0)
+            m_prepausa = data["estados_minutos"].get("Pre-Pausa", 0.0)
+
+            alertas_pausas = []
+            if m_break > 35.0:
+                alertas_pausas.append(f"Exceso de Break: {m_break} min (Meta: máx 30 min)")
+                excesos_break.append({"agente": ag, "minutos_break": m_break, "exceso": round(m_break - 30.0, 1)})
+            if m_lunch > 65.0:
+                alertas_pausas.append(f"Exceso de Almuerzo: {m_lunch} min (Meta: máx 60 min)")
+                excesos_almuerzo.append({"agente": ag, "minutos_almuerzo": m_lunch, "exceso": round(m_lunch - 60.0, 1)})
+            if m_prepausa > 45.0:
+                alertas_pausas.append(f"Pre-Pausa prolongada: {m_prepausa} min")
+
+            es_optimo = (len(alertas_pausas) == 0) and ("Tardanza" not in puntualidad_status)
+            if es_optimo:
+                cumplimiento_optimo.append(ag)
+
+            detalle_asesores.append({
+                "agente": ag,
+                "turno_programado": data["turno_programado"],
+                "primer_login": primer_log.split()[1] if primer_log else "No registrado",
+                "diagnostico_puntualidad": puntualidad_status,
+                "break_tomado_min": m_break,
+                "almuerzo_tomado_min": m_lunch,
+                "alertas": alertas_pausas if alertas_pausas else ["✅ Cumplimiento normal de pausas"]
+            })
+
+        return json.dumps({
+            "fecha": fecha,
+            "supervisor": sup_oficial,
+            "total_asesores_conectados": len(asesores_data),
+            "resumen_cumplimiento": {
+                "total_puntuales": len(puntuales),
+                "total_con_tardanza": len(tardanzas),
+                "total_exceso_break": len(excesos_break),
+                "total_exceso_almuerzo": len(excesos_almuerzo),
+                "total_cumplimiento_optimo_100%": len(cumplimiento_optimo)
+            },
+            "detalle_tardanzas": tardanzas,
+            "detalle_exceso_breaks": excesos_break,
+            "detalle_exceso_almuerzos": excesos_almuerzo,
+            "asesores_cumplimiento_optimo": cumplimiento_optimo[:10],
+            "muestra_asesores": detalle_asesores[:15]
+        }, ensure_ascii=False)
+
+    # 2. ¿Es un ASESOR INDIVIDUAL?
+    c.execute("""
+        SELECT s.agente, s.presence_label, s.duracion_min, s.inicio, s.fin, s.servicio, s.jefe_inmediato,
+               t.horas_programadas, t.turno_ini, t.turno_fin, t.lunch_ini, t.lunch_fin, t.des_1_ini, t.des_1_fin, t.des_2_ini, t.des_2_fin, t.novedad
+        FROM segments s
+        LEFT JOIN turnos_detallados t ON s.fecha = t.fecha AND (s.agente LIKE '%' || t.bp || '%' OR s.agente LIKE '%' || t.nombre_agente || '%')
+        WHERE s.fecha = ?
+    """, (fecha,))
+    all_s = c.fetchall()
+    conn.close()
+
+    asesor_rows = [r for r in all_s if all(p in r[0].upper() for p in palabras)]
+    if not asesor_rows:
+        return json.dumps({"error": f"No se encontró al asesor '{agente_o_supervisor}' en la fecha {fecha}."})
+
+    primer = asesor_rows[0]
+    ag_nombre = primer[0]
+    servicio = primer[5]
+    supervisor = primer[6]
+    t_ini = primer[8]
+    t_fin = primer[9]
+    lunch_ini = primer[10]
+    lunch_fin = primer[11]
+    des_1_ini = primer[12]
+    des_1_fin = primer[13]
+
+    primer_login = min(r[3] for r in asesor_rows if r[3])
+    ultimo_logout = max(r[4] for r in asesor_rows if r[4])
+
+    estados = {}
+    for r in asesor_rows:
+        lbl = r[1]
+        dur = float(r[2]) if r[2] else 0.0
+        estados[lbl] = round(estados.get(lbl, 0.0) + dur, 1)
+
+    puntualidad = "Sin turno programado para contrastar"
+    if t_ini and primer_login:
+        try:
+            h_p = datetime.strptime(str(t_ini).strip(), "%H:%M:%S").time()
+            dt_l = datetime.strptime(str(primer_login).strip()[:19], "%Y-%m-%d %H:%M:%S")
+            diff = (dt_l.hour * 60 + dt_l.minute) - (h_p.hour * 60 + h_p.minute)
+            if diff <= 3:
+                puntualidad = f"🟢 Puntual (Login a las {primer_login.split()[1]} vs Turno {t_ini})"
+            elif 3 < diff <= 15:
+                puntualidad = f"🟡 Tardanza Leve (+{diff} min: Login a las {primer_login.split()[1]} vs Turno {t_ini})"
+            else:
+                puntualidad = f"🔴 Tardanza Severa (+{diff} min: Login a las {primer_login.split()[1]} vs Turno {t_ini})"
+        except Exception:
+            puntualidad = f"Conectado a las {primer_login.split()[1]}"
+
+    m_break = estados.get("Break", 0.0)
+    m_lunch = estados.get("Almuerzo", 0.0)
+    m_prep = estados.get("Pre-Pausa", 0.0)
+    m_avail = estados.get("Available", 0.0)
+    m_onqueue = estados.get("On Queue", 0.0)
+
+    return json.dumps({
+        "agente": ag_nombre,
+        "servicio": servicio,
+        "supervisor": supervisor,
+        "fecha": fecha,
+        "turno_programado": {
+            "inicio_programado": t_ini if t_ini else "No programado",
+            "fin_programado": t_fin if t_fin else "No programado",
+            "almuerzo_programado": f"{lunch_ini} a {lunch_fin}" if lunch_ini and lunch_fin else "No asignado en malla",
+            "descanso_programado": f"{des_1_ini} a {des_1_fin}" if des_1_ini and des_1_fin else "No asignado en malla"
+        },
+        "conexion_real_genesys": {
+            "primer_login": primer_login,
+            "ultimo_logout": ultimo_logout,
+            "diagnostico_puntualidad": puntualidad
+        },
+        "cumplimiento_pausas_genesys": {
+            "minutos_almuerzo": m_lunch,
+            "diagnostico_almuerzo": "🟢 Normal (<=60 min)" if m_lunch <= 65 else f"🔴 Exceso de Almuerzo ({m_lunch} min vs 60 min máx)",
+            "minutos_break": m_break,
+            "diagnostico_break": "🟢 Normal (<=30 min)" if m_break <= 35 else f"🔴 Exceso de Break ({m_break} min vs 30 min máx)",
+            "minutos_prepausa": m_prep,
+            "tiempo_en_atencion_onqueue": f"{round(m_onqueue/60.0, 1)} horas ({m_onqueue} min)",
+            "tiempo_en_available": f"{round(m_avail/60.0, 1)} horas ({m_avail} min)"
+        },
+        "distribucion_completa_estados": estados
+    }, ensure_ascii=False)
+
+
 def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_coordinador: str = "") -> str:
     """Consulta el Nivel de Servicio (% NS, llamadas/chats ofrecidos, atendidos, abandono y AHT) de las colas de Genesys Cloud."""
     try:
@@ -1123,6 +1407,28 @@ TOOLS_DECLARATIONS = [
             },
             "required": ["nombre_o_servicio"]
         }
+    },
+    {
+        "name": "consultar_cumplimiento_turnos_y_pausas",
+        "description": "Audita de forma exhaustiva la puntualidad en la hora de conexión a Genesys (hora programada de turno vs hora real del primer login) y el cumplimiento de pausas programadas (almuerzos, descansos/breaks de 30 min, pre-pausas, y excesos de descanso) de un asesor o de todo el equipo de un supervisor.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "agente_o_supervisor": {"type": "STRING", "description": "Nombre del asesor o supervisor a auditar, ej. 'David Jaramillo' o 'Monica Restrepo'"},
+                "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD (ej. 2026-09-17)"}
+            },
+            "required": ["agente_o_supervisor"]
+        }
+    },
+    {
+        "name": "consultar_metas_servicio",
+        "description": "Consulta las metas oficiales contractuales y parámetros SORE para cualquier campaña o servicio (Meta de AHT, Meta de % NS, Meta máxima de auxiliares 14%, Tolerancia de ausentismo 10%).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "servicio": {"type": "STRING", "description": "Nombre del servicio, ej. 'LUA AMC', 'CORPORATE PYME', 'WPP LUA AMC'"}
+            }
+        }
     }
 ]
 
@@ -1135,7 +1441,9 @@ TOOLS_MAP = {
     "consultar_backlog_salesforce": lambda a: consultar_backlog_salesforce(a.get("criterio", "todos")),
     "consultar_ausentismos": lambda a: consultar_ausentismos(a.get("fecha", ""), a.get("servicio", ""), a.get("supervisor", "")),
     "consultar_zendesk_backoffice": lambda a: consultar_zendesk_backoffice(a.get("grupo_o_servicio", "LUA AMC"), a.get("hora_inicio"), a.get("hora_fin"), a.get("fecha")),
-    "consultar_organigrama_jerarquia": lambda a: consultar_organigrama_jerarquia(a.get("nombre_o_servicio", ""))
+    "consultar_organigrama_jerarquia": lambda a: consultar_organigrama_jerarquia(a.get("nombre_o_servicio", "")),
+    "consultar_cumplimiento_turnos_y_pausas": lambda a: consultar_cumplimiento_turnos_y_pausas(a.get("agente_o_supervisor", ""), a.get("fecha", "")),
+    "consultar_metas_servicio": lambda a: consultar_metas_servicio(a.get("servicio", ""))
 }
 
 SYSTEM_INSTRUCTION = """
@@ -1154,17 +1462,23 @@ REGLAS TEMPORALES Y OPERATIVAS CLAVE:
    - **GENESYS CLOUD (VOZ, WHATSAPP, PRESENCIA, ADHERENCIA Y TRÁFICO)**:
      * Si el usuario pregunta por: **"NIVEL DE SERVICIO"**, **"% NS"**, **"SLA"**, **"TRÁFICO"**, **"LLAMADAS ATENDIDAS"**, **"ABANDONO"**, **"AHT"**:
        👉 Llama a `consultar_nivel_servicio`.
-     * Si el usuario pregunta por: **"PAUSAS"**, **"TURNOS"**, **"ADHERENCIA"**, **"ASISTENCIA"**, **"AUSENCIAS"**, **"QUIÉN FALTÓ"**:
+     * Si el usuario pregunta por: **"PUNTUALIDAD"**, **"HORA DE CONEXIÓN"**, **"CUMPLIMIENTO DE TURNOS"**, **"CUMPLIMIENTO DE PAUSAS"**, **"TARDANZAS"**, **"QUIÉN LLEGÓ TARDE"**, **"EXCESOS DE BREAK O ALMUERZO"**:
+       👉 Llama a `consultar_cumplimiento_turnos_y_pausas(agente_o_supervisor=..., fecha=...)`.
+     * Si el usuario pregunta por: **"PAUSAS EN GENERAL"**, **"ASISTENCIA"**, **"AUSENCIAS"**, **"TIEMPOS EN AVAILABLE"**:
        👉 Llama a `consultar_equipo_supervisor` o `consultar_asesor`.
    - **SALESFORCE B2B (CRM COMERCIAL / AGENCIAS / CORPORATE)**:
      * Si el usuario pregunta por: **"BACKLOG SALESFORCE"**, **"CASOS B2B >24H"**, **"AGENCIAS TARGET"**, **"INFRACCIÓN SLA 24H"**:
        👉 Llama a `consultar_backlog_salesforce`.
 
-4. ORGANIGRAMA Y ESTRUCTURA DE EQUIPOS:
+4. METAS CONTRACTUALES Y PARÁMETROS OPERATIVOS SORE:
+   - Si el usuario pregunta por: **"METAS"**, **"OBJETIVOS"**, **"META DE AHT"**, **"META DE NS"**, **"LÍMITE DE AUXILIARES"**, **"TOLERANCIA DE AUSENTISMO"**:
+     👉 Llama a `consultar_metas_servicio(servicio=...)`.
+
+5. ORGANIGRAMA Y ESTRUCTURA DE EQUIPOS:
    - Si el usuario pregunta por: **"ORGANIGRAMA"**, **"ESTRUCTURA"**, **"QUIÉN LE REPORTA A"**, **"CUÁL ES EL EQUIPO DE"**, **"QUIÉNES SON LOS ASESORES DE"**, **"QUIÉN COORDINA"**, **"QUÉ SERVICIOS TIENE A CARGO"**:
      👉 Llama a `consultar_organigrama_jerarquia(nombre_o_servicio=...)`.
 
-5. RESOLUCIÓN INTUITIVA DE LÍDERES:
+6. RESOLUCIÓN INTUITIVA DE LÍDERES:
    - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC bajo la coordinación de Yineidis Carbono).
    - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Coordinadora de Operaciones de Corporativo Pyme y Agencias B2B).
    - "Yineidis" o "Yineidis Carbono" -> Corresponde a **CARBONO PEDROZA YINEIDIS YESENIA** (Coordinadora de LUA AMC, WPP LUA AMC, LUA ING, CARGO BOOKING).
