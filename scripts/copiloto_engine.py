@@ -327,7 +327,80 @@ def consultar_equipo_supervisor(supervisor: str, fecha: str = "") -> str:
 
     sup_oficial = resolver_supervisor(conn, supervisor, fecha)
 
-    # 1. Obtener segmentos del equipo bajo este supervisor o coordinador
+    # Detectar si la persona es COORDINADORA (tiene múltiples servicios a cargo en segments)
+    c.execute("SELECT COUNT(DISTINCT servicio) FROM segments WHERE fecha=? AND coordinador=?", (fecha, sup_oficial))
+    servicios_coord_count = c.fetchone()[0]
+
+    # ── CASO A: COORDINADOR / LÍDER MULTI-SERVICIO ───────────────────────────
+    if servicios_coord_count > 1:
+        c.execute("""
+            SELECT servicio, COUNT(DISTINCT agente), ROUND(SUM(duracion_min)/60.0, 1)
+            FROM segments
+            WHERE fecha=? AND coordinador=?
+            GROUP BY servicio
+            ORDER BY COUNT(DISTINCT agente) DESC
+        """, (fecha, sup_oficial))
+        servicios_rows = c.fetchall()
+
+        c.execute("""
+            SELECT jefe_inmediato, servicio, COUNT(DISTINCT agente)
+            FROM segments
+            WHERE fecha=? AND coordinador=?
+            GROUP BY jefe_inmediato, servicio
+            ORDER BY servicio, COUNT(DISTINCT agente) DESC
+        """, (fecha, sup_oficial))
+        sups_rows = c.fetchall()
+
+        c.execute("""
+            SELECT COUNT(DISTINCT agente), ROUND(SUM(duracion_min)/60.0, 1)
+            FROM segments
+            WHERE fecha=? AND coordinador=?
+        """, (fecha, sup_oficial))
+        tot_row = c.fetchone()
+        total_agentes = tot_row[0]
+        total_horas = tot_row[1]
+
+        desglose_servicios = []
+        for s in servicios_rows:
+            srv_nombre = s[0]
+            ag_count = s[1]
+            hrs_tot = s[2]
+            sups_en_srv = [f"{sp[0]} ({sp[2]} asesores)" for sp in sups_rows if sp[1] == srv_nombre]
+            
+            c.execute("""
+                SELECT presence_label, ROUND(SUM(duracion_min)/60.0, 1)
+                FROM segments
+                WHERE fecha=? AND coordinador=? AND servicio=?
+                GROUP BY presence_label
+                ORDER BY SUM(duracion_min) DESC
+                LIMIT 4
+            """, (fecha, sup_oficial, srv_nombre))
+            estados_top = {r[0]: f"{r[1]} hrs" for r in c.fetchall()}
+
+            desglose_servicios.append({
+                "servicio": srv_nombre,
+                "total_asesores_conectados": ag_count,
+                "horas_totales_conexion": hrs_tot,
+                "supervisores_a_cargo": sups_en_srv,
+                "estados_principales": estados_top
+            })
+
+        conn.close()
+        return json.dumps({
+            "fecha": fecha,
+            "persona_consultada": sup_oficial,
+            "rol": "Coordinadora de Operaciones",
+            "resumen_ejecutivo": {
+                "total_servicios_coordinados": len(servicios_rows),
+                "total_asesores_conectados": total_agentes,
+                "horas_totales_operacion": total_horas,
+                "diagnostico_asistencia": f"✅ Cierre operacional exitoso con {total_agentes} asesores conectados a lo largo de los {len(servicios_rows)} servicios.",
+                "servicios_a_cargo": [s[0] for s in servicios_rows]
+            },
+            "cierre_por_servicio": desglose_servicios
+        }, ensure_ascii=False)
+
+    # ── CASO B: SUPERVISOR INDIVIDUAL (Un solo servicio) ─────────────────────
     c.execute("""
         SELECT agente, servicio, jefe_inmediato, coordinador, presence_label, ROUND(SUM(duracion_min), 1)
         FROM segments
@@ -372,7 +445,6 @@ def consultar_equipo_supervisor(supervisor: str, fecha: str = "") -> str:
         elif "curso" in lbl_low or "refuerzo" in lbl_low:
             equipo[ag]["capacitacion"] += mins
 
-    # Cruce con turnos_detallados para horario y evaluación de pausas
     alertas_pausas = []
     cumplimiento_ok = []
 
@@ -425,6 +497,7 @@ def consultar_equipo_supervisor(supervisor: str, fecha: str = "") -> str:
         "fecha": fecha,
         "supervisor_identificado": sup_oficial,
         "servicio": servicio_sup,
+        "rol": "Supervisor de Operaciones",
         "resumen_asistencia": {
             "total_asesores_conectados": len(equipo),
             "ausentismos_detectados": 0,
@@ -686,12 +759,18 @@ Tu propósito es responder con máxima precisión, agilidad e intuición las con
 REGLAS TEMPORALES Y OPERATIVAS CLAVE:
 1. AÑO OPERATIVO: El año de la base de datos es **2026** (específicamente registros de agosto y septiembre de 2026). La fecha de referencia activa y más reciente es **2026-09-17**.
 2. NUNCA asumas años anteriores (como 2023, 2024 o 2025). Si el usuario dice "ayer 17 de sep", "17 de septiembre", "17/09" o "ayer", la fecha exacta es **2026-09-17**.
-3. RESOLUCIÓN INTUITIVA DE SUPERVISORES:
+3. RESOLUCIÓN INTUITIVA DE SUPERVISORES Y COORDINADORES:
    - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC). ¡NUNCA pidas confirmación de apellido! Llama directamente a la herramienta con supervisor: "David".
    - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Supervisor de Agencias B2B / Corporativo Pyme).
    - "Jhon Villa" -> **VILLA CADAVID JHON FERNANDO**.
-   - "Yineidis Carbono" -> **CARBONO PEDROZA YINEIDIS YESENIA**.
-   - Nuestras herramientas resuelven nombres parciales de forma inteligente, así que pásale directamente el nombre mencionado por el usuario sin pedir aclaraciones.
+   - **YINEIDIS CARBONO** (`CARBONO PEDROZA YINEIDIS YESENIA`): Es la **Coordinadora de Operaciones** de 4 servicios clave:
+     1. **LUA AMC** (Supervisores: Nieves Oropeza, Santiago López, Jonathan García).
+     2. **WPP LUA AMC** (Supervisores: David Jaramillo, María Camila Agudelo).
+     3. **LUA AMC ING** (Supervisores: Emanuel Vasco, Dany Cegueri).
+     4. **CARGO BOOKING** (Supervisor: Camilo Burgos).
+     Totaliza 167 asesores y más de 1,300 horas de operación en la fecha.
+   - Si el usuario pregunta por *"los servicios de Yineidis"*, *"el cierre de Yineidis"* o *"cómo cerraron ayer los servicios de Yineidis"*, NUNCA digas que no sabes a qué servicio se refiere. Llama inmediatamente a `consultar_equipo_supervisor(supervisor='Yineidis', fecha='2026-09-17')` y presenta el balance completo de sus 4 servicios con asesores, horas en cola (On Queue) y supervisores.
+   - Nuestras herramientas resuelven nombres parciales y roles de coordinación de forma inteligente, así que pásale directamente el nombre mencionado por el usuario sin pedir aclaraciones.
 
 RESPUESTA DIRECTA, INTUITIVA Y EJECUTIVA:
 - Responde DIRECTAMENTE a lo que se te está preguntando en función del objetivo del usuario, sin rodeos teóricos, disculpas ni preguntas innecesarias.
@@ -706,8 +785,10 @@ RESPUESTA DIRECTA, INTUITIVA Y EJECUTIVA:
        * **Exceso de Almuerzo** (> 65 min vs 60 min estándar).
        * **Pre-Pausa prolongada** (> 60 min).
      - Menciona a los asesores que tuvieron un **cumplimiento normal/óptimo** de sus pausas.
+- Si preguntan por cierre operacional o niveles de servicio de una coordinación, presenta la tabla Markdown o viñetas con los servicios a cargo, total de asesores, horas en On Queue y supervisores responsables.
 - Usa negritas en los nombres, viñetas limpias y métricas numéricas precisas.
 """
+
 
 
 
