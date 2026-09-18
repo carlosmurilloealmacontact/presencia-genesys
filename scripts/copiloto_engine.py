@@ -9,7 +9,7 @@ import json
 import re
 import time
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pandas as pd
 import streamlit as st
@@ -1361,6 +1361,133 @@ def consultar_nivel_servicio(servicio: str = "", fecha: str = "", supervisor_o_c
     }, ensure_ascii=False)
 
 
+def consultar_presencia_tiempo_real(filtro_busqueda: str = "", estado_presencia: str = "") -> str:
+    """Consulta la presencia y actividad de agentes en TIEMPO REAL (EN VIVO AHORA MISMO) desde Genesys Cloud.
+    Permite consultar:
+    - Quién está en Break, Almuerzo, Baño, Pre-Pausa o Pausas en este instante con su cronómetro de minutos transcurridos.
+    - Quién está en Available (disponible esperando llamadas) o en On Queue (en atención o llamada activa).
+    - Estado en vivo de todo el equipo de un supervisor (ej. 'David Jaramillo'), coordinador (ej. 'Yineidis Carbono') o servicio (ej. 'WPP LUA AMC').
+    - Diagnóstico de alertas operativas en vivo (llamadas prolongadas >15m, pausas excedidas, baños excedidos >5m).
+    """
+    try:
+        from live_engine import obtener_token_genesys, cargar_catalogo_presencias, obtener_presencia_en_vivo
+    except ImportError:
+        try:
+            from scripts.live_engine import obtener_token_genesys, cargar_catalogo_presencias, obtener_presencia_en_vivo
+        except Exception as e:
+            return json.dumps({"error": f"No se pudo cargar el motor en vivo: {e}"}, ensure_ascii=False)
+
+    tok = obtener_token_genesys()
+    if not tok:
+        return json.dumps({"error": "El token de Genesys Cloud no está disponible o está en proceso de renovación automática. Intenta nuevamente en unos momentos."}, ensure_ascii=False)
+
+    if not DB_PATH.exists():
+        return json.dumps({"error": "Base de datos local no encontrada."}, ensure_ascii=False)
+
+    conn = sqlite3.connect(str(DB_PATH))
+    try:
+        agentes_db = pd.read_sql("SELECT agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM dim_agentes", conn)
+    except Exception:
+        agentes_db = pd.read_sql("SELECT DISTINCT agente_id, agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM segments", conn)
+    finally:
+        conn.close()
+
+    if agentes_db.empty:
+        return json.dumps({"error": "No se encontraron agentes en el catálogo operativo."}, ensure_ascii=False)
+
+    agentes_map = agentes_db.drop_duplicates("agente_id", keep="last").set_index("agente_id").to_dict(orient="index")
+    catalog = cargar_catalogo_presencias(tok)
+    df_live = obtener_presencia_en_vivo(tok, agentes_map, catalog)
+
+    if df_live is None or df_live.empty:
+        return json.dumps({"error": "No se obtuvieron registros de presencia en vivo desde Genesys Cloud."}, ensure_ascii=False)
+
+    query = str(filtro_busqueda or "").strip().upper()
+    df_filtrado = df_live.copy()
+
+    if query and query != "TODOS":
+        tokens = [t for t in query.split() if len(t) >= 3]
+        if not tokens:
+            tokens = [query]
+        mask = pd.Series(False, index=df_filtrado.index)
+        for t in tokens:
+            mask |= (
+                df_filtrado["supervisor"].str.upper().str.contains(t, na=False) |
+                df_filtrado["coordinador"].str.upper().str.contains(t, na=False) |
+                df_filtrado["servicio"].str.upper().str.contains(t, na=False) |
+                df_filtrado["agente"].str.upper().str.contains(t, na=False)
+            )
+        df_filtrado = df_filtrado[mask]
+
+    st_filtro = str(estado_presencia or "").strip().upper()
+    if st_filtro and st_filtro != "TODOS":
+        if "BREAK" in st_filtro or "DESCANSO" in st_filtro:
+            df_filtrado = df_filtrado[df_filtrado["estado"].str.upper().str.contains("BREAK|DESCANSO", na=False) | (df_filtrado["sys_pres"].str.upper() == "BREAK")]
+        elif "ALMUERZO" in st_filtro or "LUNCH" in st_filtro:
+            df_filtrado = df_filtrado[df_filtrado["estado"].str.upper().str.contains("ALMUERZO|LUNCH", na=False)]
+        elif "AVAIL" in st_filtro or "DISP" in st_filtro:
+            df_filtrado = df_filtrado[df_filtrado["sys_pres"].str.upper() == "AVAILABLE"]
+        elif "QUEUE" in st_filtro or "COLA" in st_filtro or "LLAMADA" in st_filtro:
+            df_filtrado = df_filtrado[(df_filtrado["sys_pres"].str.upper() == "ON QUEUE") | (df_filtrado["routing"] == "INTERACTING")]
+        elif "CONECTADO" in st_filtro or "ACTIVO" in st_filtro or "ONLINE" in st_filtro:
+            df_filtrado = df_filtrado[df_filtrado["sys_pres"].str.upper() != "OFFLINE"]
+        elif "ALERTA" in st_filtro:
+            df_filtrado = df_filtrado[~df_filtrado["alerta"].isin(["Normal", "Desconectado"])]
+        elif "OFFLINE" in st_filtro or "DESCONECTADO" in st_filtro:
+            df_filtrado = df_filtrado[df_filtrado["sys_pres"].str.upper() == "OFFLINE"]
+
+    now_col = datetime.now(timezone(timedelta(hours=-5))).strftime("%Y-%m-%d %H:%M:%S")
+
+    total_evaluados = len(df_filtrado)
+    conectados_activos = len(df_filtrado[df_filtrado["sys_pres"].str.upper() != "OFFLINE"])
+    en_cola = len(df_filtrado[df_filtrado["sys_pres"].str.upper() == "ON QUEUE"])
+    en_available = len(df_filtrado[df_filtrado["sys_pres"].str.upper() == "AVAILABLE"])
+    en_break = len(df_filtrado[df_filtrado["estado"].str.upper().str.contains("BREAK|DESCANSO", na=False) | (df_filtrado["sys_pres"].str.upper() == "BREAK")])
+    en_almuerzo = len(df_filtrado[df_filtrado["estado"].str.upper().str.contains("ALMUERZO|LUNCH", na=False)])
+    con_alertas = len(df_filtrado[~df_filtrado["alerta"].isin(["Normal", "Desconectado"])])
+
+    df_filtrado["orden_prioridad"] = df_filtrado.apply(
+        lambda r: 0 if r["alerta"] not in ["Normal", "Desconectado"] else (1 if r["sys_pres"] != "Offline" else 2),
+        axis=1
+    )
+    df_filtrado = df_filtrado.sort_values(by=["orden_prioridad", "dur_min"], ascending=[True, False])
+
+    detalle_agentes = []
+    for _, r in df_filtrado.head(35).iterrows():
+        detalle_agentes.append({
+            "agente": r["agente"],
+            "servicio": r["servicio"],
+            "supervisor": r["supervisor"],
+            "estado_presencia": r["estado"],
+            "tipo_sistema": r["sys_pres"],
+            "routing": r["routing"],
+            "tiempo_en_estado": r["cronometro"],
+            "minutos_transcurridos": r["dur_min"],
+            "alerta_en_vivo": r["alerta"],
+            "atendidas_hoy": r.get("atendidas_hoy", 0)
+        })
+
+    resumen_estados = df_filtrado["estado"].value_counts().head(8).to_dict() if not df_filtrado.empty else {}
+
+    return json.dumps({
+        "marca_tiempo_colombia": now_col,
+        "filtro_aplicado": filtro_busqueda if filtro_busqueda else "Todos",
+        "filtro_estado": estado_presencia if estado_presencia else "Todos",
+        "resumen_en_vivo": {
+            "total_agentes_en_alcance": total_evaluados,
+            "conectados_actualmente": conectados_activos,
+            "en_cola_onqueue": en_cola,
+            "en_disponible_available": en_available,
+            "en_break": en_break,
+            "en_almuerzo": en_almuerzo,
+            "con_alertas_operativas": con_alertas,
+            "desconectados_offline": total_evaluados - conectados_activos
+        },
+        "distribucion_estados_en_vivo": resumen_estados,
+        "detalle_asesores_en_vivo": detalle_agentes
+    }, ensure_ascii=False)
+
+
 # ── DECLARACIONES DE HERRAMIENTAS PARA VERTEX AI (OPENAPI SPEC) ───────────────
 
 TOOLS_DECLARATIONS = [
@@ -1483,6 +1610,17 @@ TOOLS_DECLARATIONS = [
                 "servicio": {"type": "STRING", "description": "Nombre del servicio, ej. 'LUA AMC', 'CORPORATE PYME', 'WPP LUA AMC'"}
             }
         }
+    },
+    {
+        "name": "consultar_presencia_tiempo_real",
+        "description": "Consulta la presencia y actividad de asesores en TIEMPO REAL (EN VIVO AHORA MISMO en este preciso instante) desde Genesys Cloud. Responde a preguntas como: '¿Quién está en break en este momento?', '¿Quiénes están disponibles/Available ahora?', '¿Cómo está el equipo de David Jaramillo en vivo?', '¿Quién tiene alertas o llamadas prolongadas ahora mismo?', '¿Cuántos agentes están conectados hoy en tiempo real?'.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "filtro_busqueda": {"type": "STRING", "description": "Filtro opcional por nombre de supervisor (ej. 'David Jaramillo'), coordinador (ej. 'Yineidis Carbono'), servicio (ej. 'WPP LUA AMC', 'CORPORATE PYME') o nombre de un asesor."},
+                "estado_presencia": {"type": "STRING", "description": "Filtro opcional por estado de presencia: 'Break', 'Almuerzo', 'Available', 'On Queue', 'Conectados', 'Offline', 'Alertas'."}
+            }
+        }
     }
 ]
 
@@ -1497,7 +1635,8 @@ TOOLS_MAP = {
     "consultar_zendesk_backoffice": lambda a: consultar_zendesk_backoffice(a.get("grupo_o_servicio", "LUA AMC"), a.get("hora_inicio"), a.get("hora_fin"), a.get("fecha")),
     "consultar_organigrama_jerarquia": lambda a: consultar_organigrama_jerarquia(a.get("nombre_o_servicio", "")),
     "consultar_cumplimiento_turnos_y_pausas": lambda a: consultar_cumplimiento_turnos_y_pausas(a.get("agente_o_supervisor", ""), a.get("fecha", "")),
-    "consultar_metas_servicio": lambda a: consultar_metas_servicio(a.get("servicio", ""))
+    "consultar_metas_servicio": lambda a: consultar_metas_servicio(a.get("servicio", "")),
+    "consultar_presencia_tiempo_real": lambda a: consultar_presencia_tiempo_real(a.get("filtro_busqueda", ""), a.get("estado_presencia", ""))
 }
 
 SYSTEM_INSTRUCTION = """
@@ -1505,10 +1644,16 @@ Eres el **Copiloto Operacional 4DX**, el asistente de inteligencia artificial an
 Tu propósito es responder con máxima precisión, agilidad e intuición las consultas de Carlos Murillo, Coordinadores, Jefaturas y Supervisores.
 
 REGLAS TEMPORALES Y OPERATIVAS CLAVE:
-1. AÑO OPERATIVO: El año de la base de datos de Genesys/presencia es **2026** (específicamente registros de agosto y septiembre de 2026). La fecha de referencia activa y más reciente es **2026-09-17** (o en vivo hoy para Zendesk).
-2. NUNCA asumas años anteriores (como 2023, 2024 o 2025). Si el usuario dice "ayer 17 de sep", "17 de septiembre", "17/09" o "ayer", la fecha exacta es **2026-09-17**.
+1. DISTINCIÓN TEMPORAL CRÍTICA: ¿TIEMPO REAL vs HISTÓRICO?
+   - **TIEMPO REAL (EN VIVO AHORA MISMO)**:
+     * Si el usuario pregunta por el estado ACTUAL: **"ahora"**, **"en este momento"**, **"en vivo"**, **"en este instante"**, **"actualmente"**, **"ya"**, **"quién está en break en este momento"**, **"cuántos disponibles hay ahora"**, **"cómo está el equipo de David en vivo"**:
+       👉 DEBES LLAMAR INMEDIATAMENTE A `consultar_presencia_tiempo_real(filtro_busqueda=..., estado_presencia=...)`.
+       NUNCA vayas a buscar fecha histórica de ayer cuando la pregunta sea explícitamente en tiempo real o en vivo.
+   - **HISTÓRICO / REGISTROS PASADOS**:
+     * El año operativo histórico de la base de datos de Genesys/presencia es **2026** (agosto y septiembre de 2026). La fecha de referencia activa y más reciente cerrada es **2026-09-17**.
+     * Si el usuario dice "ayer", "17 de sep", "17 de septiembre", "cómo le fue a...", "cuántos faltaron ayer": llama a las herramientas históricas (`consultar_equipo_supervisor`, `consultar_cumplimiento_turnos_y_pausas`, `consultar_asesor`, `consultar_ausentismos`).
 
-3. DISTINCIÓN CRÍTICA ENTRE PLATAFORMAS (ZENDESK vs GENESYS vs SALESFORCE):
+2. DISTINCIÓN CRÍTICA ENTRE PLATAFORMAS (ZENDESK vs GENESYS vs SALESFORCE):
    - **ZENDESK SUPPORT (BACK OFFICE)**:
      * Si el usuario pregunta por: **"BO LUA"**, **"BACK OFFICE"**, **"CASOS/TICKETS DE BO LUA"**, **"EQUIPAJES"**, **"DT FFP"**, **"CÉLULA PI"**, **"TICKETS GESTIONADOS"**, **"CASOS RESUELTOS EN LA MAÑANA / ENTRE LAS 8 Y LAS 12"**:
        👉 DEBES LLAMAR INMEDIATAMENTE A `consultar_zendesk_backoffice`.
@@ -1524,15 +1669,15 @@ REGLAS TEMPORALES Y OPERATIVAS CLAVE:
      * Si el usuario pregunta por: **"BACKLOG SALESFORCE"**, **"CASOS B2B >24H"**, **"AGENCIAS TARGET"**, **"INFRACCIÓN SLA 24H"**:
        👉 Llama a `consultar_backlog_salesforce`.
 
-4. METAS CONTRACTUALES Y PARÁMETROS OPERATIVOS SORE:
+3. METAS CONTRACTUALES Y PARÁMETROS OPERATIVOS SORE:
    - Si el usuario pregunta por: **"METAS"**, **"OBJETIVOS"**, **"META DE AHT"**, **"META DE NS"**, **"LÍMITE DE AUXILIARES"**, **"TOLERANCIA DE AUSENTISMO"**:
      👉 Llama a `consultar_metas_servicio(servicio=...)`.
 
-5. ORGANIGRAMA Y ESTRUCTURA DE EQUIPOS:
+4. ORGANIGRAMA Y ESTRUCTURA DE EQUIPOS:
    - Si el usuario pregunta por: **"ORGANIGRAMA"**, **"ESTRUCTURA"**, **"QUIÉN LE REPORTA A"**, **"CUÁL ES EL EQUIPO DE"**, **"QUIÉNES SON LOS ASESORES DE"**, **"QUIÉN COORDINA"**, **"QUÉ SERVICIOS TIENE A CARGO"**:
      👉 Llama a `consultar_organigrama_jerarquia(nombre_o_servicio=...)`.
 
-6. RESOLUCIÓN INTUITIVA DE LÍDERES:
+5. RESOLUCIÓN INTUITIVA DE LÍDERES:
    - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC bajo la coordinación de Yineidis Carbono).
    - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Coordinadora de Operaciones de Corporativo Pyme y Agencias B2B).
    - "Yineidis" o "Yineidis Carbono" -> Corresponde a **CARBONO PEDROZA YINEIDIS YESENIA** (Coordinadora de LUA AMC, WPP LUA AMC, LUA ING, CARGO BOOKING).
@@ -1677,22 +1822,25 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
 
     # Barra superior de acciones y píldoras rápidas
     st.markdown("##### 💡 Preguntas Rápidas Sugeridas")
-    col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
+    col_p1, col_p2, col_p3, col_p4, col_p5, col_p6 = st.columns(6)
     
     pregunta_rapida = None
     with col_p1:
+        if st.button("🔴 Presencia en Vivo Ahora", use_container_width=True):
+            pregunta_rapida = "¿Quiénes están conectados en este momento en Genesys y quiénes están en break o con alertas en vivo?"
+    with col_p2:
         if st.button("👤 Turno y Adherencia Asesor", use_container_width=True):
             pregunta_rapida = "¿Cómo le fue a Jesus Alonso Guisao el 17 de septiembre de 2026? Dime qué turno tenía, cuánto tiempo estuvo en Available, pausas y quién es su jefe."
-    with col_p2:
+    with col_p3:
         if st.button("👥 Equipo de Marely Cardona", use_container_width=True):
             pregunta_rapida = "Dame el resumen del equipo de Marely Cardona para el 17 de septiembre de 2026: cuántos asesores estuvieron conectados y cómo estuvieron sus tiempos."
-    with col_p3:
+    with col_p4:
         if st.button("⏳ Backlog Salesforce B2B", use_container_width=True):
             pregunta_rapida = "¿Cómo está actualmente el backlog de Salesforce B2B? Cuántos casos violan el SLA de 24 horas y cuáles son los más críticos?"
-    with col_p4:
+    with col_p5:
         if st.button("🚨 Ausentismos de Turno", use_container_width=True):
             pregunta_rapida = "¿Qué asesores tenían turno programado pero no registraron conexión en Genesys en la última fecha registrada?"
-    with col_p5:
+    with col_p6:
         if st.button("🏢 Panorama Agencias B2B", use_container_width=True):
             pregunta_rapida = "Dame un panorama macro del servicio CORPORATE PYME en la última fecha: total agentes y distribución de estados de presencia."
 

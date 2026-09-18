@@ -52,72 +52,159 @@ def _get_db():
 @st.cache_data(ttl=1800, show_spinner=False)
 def cargar_universo_base_outliers(fecha_min: str = "2026-08-01", fecha_max: str = "2026-09-30") -> pd.DataFrame:
     """
-    Carga y consolida en memoria el universo diario de turnos y presencia real
-    cruzando turnos_detallados con segments para todo el personal operativo,
-    desglosando las pausas específicas (Baño, Break, Almuerzo, Coaching).
+    Carga y consolida en memoria el universo diario de turnos y presencia real.
+    BLINDAJE DE TURNOS TRASNOCHO (Cruzan la medianoche):
+    - Si un turno tiene turno_fin < turno_ini (ej: 22:00 a 05:00), la ventana de presencia
+      se extiende desde fecha turno_ini - 30m hasta fecha+1 turno_fin + 30m.
+    - Se acreditan todas las horas y pausas de la madrugada a la fecha de inicio del turno,
+      eliminando falsos positivos en asesores de turno nocturno.
     """
     if not DB_PRESENCIA.exists():
         return pd.DataFrame()
 
-    query = """
+    # 1. Cargar turnos detallados en el rango solicitado
+    q_turnos = """
     SELECT 
-        t.bp,
-        t.fecha,
-        t.nombre_agente,
-        t.servicio,
-        COALESCE(t.horas_programadas, 8.0) AS horas_programadas,
-        COALESCE(s.min_conectado, 0.0) AS min_conectado,
-        COALESCE(s.min_pausas, 0.0) AS min_pausas,
-        COALESCE(s.min_break, 0.0) AS min_break,
-        COALESCE(s.min_bano, 0.0) AS min_bano,
-        COALESCE(s.min_lunch, 0.0) AS min_lunch,
-        COALESCE(s.min_coaching, 0.0) AS min_coaching,
-        COALESCE(s.coordinador, '') AS coordinador,
-        COALESCE(s.jefe_inmediato, '') AS jefe_inmediato
-    FROM turnos_detallados t
-    LEFT JOIN (
-        SELECT 
-            substr(agente, 1, instr(agente, ' - ') - 1) AS bp,
-            fecha,
-            SUM(CASE WHEN presence_label != 'Offline' THEN duracion_min ELSE 0.0 END) AS min_conectado,
-            SUM(CASE WHEN presence_label IN ('Break', 'Baño', 'Almuerzo', 'Pre Pausa', 'Pausa Activa', 'Personal') THEN duracion_min ELSE 0.0 END) AS min_pausas,
-            SUM(CASE WHEN presence_label IN ('Break', 'Pre Pausa', 'Pausa Activa') THEN duracion_min ELSE 0.0 END) AS min_break,
-            SUM(CASE WHEN presence_label = 'Baño' THEN duracion_min ELSE 0.0 END) AS min_bano,
-            SUM(CASE WHEN presence_label IN ('Lunch', 'Almuerzo', 'Refeição (sólo BR)') THEN duracion_min ELSE 0.0 END) AS min_lunch,
-            SUM(CASE WHEN presence_label IN ('Feedback', 'Reunión Equipo', 'PCA - Feedback', 'PCA- Diálogo', 'Diálogo Diario / 4DX', 'Refuerzo Semanal', 'Cursos Adicionales') THEN duracion_min ELSE 0.0 END) AS min_coaching,
-            MAX(coordinador) AS coordinador,
-            MAX(jefe_inmediato) AS jefe_inmediato
-        FROM segments
-        WHERE fecha >= ? AND fecha <= ? AND agente LIKE '% - %'
-        GROUP BY bp, fecha
-    ) s ON t.bp = s.bp AND t.fecha = s.fecha
-    WHERE t.fecha >= ? AND t.fecha <= ?
+        bp, fecha, nombre_agente, servicio,
+        COALESCE(horas_programadas, 8.0) AS horas_programadas,
+        COALESCE(turno_ini, '--') AS turno_ini,
+        COALESCE(turno_fin, '--') AS turno_fin
+    FROM turnos_detallados
+    WHERE fecha >= ? AND fecha <= ?
     """
 
+    # 2. Cargar segmentos de presencia extendiendo 1 día antes y 1 día después para trasnochos
     try:
+        dt_min_f = pd.to_datetime(fecha_min) - timedelta(days=1)
+        dt_max_f = pd.to_datetime(fecha_max) + timedelta(days=1)
+        f_min_ext = dt_min_f.strftime("%Y-%m-%d")
+        f_max_ext = dt_max_f.strftime("%Y-%m-%d")
+
         with _get_db() as conn:
-            df = pd.read_sql_query(query, conn, params=[fecha_min, fecha_max, fecha_min, fecha_max])
+            df_turnos = pd.read_sql_query(q_turnos, conn, params=[fecha_min, fecha_max])
+            
+            q_segments = """
+            SELECT 
+                substr(agente, 1, instr(agente, ' - ') - 1) AS bp,
+                fecha,
+                presence_label,
+                inicio,
+                fin,
+                duracion_min,
+                coordinador,
+                jefe_inmediato
+            FROM segments
+            WHERE fecha >= ? AND fecha <= ? AND agente LIKE '% - %'
+            """
+            df_seg = pd.read_sql_query(q_segments, conn, params=[f_min_ext, f_max_ext])
     except Exception as e:
         st.error(f"Error cargando base de presencia para outliers: {e}")
         return pd.DataFrame()
 
-    if df.empty:
-        return df
+    if df_turnos.empty:
+        return pd.DataFrame()
 
-    # Limpieza y coerción numérica
-    df["nombre_agente"] = df["nombre_agente"].astype(str).str.strip()
-    df["servicio"] = df["servicio"].astype(str).str.strip()
-    df["horas_programadas"] = pd.to_numeric(df["horas_programadas"], errors="coerce").fillna(8.0)
-    df["min_conectado"] = pd.to_numeric(df["min_conectado"], errors="coerce").fillna(0.0)
-    df["min_pausas"] = pd.to_numeric(df["min_pausas"], errors="coerce").fillna(0.0)
-    df["min_break"] = pd.to_numeric(df["min_break"], errors="coerce").fillna(0.0)
-    df["min_bano"] = pd.to_numeric(df["min_bano"], errors="coerce").fillna(0.0)
-    df["min_lunch"] = pd.to_numeric(df["min_lunch"], errors="coerce").fillna(0.0)
-    df["min_coaching"] = pd.to_numeric(df["min_coaching"], errors="coerce").fillna(0.0)
+    # Limpieza
+    df_turnos["nombre_agente"] = df_turnos["nombre_agente"].astype(str).str.strip()
+    df_turnos["servicio"] = df_turnos["servicio"].astype(str).str.strip()
+    df_turnos["horas_programadas"] = pd.to_numeric(df_turnos["horas_programadas"], errors="coerce").fillna(8.0)
 
     # Filtrar exclusiones estándar LATAM
-    df = df[df["servicio"].apply(es_servicio_latam)]
-    df = df[~df["nombre_agente"].apply(es_persona_excluida)]
+    df_turnos = df_turnos[df_turnos["servicio"].apply(es_servicio_latam)]
+    df_turnos = df_turnos[~df_turnos["nombre_agente"].apply(es_persona_excluida)]
+
+    if df_seg.empty:
+        df_turnos["min_conectado"] = 0.0
+        df_turnos["min_pausas"] = 0.0
+        df_turnos["min_break"] = 0.0
+        df_turnos["min_bano"] = 0.0
+        df_turnos["min_lunch"] = 0.0
+        df_turnos["min_coaching"] = 0.0
+        df_turnos["coordinador"] = ""
+        df_turnos["jefe_inmediato"] = ""
+        return df_turnos
+
+    # Pre-procesar fechas y tipos de pausa en segmentos
+    df_seg["inicio_dt"] = pd.to_datetime(df_seg["inicio"], errors="coerce")
+    df_seg = df_seg.dropna(subset=["inicio_dt"])
+
+    est_offline = {'Offline'}
+    pausas_break = {'Break', 'Pre Pausa', 'Pausa Activa'}
+    pausas_bano = {'Baño'}
+    pausas_lunch = {'Lunch', 'Almuerzo', 'Refeição (sólo BR)'}
+    pausas_coaching = {'Feedback', 'Reunión Equipo', 'PCA - Feedback', 'PCA- Diálogo', 'Diálogo Diario / 4DX', 'Refuerzo Semanal', 'Cursos Adicionales'}
+    todas_pausas = {'Break', 'Baño', 'Almuerzo', 'Pre Pausa', 'Pausa Activa', 'Personal', 'Lunch', 'Refeição (sólo BR)'}
+
+    df_seg["is_con"] = ~df_seg["presence_label"].isin(est_offline)
+    df_seg["is_pau"] = df_seg["presence_label"].isin(todas_pausas)
+    df_seg["is_break"] = df_seg["presence_label"].isin(pausas_break)
+    df_seg["is_bano"] = df_seg["presence_label"].isin(pausas_bano)
+    df_seg["is_lunch"] = df_seg["presence_label"].isin(pausas_lunch)
+    df_seg["is_coaching"] = df_seg["presence_label"].isin(pausas_coaching)
+
+    # Segmentos agrupados por BP
+    seg_by_bp = {k: v for k, v in df_seg.groupby("bp")}
+
+    # Mapeo de jerarquía por BP
+    bp_coord_map = df_seg.dropna(subset=["coordinador"]).drop_duplicates("bp", keep="last").set_index("bp")["coordinador"].to_dict()
+    bp_superv_map = df_seg.dropna(subset=["jefe_inmediato"]).drop_duplicates("bp", keep="last").set_index("bp")["jefe_inmediato"].to_dict()
+
+    # Procesar cada turno con ventana de jornada adaptativa
+    filas_procesadas = []
+    for _, trn in df_turnos.iterrows():
+        bp = trn["bp"]
+        fec = trn["fecha"]
+        t_ini = str(trn["turno_ini"]).strip()
+        t_fin = str(trn["turno_fin"]).strip()
+        h_prog = float(trn["horas_programadas"])
+
+        sub_s = seg_by_bp.get(bp)
+        if sub_s is None or sub_s.empty:
+            filas_procesadas.append({
+                "min_conectado": 0.0, "min_pausas": 0.0, "min_break": 0.0,
+                "min_bano": 0.0, "min_lunch": 0.0, "min_coaching": 0.0,
+                "coordinador": bp_coord_map.get(bp, ""), "jefe_inmediato": bp_superv_map.get(bp, "")
+            })
+            continue
+
+        # Validar si es turno trasnocho (cruza la medianoche)
+        es_trasnocho = (t_fin < t_ini) and (t_fin not in ("--", "", "None")) and (t_ini not in ("--", "", "None"))
+
+        if es_trasnocho:
+            dt_ini = pd.to_datetime(f"{fec} {t_ini}")
+            dt_fin = pd.to_datetime(f"{fec} {t_fin}") + timedelta(days=1)
+            w_start = dt_ini - timedelta(minutes=30)
+            w_end = dt_fin + timedelta(minutes=30)
+
+            # Ventana extendida a la madrugada del día siguiente
+            sub_w = sub_s[(sub_s["inicio_dt"] >= w_start) & (sub_s["inicio_dt"] <= w_end)]
+        else:
+            # Turno normal de calendario
+            sub_w = sub_s[sub_s["fecha"] == fec]
+
+        m_con = sub_w.loc[sub_w["is_con"], "duracion_min"].sum()
+        m_pau = sub_w.loc[sub_w["is_pau"], "duracion_min"].sum()
+        m_brk = sub_w.loc[sub_w["is_break"], "duracion_min"].sum()
+        m_ban = sub_w.loc[sub_w["is_bano"], "duracion_min"].sum()
+        m_lun = sub_w.loc[sub_w["is_lunch"], "duracion_min"].sum()
+        m_coa = sub_w.loc[sub_w["is_coaching"], "duracion_min"].sum()
+
+        filas_procesadas.append({
+            "min_conectado": m_con,
+            "min_pausas": m_pau,
+            "min_break": m_brk,
+            "min_bano": m_ban,
+            "min_lunch": m_lun,
+            "min_coaching": m_coa,
+            "coordinador": bp_coord_map.get(bp, ""),
+            "jefe_inmediato": bp_superv_map.get(bp, "")
+        })
+
+    df_metrics = pd.DataFrame(filas_procesadas, index=df_turnos.index)
+    for col in df_metrics.columns:
+        df_turnos[col] = df_metrics[col]
+
+    df = df_turnos
 
     # ── ETIQUETADO TEMPORAL MULTICORTE ──────────────────────────────────────────
     df["dt"] = pd.to_datetime(df["fecha"], errors="coerce")

@@ -294,25 +294,31 @@ def obtener_presencia_usuarios_ausentismo(token: str, catalog: dict) -> dict:
 
 @st.cache_data(ttl=600)
 def obtener_presencia_historica_dia(fecha_str: str) -> dict:
-    """Consulta segments en SQLite para reconstruir asistencia y puntualidad de días pasados."""
+    """Consulta segments en SQLite para reconstruir asistencia y puntualidad de días pasados con soporte de trasnocho."""
     db_path = Path(BASE_DIR) / DB_PATH
     if not db_path.exists():
         return {}
     with sqlite3.connect(db_path) as conn:
         try:
+            dt_f = datetime.strptime(fecha_str, "%Y-%m-%d")
+            f_next = (dt_f + timedelta(days=1)).strftime("%Y-%m-%d")
             df = pd.read_sql_query("""
                 SELECT 
                     substr(agente, 1, instr(agente, ' - ') - 1) as bp,
-                    min(inicio) as primer_login,
-                    max(fin) as ultimo_fin,
-                    sum(duracion_min) as duracion_min
+                    inicio,
+                    fin,
+                    duracion_min,
+                    fecha
                 FROM segments
-                WHERE fecha = ? AND system_presence != 'OFFLINE'
-                GROUP BY bp
-            """, conn, params=(fecha_str,))
+                WHERE (fecha = ? OR fecha = ?) AND system_presence != 'OFFLINE'
+            """, conn, params=(fecha_str, f_next))
             if df.empty:
                 return {}
-            return df.set_index("bp").to_dict(orient="index")
+
+            res = {}
+            for bp, grp in df.groupby("bp"):
+                res[bp] = grp[["inicio", "fin", "duracion_min", "fecha"]].to_dict(orient="records")
+            return res
         except Exception:
             return {}
 
@@ -449,34 +455,79 @@ def construir_radar_ausentismo(
         elif es_pasado:
             aplica_genesys = True
             ya_debio_iniciar = True
-            hist_info = hist_presencia_map.get(bp)
-            if hist_info:
-                esta_conectado = True
-                primer_login = str(hist_info.get("primer_login", "")).strip()
-                diff_min = 0.0
+            segs_agente = hist_presencia_map.get(bp, [])
+            if segs_agente:
+                es_trasnocho = False
                 try:
-                    t_login_dt = datetime.strptime(primer_login, "%H:%M:%S")
-                    t_ini_dt_ref = datetime.strptime(h_ini, "%H:%M:%S")
-                    diff_min = (t_login_dt - t_ini_dt_ref).total_seconds() / 60.0
+                    es_trasnocho = (datetime.strptime(h_fin, "%H:%M:%S") < datetime.strptime(h_ini, "%H:%M:%S"))
                 except Exception:
                     pass
 
-                minutos_desde_inicio = max(0, int(round(diff_min)))
-                if diff_min <= 5:
-                    estado_asistencia = "🟢 Conectó a Tiempo"
-                    semaforo = "🟢"
-                    es_ausente = False
-                elif diff_min <= 15:
-                    estado_asistencia = "🟠 Retraso Leve (5-15m)"
-                    semaforo = "🟠"
-                    es_ausente = True
+                # Filtrar segmentos pertenecientes a la jornada (shift-date window)
+                if es_trasnocho:
+                    dt_shift_ini = datetime.strptime(f"{fecha_str} {h_ini}", "%Y-%m-%d %H:%M:%S")
+                    dt_f_next = datetime.strptime(fecha_str, "%Y-%m-%d") + timedelta(days=1)
+                    dt_shift_fin = datetime.strptime(f"{dt_f_next.strftime('%Y-%m-%d')} {h_fin}", "%Y-%m-%d %H:%M:%S")
+                    w_start = dt_shift_ini - timedelta(minutes=60)
+                    w_end = dt_shift_fin + timedelta(minutes=30)
                 else:
-                    estado_asistencia = "🔴 Retraso Crítico (>15m)"
-                    semaforo = "🔴"
-                    es_ausente = True
+                    dt_shift_ini = datetime.strptime(f"{fecha_str} {h_ini}", "%Y-%m-%d %H:%M:%S")
+                    dt_shift_fin = datetime.strptime(f"{fecha_str} {h_fin}", "%Y-%m-%d %H:%M:%S")
+                    w_start = dt_shift_ini - timedelta(minutes=60)
+                    w_end = dt_shift_fin + timedelta(minutes=30)
 
-                tot_min_int = int(round(hist_info.get("duracion_min", 0)))
-                pres_label = f"Conectó ({tot_min_int}m • Inició {primer_login})"
+                segs_validos = []
+                for s in segs_agente:
+                    try:
+                        s_dt = datetime.strptime(s["inicio"][:19], "%Y-%m-%d %H:%M:%S")
+                        if w_start <= s_dt <= w_end:
+                            segs_validos.append((s_dt, s))
+                    except Exception:
+                        if s.get("fecha") == fecha_str:
+                            segs_validos.append((None, s))
+
+                if segs_validos:
+                    esta_conectado = True
+                    segs_validos.sort(key=lambda x: x[0] if x[0] else datetime.min)
+                    primer_dt = segs_validos[0][0]
+                    primer_login = primer_dt.strftime("%H:%M:%S") if primer_dt else segs_validos[0][1]["inicio"]
+
+                    diff_min = 0.0
+                    if primer_dt:
+                        diff_min = (primer_dt - dt_shift_ini).total_seconds() / 60.0
+                    else:
+                        try:
+                            t_login_str = primer_login.split(" ")[-1][:8]
+                            t_login_dt = datetime.strptime(t_login_str, "%H:%M:%S")
+                            t_ini_dt_ref = datetime.strptime(h_ini, "%H:%M:%S")
+                            diff_min = (t_login_dt - t_ini_dt_ref).total_seconds() / 60.0
+                        except Exception:
+                            pass
+
+                    minutos_desde_inicio = max(0, int(round(diff_min)))
+                    if diff_min <= 5:
+                        estado_asistencia = "🟢 Conectó a Tiempo"
+                        semaforo = "🟢"
+                        es_ausente = False
+                    elif diff_min <= 15:
+                        estado_asistencia = "🟠 Retraso Leve (5-15m)"
+                        semaforo = "🟠"
+                        es_ausente = True
+                    else:
+                        estado_asistencia = "🔴 Retraso Crítico (>15m)"
+                        semaforo = "🔴"
+                        es_ausente = True
+
+                    tot_min_int = int(round(sum(float(s[1].get("duracion_min", 0)) for s in segs_validos)))
+                    h_ini_disp = primer_login.split(" ")[-1][:5]
+                    pres_label = f"Conectó ({tot_min_int}m • Inició {h_ini_disp})"
+                else:
+                    esta_conectado = False
+                    es_ausente = True
+                    estado_asistencia = "🚨 Ausencia / No Login"
+                    semaforo = "🚨"
+                    minutos_desde_inicio = int(round(duracion_turno_horas * 60))
+                    pres_label = "Sin Conexión"
             else:
                 esta_conectado = False
                 es_ausente = True

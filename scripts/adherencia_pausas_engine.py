@@ -338,17 +338,22 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
         if df_t.empty:
             return pd.DataFrame()
 
+        dt_fec = pd.to_datetime(fecha)
+        fecha_sig = (dt_fec + timedelta(days=1)).strftime("%Y-%m-%d")
+
         query_seg = """
-            SELECT agente, presence_label, system_presence, inicio, fin, duracion_min, servicio, coordinador, jefe_inmediato
+            SELECT agente, presence_label, system_presence, inicio, fin, duracion_min, servicio, coordinador, jefe_inmediato, fecha
             FROM segments
-            WHERE fecha = ?
+            WHERE fecha >= ? AND fecha <= ?
         """
-        df_seg = pd.read_sql_query(query_seg, conn, params=[fecha])
+        df_seg = pd.read_sql_query(query_seg, conn, params=[fecha, fecha_sig])
 
     if not df_seg.empty:
         df_seg["bp"] = df_seg["agente"].astype(str).str.split(" - ").str[0].str.strip()
+        df_seg["inicio_dt"] = pd.to_datetime(df_seg["inicio"], errors="coerce")
     else:
         df_seg["bp"] = []
+        df_seg["inicio_dt"] = []
 
     est_offline = {"Offline", "Desconectado"}
     est_pausas = {"Break", "Lunch", "Baño", "Pre Pausa", "Descanso", "Almuerzo", "Diálogo Diario / 4DX", "PCA- Diálogo", "Refuerzo Semanal", "Cursos Adicionales"}
@@ -370,9 +375,9 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
         if not es_servicio_latam(srv):
             continue
 
-        sub_seg = seg_by_bp.get(bp)
-        coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
-        superv_real = (sub_seg["jefe_inmediato"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["jefe_inmediato"].iloc[0]) else None) or bp_to_superv.get(bp, "")
+        sub_seg_all = seg_by_bp.get(bp)
+        coord_real = (sub_seg_all["coordinador"].dropna().iloc[0] if sub_seg_all is not None and not sub_seg_all.empty and not sub_seg_all["coordinador"].dropna().empty else None) or bp_to_coord.get(bp, "")
+        superv_real = (sub_seg_all["jefe_inmediato"].dropna().iloc[0] if sub_seg_all is not None and not sub_seg_all.empty and not sub_seg_all["jefe_inmediato"].dropna().empty else None) or bp_to_superv.get(bp, "")
 
         # Exclusiones de ámbito (Regla de Oro Marely Cardona)
         es_de_marely = es_equipo_marely_cardona(
@@ -404,6 +409,21 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
             if not superv_real or supervisor.upper() not in superv_real.upper():
                 continue
 
+        # Validar si es turno trasnocho (cruza la medianoche)
+        es_trasnocho = (t_fin < t_ini) and (t_fin not in ("--", "", "None")) and (t_ini not in ("--", "", "None"))
+
+        if sub_seg_all is not None and not sub_seg_all.empty:
+            if es_trasnocho:
+                dt_ini = pd.to_datetime(f"{fecha} {t_ini}")
+                dt_fin = pd.to_datetime(f"{fecha_sig} {t_fin}")
+                w_start = dt_ini - timedelta(minutes=30)
+                w_end = dt_fin + timedelta(minutes=30)
+                sub_seg = sub_seg_all[(sub_seg_all["inicio_dt"] >= w_start) & (sub_seg_all["inicio_dt"] <= w_end)]
+            else:
+                sub_seg = sub_seg_all[sub_seg_all["fecha"] == fecha]
+        else:
+            sub_seg = None
+
         if sub_seg is not None and not sub_seg.empty:
             conectados = sub_seg[~sub_seg["presence_label"].isin(est_offline)]
             min_conectado = conectados["duracion_min"].sum()
@@ -418,7 +438,12 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
             pri_con = conectados["inicio"].min()
             ult_des = conectados["fin"].max()
             h_pri = pri_con.split(" ")[1][:5] if pd.notna(pri_con) and " " in str(pri_con) else "--"
-            h_ult = ult_des.split(" ")[1][:5] if pd.notna(ult_des) and " " in str(ult_des) else "--"
+            if pd.notna(ult_des) and " " in str(ult_des):
+                u_fec = ult_des.split(" ")[0]
+                u_hor = ult_des.split(" ")[1][:5]
+                h_ult = f"{u_hor} (+1d)" if (es_trasnocho and u_fec == fecha_sig) else u_hor
+            else:
+                h_ult = "--"
         else:
             h_conectado = 0.0
             h_prod = 0.0
@@ -537,19 +562,26 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
         if df_t.empty:
             return pd.DataFrame()
 
+        dt_fec = pd.to_datetime(fecha)
+        fecha_sig = (dt_fec + timedelta(days=1)).strftime("%Y-%m-%d")
+
         query_seg = """
-            SELECT agente, presence_label, inicio, fin, duracion_min, servicio, coordinador, jefe_inmediato
+            SELECT agente, presence_label, inicio, fin, duracion_min, servicio, coordinador, jefe_inmediato, fecha
             FROM segments
-            WHERE fecha = ?
+            WHERE fecha >= ? AND fecha <= ?
         """
-        df_seg = pd.read_sql_query(query_seg, conn, params=[fecha])
+        df_seg = pd.read_sql_query(query_seg, conn, params=[fecha, fecha_sig])
 
     if not df_seg.empty:
         df_seg["bp"] = df_seg["agente"].astype(str).str.split(" - ").str[0].str.strip()
+        df_seg["inicio_dt"] = pd.to_datetime(df_seg["inicio"], errors="coerce")
+        df_seg["fin_dt"] = pd.to_datetime(df_seg["fin"], errors="coerce")
         df_seg["t_ini_min"] = df_seg["inicio"].astype(str).str.split(" ").str[-1].apply(_time_to_minutes)
         df_seg["t_fin_min"] = df_seg["fin"].astype(str).str.split(" ").str[-1].apply(_time_to_minutes)
     else:
         df_seg["bp"] = []
+        df_seg["inicio_dt"] = []
+        df_seg["fin_dt"] = []
         df_seg["t_ini_min"] = []
         df_seg["t_fin_min"] = []
 
@@ -568,15 +600,30 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
         bp = str(row["bp"]).strip()
         nom = row["nombre_agente"] or f"Asesor BP {bp}"
         srv = str(row["servicio"]).strip() if pd.notna(row.get("servicio")) and str(row["servicio"]).strip() else "LATAM"
+        t_ini_s = str(row.get("turno_ini", "--")).strip()
+        t_fin_s = str(row.get("turno_fin", "--")).strip()
+        es_trasnocho = (t_fin_s < t_ini_s) and (t_fin_s not in ("--", "", "None")) and (t_ini_s not in ("--", "", "None"))
 
         # REGLA MAESTRA DE CUENTA LATAM:
         # Descartar inmediatamente personal o turnos de campañas externas (Claro, Chec, Colmédica, etc.)
         if not es_servicio_latam(srv):
             continue
 
-        sub_seg = seg_by_bp.get(bp)
-        coord_real = (sub_seg["coordinador"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["coordinador"].iloc[0]) else None) or bp_to_coord.get(bp, "")
-        superv_real = (sub_seg["jefe_inmediato"].iloc[0] if sub_seg is not None and not sub_seg.empty and pd.notna(sub_seg["jefe_inmediato"].iloc[0]) else None) or bp_to_superv.get(bp, "")
+        sub_seg_all = seg_by_bp.get(bp)
+        coord_real = (sub_seg_all["coordinador"].dropna().iloc[0] if sub_seg_all is not None and not sub_seg_all.empty and not sub_seg_all["coordinador"].dropna().empty else None) or bp_to_coord.get(bp, "")
+        superv_real = (sub_seg_all["jefe_inmediato"].dropna().iloc[0] if sub_seg_all is not None and not sub_seg_all.empty and not sub_seg_all["jefe_inmediato"].dropna().empty else None) or bp_to_superv.get(bp, "")
+
+        if sub_seg_all is not None and not sub_seg_all.empty:
+            if es_trasnocho:
+                dt_trn_ini = pd.to_datetime(f"{fecha} {t_ini_s}")
+                dt_trn_fin = pd.to_datetime(f"{fecha_sig} {t_fin_s}")
+                w_start = dt_trn_ini - timedelta(minutes=30)
+                w_end = dt_trn_fin + timedelta(minutes=30)
+                sub_seg = sub_seg_all[(sub_seg_all["inicio_dt"] >= w_start) & (sub_seg_all["inicio_dt"] <= w_end)]
+            else:
+                sub_seg = sub_seg_all[sub_seg_all["fecha"] == fecha]
+        else:
+            sub_seg = None
 
         # Exclusiones de ámbito (Regla de Oro Marely Cardona)
         es_de_marely = es_equipo_marely_cardona(
@@ -601,7 +648,7 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
                 continue
         else:
             # En ámbito TODOS, descartar registros de cuentas ajenas que no operan en LATAM
-            if sub_seg is None and not es_servicio_latam(srv):
+            if sub_seg_all is None and not es_servicio_latam(srv):
                 continue
 
         if coordinador and coordinador != "Todos los Coordinadores":
@@ -612,16 +659,33 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
                 continue
 
         for label_pausa, col_ini, col_fin, labels_presencia in tipos_pausas:
-            h_ini_str = row.get(col_ini)
-            h_fin_str = row.get(col_fin)
-            if not h_ini_str or not h_fin_str or str(h_ini_str).strip() in ("00:00:00", "None", ""):
+            val_ini = row.get(col_ini)
+            val_fin = row.get(col_fin)
+            if pd.isna(val_ini) or pd.isna(val_fin):
+                continue
+            h_ini_str = str(val_ini).strip()
+            h_fin_str = str(val_fin).strip()
+            if not h_ini_str or not h_fin_str or h_ini_str.lower() in ("00:00:00", "none", "nan", "--", "") or h_fin_str.lower() in ("00:00:00", "none", "nan", "--", ""):
                 continue
 
-            prog_ini_min = _time_to_minutes(str(h_ini_str))
-            prog_fin_min = _time_to_minutes(str(h_fin_str))
-            prog_dur_min = max(0.0, prog_fin_min - prog_ini_min)
-            if prog_dur_min == 0.0:
+            # Determinar fecha de ocurrencia de la pausa programada
+            if es_trasnocho and h_ini_str < t_ini_s:
+                fec_pausa_ini = fecha_sig
+            else:
+                fec_pausa_ini = fecha
+
+            if h_fin_str < h_ini_str:
+                fec_pausa_fin = fecha_sig
+            else:
+                fec_pausa_fin = fec_pausa_ini
+
+            dt_prog_ini = pd.to_datetime(f"{fec_pausa_ini} {h_ini_str}")
+            dt_prog_fin = pd.to_datetime(f"{fec_pausa_fin} {h_fin_str}")
+            prog_dur_min = (dt_prog_fin - dt_prog_ini).total_seconds() / 60.0
+            if prog_dur_min <= 0.0:
                 continue
+
+            prog_ini_min = _time_to_minutes(h_ini_str)
 
             tramo_real = None
             if sub_seg is not None and not sub_seg.empty:
@@ -635,19 +699,21 @@ def calcular_adherencia_pausas_intradia(fecha: str, coordinador: str = None, sup
                     candidatos = sub_seg[sub_seg["presence_label"].isin(labels_presencia)].copy()
 
                 if not candidatos.empty:
-                    candidatos["distancia"] = (candidatos["t_ini_min"] - prog_ini_min).abs()
-                    cercanos = candidatos[candidatos["distancia"] <= 120].sort_values("distancia")
+                    candidatos["distancia_min"] = (candidatos["inicio_dt"] - dt_prog_ini).abs().dt.total_seconds() / 60.0
+                    cercanos = candidatos[candidatos["distancia_min"] <= 120].sort_values("distancia_min")
                     if not cercanos.empty:
                         tramo_real = cercanos.iloc[0]
 
             if tramo_real is not None:
-                real_ini_min = tramo_real["t_ini_min"]
-                real_fin_min = tramo_real["t_fin_min"]
+                r_ini_dt = tramo_real["inicio_dt"]
+                r_fin_dt = tramo_real["fin_dt"] if pd.notna(tramo_real["fin_dt"]) else (r_ini_dt + timedelta(minutes=float(tramo_real["duracion_min"])))
                 real_dur_min = float(tramo_real["duracion_min"])
-                
-                desvio_ini_min = int(round(real_ini_min - prog_ini_min))
+
+                desvio_ini_min = int(round((r_ini_dt - dt_prog_ini).total_seconds() / 60.0))
                 exceso_dur_min = int(round(real_dur_min - prog_dur_min))
-                hora_real_str = f"{_minutes_to_hhmm(real_ini_min)} - {_minutes_to_hhmm(real_fin_min)}"
+
+                s_plus = " (+1d)" if (es_trasnocho and r_ini_dt.strftime("%Y-%m-%d") == fecha_sig) else ""
+                hora_real_str = f"{r_ini_dt.strftime('%H:%M')}{s_plus} - {r_fin_dt.strftime('%H:%M')}"
 
                 if abs(desvio_ini_min) <= tolerancia_min and exceso_dur_min <= 3:
                     estado_p = "🟢 Puntual y en tiempo"
