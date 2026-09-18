@@ -98,12 +98,66 @@ def cargar_catalogo_wrapup_codes(token: str, forzar_recarga: bool = False) -> di
     return catalog
 
 
+def resolver_nombre_y_macro_categoria(wid: str, catalog: dict) -> tuple[str, str]:
+    """
+    Traduce el wrapUpCode (UUID o código nativo ININ) a:
+    1. Nombre 100% comprensible para la operación (eliminando 'Código ININ-WRA').
+    2. Macro-Categoría de Negocio para análisis ejecutivo.
+    """
+    if not wid:
+        return "⚠️ Sin Tipificar / Abandono en Cola", "⚠️ Sin Tipificar / Incidencias"
+
+    wid_clean = str(wid).strip()
+
+    # Códigos de sistema nativos de Genesys (Legacy Interactive Intelligence)
+    if wid_clean == "ININ-WRAP-UP-TIMEOUT":
+        return "⚠️ Sin Tipificar (Timeout / Tiempo de ACW Agotado)", "⚠️ Sin Tipificar / Incidencias"
+    elif wid_clean == "ININ-WRAP-UP-DELETED":
+        return "⚠️ Código Eliminado en Genesys", "⚠️ Sin Tipificar / Incidencias"
+    elif wid_clean == "ININ-WRAP-UP":
+        return "⚠️ Sin Tipificar (Cierre Directo ACD)", "⚠️ Sin Tipificar / Incidencias"
+    elif wid_clean.startswith("ININ-"):
+        clean_code = wid_clean.replace("ININ-", "").replace("-", " ").title()
+        return f"⚙️ Sistema Genesys: {clean_code}", "⚙️ Eventos de Sistema"
+
+    # Buscar en catálogo oficial de Genesys
+    nom = catalog.get(wid_clean)
+    if not nom:
+        nom = f"Tipificación No Catalogada ({wid_clean[:8]})"
+
+    nu = nom.upper()
+    if any(k in nu for k in ("ALTERA", "ADELANTO", "POSTERGA", "CANCELAC", "CANCEL", "DEMORA", "PROTECC", "CONTINGENCIA", "HORARIOS", "DATA")):
+        m = "✈️ Alteraciones y Cambios de Vuelo"
+    elif any(k in nu for k in ("BAG", "EQUIP", "BAGAGEM", "MALETA", "FALTANTE O DEMORADO", "DANIFICADA", "AVIH", "PETC", "ANCILL", "ASSENTO", "ASIENTO")):
+        m = "🧳 Equipaje y Ancillaries"
+    elif any(k in nu for k in ("REEMBOLS", "DEVOLUC", "VOUCHER", "TRAVEL VOUCHER")):
+        m = "🔁 Devoluciones y Reembolsos"
+    elif any(k in nu for k in ("EMIS", "EMISS", "REEMIS", "BOLETO", "TARIF", "TARIFA", "PAGO", "PAGAMENTO", "LINK DE PAGO", "FOP")):
+        m = "💳 Emisiones, Tarifas y Pagos"
+    elif any(k in nu for k in ("MILLAS", "MILHAS", "PASS", "ACREDITA", "ACUMULA", "UPG", "UPGRADE", "SOCIO", "ELITE")):
+        m = "🌟 LATAM Pass y Fidelización"
+    elif any(k in nu for k in ("CHECK", "EMBARQUE", "DOCUMENTA", "PASSAPORTE", "PASAPORTE", "RESERVA")):
+        m = "🛫 Check-in y Documentación"
+    elif any(k in nu for k in ("IATA", "PCC", "AGENCIA", "AGÊNCIAS", "ADM", "DEBIT MEMO", "GDS", "SABRE", "AMADEUS")):
+        m = "🏢 Agencias B2B y Canales Indirectos"
+    elif any(k in nu for k in ("ALLEGRO", "ERRO", "ERROR", "QUEDA", "CAIDA", "LOGIN", "SISTEMA", "ACESSO", "ACCESO")):
+        m = "💻 Fallas de Sistemas y Plataformas"
+    elif any(k in nu for k in ("AGRADEC", "RESUELTO", "DUDA", "CONSULTA", "INFORMAC", "ACOMPANHAMENTO")):
+        m = "🤝 Consultas, Agradecimientos y Gestión General"
+    elif "SIN TIPIFICAR" in nu or "ABANDONO" in nu:
+        m = "⚠️ Sin Tipificar / Incidencias"
+    else:
+        m = "📋 Otros Motivos de Contacto"
+
+    return nom, m
+
+
 # ── 2. EXTRACCIÓN DE TIPOLOGÍAS EN GENESYS CLOUD ──────────────────────────────
 
 def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "") -> pd.DataFrame:
     """
     Consulta a la Analytics API de Genesys Cloud las métricas agrupadas por cola y código de finalización.
-    Devuelve DataFrame con: servicio, nombre_cola, wrapup_id, motivo_tipologia, canal, volumen, aht_segundos, aht_formato, porcentaje.
+    Devuelve DataFrame con: servicio, nombre_cola, wrapup_id, motivo_tipologia, macro_categoria, canal, volumen, aht_segundos, aht_formato, porcentaje.
     """
     if not token:
         return pd.DataFrame()
@@ -179,7 +233,7 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
         if servicio and servicio.lower() not in srv.lower():
             continue
 
-        motivo_nombre = catalog.get(wid, "Sin Tipificar / Abandono" if not wid else f"Código {wid[:8]}")
+        motivo_nombre, macro_cat = resolver_nombre_y_macro_categoria(wid, catalog)
 
         # Extraer tHandle (duración y conteo de gestiones tipificadas)
         handle_count = 0
@@ -203,6 +257,7 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
                 "canal": canal,
                 "wrapup_id": wid or "",
                 "motivo_contacto": motivo_nombre,
+                "macro_categoria": macro_cat,
                 "volumen": handle_count,
                 "tiempo_total_sec": handle_sum_sec
             })
@@ -211,8 +266,8 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
         return pd.DataFrame()
 
     df = pd.DataFrame(records)
-    # Agrupar por servicio, cola y motivo de contacto
-    df_agg = df.groupby(["fuente", "servicio", "cola", "canal", "motivo_contacto"]).agg({
+    # Agrupar por servicio, cola, macro_categoria y motivo de contacto
+    df_agg = df.groupby(["fuente", "servicio", "cola", "canal", "macro_categoria", "motivo_contacto"]).agg({
         "volumen": "sum",
         "tiempo_total_sec": "sum"
     }).reset_index()
@@ -273,6 +328,7 @@ def obtener_tipologias_salesforce(fecha: str = "hoy") -> pd.DataFrame:
                     "cola": raw_q,
                     "canal": "CHAT",
                     "motivo_contacto": motivo_limpio,
+                    "macro_categoria": "🏢 Agencias B2B y Canales Indirectos",
                     "volumen": max(vol_aprox, int(row["max_espera"])),
                     "aht_segundos": 600.0,
                     "aht_formato": "10:00"
@@ -290,12 +346,23 @@ def obtener_tipologias_salesforce(fecha: str = "hoy") -> pd.DataFrame:
                     q_ctrl = str(r_c["Work Queue Control"])
                     orig = str(r_c["Origen del caso"])
                     cnt = int(r_c["conteo"])
+                    q_u = q_ctrl.upper()
+                    if "EMISION" in q_u or "PAGO" in q_u:
+                        m_sf = "💳 Emisiones, Tarifas y Pagos"
+                    elif "CORPORATE" in q_u or "PYME" in q_u:
+                        m_sf = "🏢 Clientes Corporativos y PYME"
+                    elif "REEMBOLSO" in q_u or "DEVOLUCION" in q_u:
+                        m_sf = "🔁 Devoluciones y Reembolsos"
+                    else:
+                        m_sf = "🏢 Agencias B2B y Canales Indirectos"
+
                     records.append({
                         "fuente": "Salesforce CRM Casos",
                         "servicio": "BO Agencias B2B",
                         "cola": q_ctrl,
                         "canal": orig.upper() if orig else "CASO",
                         "motivo_contacto": f"Gestión {q_ctrl} ({orig})",
+                        "macro_categoria": m_sf,
                         "volumen": cnt,
                         "aht_segundos": 900.0,
                         "aht_formato": "15:00"
@@ -498,7 +565,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
         ws_gen = wb.create_sheet(title="Genesys Cloud (Voz & WPP)")
         ws_gen.views.sheetView[0].showGridLines = True
 
-        cols_gen = ["Servicio", "Cola Genesys", "Canal", "Motivo de Contacto (Wrap-Up)", "Volumen", "% Participación", "AHT (MM:SS)"]
+        cols_gen = ["Servicio", "Cola Genesys", "Canal", "Macro-Categoría", "Motivo de Contacto (Wrap-Up)", "Volumen", "% Participación", "AHT (MM:SS)"]
         ws_gen.append(cols_gen)
         for col_num in range(1, len(cols_gen) + 1):
             c = ws_gen.cell(row=1, column=col_num)
@@ -511,6 +578,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
                 row["servicio"],
                 row["cola"],
                 row["canal"],
+                row.get("macro_categoria", "General"),
                 row["motivo_contacto"],
                 int(row["volumen"]),
                 f"{row['porcentaje']}%",
@@ -523,7 +591,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
                 if r_idx % 2 == 1:
                     cell.fill = fill_zebra
                 cell.border = thin_border
-                cell.alignment = Alignment(horizontal="center" if col_num in [3, 5, 6, 7] else "left", vertical="center")
+                cell.alignment = Alignment(horizontal="center" if col_num in [3, 4, 6, 7, 8] else "left", vertical="center")
 
         for col in ws_gen.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
@@ -535,7 +603,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
         ws_sf = wb.create_sheet(title="Salesforce (Chat & Casos)")
         ws_sf.views.sheetView[0].showGridLines = True
 
-        cols_sf = ["Fuente Salesforce", "Servicio", "Cola / Origen", "Canal", "Motivo / Tipología", "Volumen / Espera", "% Participación"]
+        cols_sf = ["Fuente Salesforce", "Servicio", "Cola / Origen", "Canal", "Macro-Categoría", "Motivo / Tipología", "Volumen / Espera", "% Participación"]
         ws_sf.append(cols_sf)
         for col_num in range(1, len(cols_sf) + 1):
             c = ws_sf.cell(row=1, column=col_num)
@@ -549,6 +617,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
                 row["servicio"],
                 row["cola"],
                 row["canal"],
+                row.get("macro_categoria", "General"),
                 row["motivo_contacto"],
                 int(row["volumen"]),
                 f"{row['porcentaje']}%"
@@ -560,7 +629,7 @@ def generar_reporte_diario_excel(df_genesys: pd.DataFrame, df_salesforce: pd.Dat
                 if r_idx % 2 == 1:
                     cell.fill = fill_zebra
                 cell.border = thin_border
-                cell.alignment = Alignment(horizontal="center" if col_num in [4, 6, 7] else "left", vertical="center")
+                cell.alignment = Alignment(horizontal="center" if col_num in [4, 5, 7, 8] else "left", vertical="center")
 
         for col in ws_sf.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
@@ -650,81 +719,153 @@ def render_seccion_tipologias(current_email: str = ""):
     tot_vol = df_total["volumen"].sum()
     df_total["porcentaje"] = ((df_total["volumen"] / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
 
-    # ── TARJETAS DE KPIS EJECUTIVOS ──
-    top1_row = df_total.iloc[0] if not df_total.empty else None
-    top3_pct = df_total.head(3)["porcentaje"].sum() if len(df_total) >= 3 else df_total["porcentaje"].sum()
+    # ── IDENTIFICAR LLAMADAS SIN TIPIFICAR (TIMEOUTS ACW) VS DEMANDA REAL ──
+    mask_sin_tipificar = (
+        df_total["macro_categoria"].str.contains("Sin Tipificar", case=False, na=False) |
+        df_total["motivo_contacto"].str.contains("Timeout", case=False, na=False) |
+        df_total["motivo_contacto"].str.contains("ININ", case=False, na=False)
+    )
+    vol_sin_tipificar = int(df_total.loc[mask_sin_tipificar, "volumen"].sum())
+    vol_tipificadas = tot_vol - vol_sin_tipificar
+    pct_calidad_tipif = ((vol_tipificadas / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
+    pct_sin_tipificar = ((vol_sin_tipificar / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
+
+    # Top 1 motivo real de cliente (excluyendo llamadas sin tipificar)
+    df_clientes = df_total[~mask_sin_tipificar]
+    if not df_clientes.empty:
+        df_clientes_agg = df_clientes.groupby("motivo_contacto")["volumen"].sum().reset_index().sort_values(by="volumen", ascending=False)
+        top1_cliente_row = df_clientes_agg.iloc[0]
+        top1_nom = str(top1_row["motivo_contacto"]) if (top1_row := top1_cliente_row) is not None else "-"
+        top1_vol = int(top1_cliente_row["volumen"])
+        top1_pct = ((top1_vol / vol_tipificadas) * 100.0).round(1) if vol_tipificadas > 0 else 0.0
+    else:
+        top1_nom = "-"
+        top1_vol = 0
+        top1_pct = 0.0
+
     aht_prom = df_total["aht_segundos"].mean() if "aht_segundos" in df_total.columns else 0.0
 
+    # ── TARJETAS DE KPIS EJECUTIVOS ──
     k_c1, k_c2, k_c3, k_c4 = st.columns(4)
     with k_c1:
-        st.metric("Total Contactos Tipificados", f"{tot_vol:,}")
+        st.metric("Total Interacciones", f"{tot_vol:,}")
     with k_c2:
-        st.metric("Top 1 Motivo Principal", f"{top1_row['motivo_contacto'][:22]}..." if top1_row is not None else "-", f"{top1_row['porcentaje']}% de demanda" if top1_row is not None else "")
+        st.metric(
+            "Calidad de Tipificación",
+            f"{pct_calidad_tipif:.1f}%",
+            delta=f"{vol_tipificadas:,} motivos reales",
+            help="Porcentaje de interacciones donde el asesor seleccionó efectivamente un motivo de contacto de negocio antes de agotar el tiempo de ACW."
+        )
     with k_c3:
-        st.metric("Concentración Top 3", f"{top3_pct:.1f}%", help="% del volumen total que se concentra en los 3 primeros motivos")
+        st.metric(
+            "Top 1 Motivo Real Cliente",
+            f"{top1_nom[:20]}..." if len(top1_nom) > 20 else top1_nom,
+            delta=f"{top1_pct}% demanda cliente ({top1_vol:,})" if top1_vol > 0 else None,
+            help="Motivo de contacto de negocio más frecuente de los pasajeros (excluyendo llamadas sin tipificar)."
+        )
     with k_c4:
-        st.metric("AHT Promedio Ponderado", formatear_segundos_mm_ss(aht_prom))
+        st.metric(
+            "⚠️ Sin Tipificar (Timeout ACW)",
+            f"{vol_sin_tipificar:,}",
+            delta=f"{pct_sin_tipificar:.1f}% sin clasificar",
+            delta_color="inverse",
+            help="Llamadas donde el asesor dejó expirar el temporizador de ACW (After Call Work) en Genesys sin seleccionar ningún wrap-up code."
+        )
 
     # ── BANNER DE ALERTA DE CONTINGENCIA / PICOS ──
-    contingencias = detectar_picos_y_contingencias(df_total, umbral_pct=25.0)
+    contingencias = detectar_picos_y_contingencias(df_clientes if not df_clientes.empty else df_total, umbral_pct=25.0)
+    if vol_sin_tipificar > 0 and pct_sin_tipificar >= 20.0:
+        st.warning(
+            f"⏱️ **Oportunidad de Calidad Operativa**: El **{pct_sin_tipificar:.1f}%** de las llamadas ({vol_sin_tipificar:,}) cerraron en **Timeout de ACW** sin que el asesor seleccionara tipología. Esto oculta motivos reales y distorsiona el análisis de demanda.",
+            icon="⚠️"
+        )
     if contingencias:
         for c in contingencias:
             st.error(
-                f"🚨 **{c['nivel_alerta']} en {c['servicio']}**: El motivo **'{c['motivo']}'** concentra el **{c['porcentaje']}%** del tráfico ({c['volumen']:,} de {c['total_servicio']:,} interacciones). Posible causa raíz de contingencia o pico de demanda.",
+                f"🚨 **{c['nivel_alerta']} en {c['servicio']}**: El motivo de cliente **'{c['motivo']}'** concentra el **{c['porcentaje']}%** del tráfico tipificado ({c['volumen']:,} de {c['total_servicio']:,} interacciones). Posible causa raíz de contingencia o pico de demanda.",
                 icon="⚠️"
             )
-    else:
+    elif not (vol_sin_tipificar > 0 and pct_sin_tipificar >= 20.0):
         st.success("🟢 **Operación Estable**: La demanda se encuentra distribuida normalmente entre los motivos habituales sin concentración anómala superior al 25%.", icon="✅")
 
     st.markdown("---")
 
-    # ── GRÁFICOS INTERACTIVOS (PARETO Y TREEMAP) ──
-    g_c1, g_c2 = st.columns([1.5, 1.0])
+    # ── FILTROS DE MACRO-CATEGORÍAS Y AISLAMIENTO DE DEMANDA ──
+    fc_1, fc_2 = st.columns([1.7, 1.3], vertical_alignment="bottom")
+    with fc_1:
+        macros_disp = ["Todas las Familias / Macro-Categorías"] + sorted([m for m in df_total["macro_categoria"].dropna().unique() if m])
+        macro_sel = st.selectbox("🏷️ Filtrar por Familia / Macro-Categoría de Negocio", macros_disp, key="tipol_macro_sel")
+    with fc_2:
+        ocultar_timeouts = st.checkbox(
+            "🚫 Aislar Demanda Real (Ocultar llamadas sin tipificar / Timeouts)",
+            value=False,
+            help="Oculta '⚠️ Sin Tipificar (Timeout / Tiempo de ACW Agotado)' para analizar únicamente los motivos reales de los clientes.",
+            key="tipol_ocultar_timeouts"
+        )
+
+    df_graficos = df_total.copy()
+    if ocultar_timeouts:
+        df_graficos = df_graficos[~mask_sin_tipificar]
+
+    if macro_sel != "Todas las Familias / Macro-Categorías":
+        df_graficos = df_graficos[df_graficos["macro_categoria"] == macro_sel]
+
+    # ── GRÁFICOS INTERACTIVOS (PARETO Y MACRO-CATEGORÍAS) ──
+    g_c1, g_c2 = st.columns([1.4, 1.1])
 
     with g_c1:
-        st.subheader("📊 Top 10 Motivos de Contacto (Pareto)")
-        df_top10 = df_total.groupby("motivo_contacto")["volumen"].sum().reset_index().sort_values(by="volumen", ascending=True).tail(10)
-        fig_bar = px.bar(
-            df_top10,
-            x="volumen",
-            y="motivo_contacto",
-            orientation="h",
-            color="volumen",
-            color_continuous_scale="Purples",
-            text="volumen",
-            labels={"volumen": "Interacciones", "motivo_contacto": "Motivo de Contacto"}
-        )
-        fig_bar.update_layout(
-            height=380,
-            margin=dict(l=10, r=20, t=10, b=10),
-            coloraxis_showscale=False,
-            font=dict(size=11)
-        )
-        fig_bar.update_traces(textposition="outside")
-        st.plotly_chart(fig_bar, use_container_width=True)
+        subtit_bar = "📊 Top 10 Motivos de Contacto" if not ocultar_timeouts else "📊 Top 10 Motivos Reales de Clientes"
+        st.subheader(subtit_bar)
+        if not df_graficos.empty:
+            df_top10 = df_graficos.groupby("motivo_contacto")["volumen"].sum().reset_index().sort_values(by="volumen", ascending=True).tail(10)
+            fig_bar = px.bar(
+                df_top10,
+                x="volumen",
+                y="motivo_contacto",
+                orientation="h",
+                color="volumen",
+                color_continuous_scale="Purples",
+                text="volumen",
+                labels={"volumen": "Interacciones", "motivo_contacto": "Motivo de Contacto"}
+            )
+            fig_bar.update_layout(
+                height=390,
+                margin=dict(l=10, r=20, t=10, b=10),
+                coloraxis_showscale=False,
+                font=dict(size=11)
+            )
+            fig_bar.update_traces(textposition="outside")
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("No hay datos para mostrar con los filtros aplicados.")
 
     with g_c2:
-        st.subheader("🗺️ Mapa de Concentración por Servicio")
-        fig_tree = px.treemap(
-            df_total.head(30),
-            path=["servicio", "motivo_contacto"],
-            values="volumen",
-            color="volumen",
-            color_continuous_scale="Purples"
-        )
-        fig_tree.update_layout(
-            height=380,
-            margin=dict(l=10, r=10, t=10, b=10),
-            coloraxis_showscale=False
-        )
-        st.plotly_chart(fig_tree, use_container_width=True)
+        st.subheader("🍩 Macro-Familias de Demanda")
+        if not df_graficos.empty:
+            df_macro_pie = df_graficos.groupby("macro_categoria")["volumen"].sum().reset_index().sort_values(by="volumen", ascending=False)
+            fig_pie = px.pie(
+                df_macro_pie,
+                names="macro_categoria",
+                values="volumen",
+                hole=0.45,
+                color_discrete_sequence=px.colors.qualitative.Prism
+            )
+            fig_pie.update_layout(
+                height=390,
+                margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.35, xanchor="center", x=0.5, font=dict(size=10))
+            )
+            fig_pie.update_traces(textinfo="percent", hoverinfo="label+value+percent")
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("No hay datos para mostrar.")
 
     # ── TABLA DE DETALLE Y EXPORTADOR ──
     st.subheader("📋 Detalle Exhaustivo de Tipologías y Motivos")
 
     d_c1, d_c2 = st.columns([2.5, 1.0], vertical_alignment="bottom")
     with d_c1:
-        filtro_txt = st.text_input("🔍 Buscar motivo o cola...", placeholder="Ej. Pago, Check-in, PNR, Asientos, Equipaje...", key="tipol_txt_search")
+        filtro_txt = st.text_input("🔍 Buscar motivo, macro-categoría o cola...", placeholder="Ej. Pago, Check-in, PNR, Asientos, Equipaje, Vuelo...", key="tipol_txt_search")
     with d_c2:
         excel_bytes = generar_reporte_diario_excel(df_genesys, df_salesforce, fecha_label=fecha_str)
         st.download_button(
@@ -736,15 +877,16 @@ def render_seccion_tipologias(current_email: str = ""):
             type="primary"
         )
 
-    df_mostrar = df_total.copy()
+    df_mostrar = df_graficos.copy()
     if filtro_txt:
         df_mostrar = df_mostrar[
             df_mostrar["motivo_contacto"].str.contains(filtro_txt, case=False, na=False) |
+            df_mostrar["macro_categoria"].str.contains(filtro_txt, case=False, na=False) |
             df_mostrar["cola"].str.contains(filtro_txt, case=False, na=False) |
             df_mostrar["servicio"].str.contains(filtro_txt, case=False, na=False)
         ]
 
-    cols_ver = ["fuente", "servicio", "cola", "canal", "motivo_contacto", "volumen", "porcentaje", "aht_formato"]
+    cols_ver = ["fuente", "servicio", "cola", "canal", "macro_categoria", "motivo_contacto", "volumen", "porcentaje", "aht_formato"]
     cols_existentes = [c for c in cols_ver if c in df_mostrar.columns]
     
     st.dataframe(
@@ -753,6 +895,7 @@ def render_seccion_tipologias(current_email: str = ""):
             "servicio": "Servicio",
             "cola": "Cola / Canal",
             "canal": "Tipo",
+            "macro_categoria": "Macro-Categoría",
             "motivo_contacto": "Motivo de Contacto / Wrap-Up",
             "volumen": "Volumen",
             "porcentaje": "% Demanda",
