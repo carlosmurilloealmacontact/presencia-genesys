@@ -1290,6 +1290,7 @@ es_carlos = (
 
 if es_carlos:
     SECCIONES_APP.append("🐙 Rocco Copiloto")
+    SECCIONES_APP.append("🏷️ Tipologías & Motivos")
     SECCIONES_APP.append("🧪 Capacidad 2.0 (Lab)")
     SECCIONES_APP.append("🧪 Adherencia & Pausas 2.0 (Lab)")
     SECCIONES_APP.append("🎯 Detector de Outliers (Lab)")
@@ -2287,6 +2288,13 @@ elif seccion_activa in ("🐙 Rocco Copiloto", "🤖 Copiloto 4DX"):
         render_tab_copiloto(cargar_agentes_map_base(), current_email)
     else:
         st.warning("🔒 Esta función se encuentra actualmente en fase de pruebas exclusivas para administración.")
+
+elif seccion_activa == "🏷️ Tipologías & Motivos":
+    try:
+        from tipologias_engine import render_seccion_tipologias
+    except ImportError:
+        from scripts.tipologias_engine import render_seccion_tipologias
+    render_seccion_tipologias(current_email)
 
 elif seccion_activa == "📚 Glosario & Guía":
     render_tab_glosario(secciones_disponibles=SECCIONES_APP)

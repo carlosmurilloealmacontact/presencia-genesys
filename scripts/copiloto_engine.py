@@ -1511,7 +1511,73 @@ def consultar_presencia_tiempo_real(filtro_busqueda: str = "", estado_presencia:
     }, ensure_ascii=False)
 
 
+def consultar_tipologias_y_contingencias(fuente: str = "todas", fecha: str = "hoy", servicio: str = "") -> str:
+    """Consulta las tipologías de contacto (Wrap-up Codes de Genesys y colas de Salesforce) y diagnostica causas de picos/contingencias."""
+    try:
+        try:
+            from tipologias_engine import obtener_tipologias_genesys, obtener_tipologias_salesforce, detectar_picos_y_contingencias
+            from live_engine import obtener_token_genesys
+        except ImportError:
+            from scripts.tipologias_engine import obtener_tipologias_genesys, obtener_tipologias_salesforce, detectar_picos_y_contingencias
+            from scripts.live_engine import obtener_token_genesys
+    except Exception as e:
+        return json.dumps({"error": f"Error importando motor de tipologías: {e}"}, ensure_ascii=False)
+
+    token = obtener_token_genesys()
+    df_gen = pd.DataFrame()
+    df_sf = pd.DataFrame()
+
+    f_clean = str(fuente or "").lower()
+    if f_clean in ["todas", "consolidado", "genesys", ""]:
+        df_gen = obtener_tipologias_genesys(token, fecha=fecha, servicio=servicio)
+
+    if f_clean in ["todas", "consolidado", "salesforce", "sf", ""]:
+        df_sf = obtener_tipologias_salesforce(fecha=fecha)
+
+    frames = []
+    if not df_gen.empty:
+        frames.append(df_gen)
+    if not df_sf.empty:
+        frames.append(df_sf)
+
+    if not frames:
+        return json.dumps({
+            "fecha": fecha,
+            "fuente": fuente,
+            "mensaje": f"No se encontraron registros de tipología o motivos de contacto para la fecha {fecha} y servicio {servicio or 'General'}."
+        }, ensure_ascii=False)
+
+    df_total = pd.concat(frames, ignore_index=True)
+    tot_vol = int(df_total["volumen"].sum())
+    df_total["porcentaje"] = ((df_total["volumen"] / tot_vol) * 100.0).round(1) if tot_vol > 0 else 0.0
+
+    contingencias = detectar_picos_y_contingencias(df_total, umbral_pct=25.0)
+
+    # Top 10 motivos
+    top_motivos = []
+    for _, r in df_total.head(10).iterrows():
+        top_motivos.append({
+            "fuente": r["fuente"],
+            "servicio": r["servicio"],
+            "motivo_de_contacto": r["motivo_contacto"],
+            "volumen_interacciones": int(r["volumen"]),
+            "porcentaje_demanda": f"{r['porcentaje']}%",
+            "aht": r.get("aht_formato", "-")
+        })
+
+    return json.dumps({
+        "fecha": fecha,
+        "fuente": fuente,
+        "servicio_consultado": servicio or "Consolidado General",
+        "total_contactos_evaluados": tot_vol,
+        "alertas_contingencias_detectadas": contingencias,
+        "top_motivos_de_contacto": top_motivos,
+        "diagnostico_causa_raiz": "Se detecta contingencia operacional activa por alta concentración en motivos críticos." if contingencias else "Demanda distribuida con normalidad sin contingencias operacionales detectadas."
+    }, ensure_ascii=False)
+
+
 # ── DECLARACIONES DE HERRAMIENTAS PARA VERTEX AI (OPENAPI SPEC) ───────────────
+
 
 TOOLS_DECLARATIONS = [
     {
@@ -1644,6 +1710,18 @@ TOOLS_DECLARATIONS = [
                 "estado_presencia": {"type": "STRING", "description": "Filtro opcional por estado de presencia: 'Break', 'Almuerzo', 'Available', 'On Queue', 'Conectados', 'Offline', 'Alertas'."}
             }
         }
+    },
+    {
+        "name": "consultar_tipologias_y_contingencias",
+        "description": "Consulta las TIPOLOGÍAS DE CONTACTO, MOTIVOS DE LLAMADA (Genesys Cloud Wrap-up Codes) y colas de atención Salesforce B2B (Live Chat & Casos), TANTO EN TIEMPO REAL HOY COMO HISTÓRICO. Diagnostica causas de AUMENTOS SÚBITOS DE DEMANDA, PICOS DE TRÁFICO y CONTINGENCIAS operacionales. Responde a preguntas como: '¿Cuáles son los motivos de llamada más frecuentes hoy?', '¿Por qué aumentó el tráfico en LUA?', '¿Qué tipologías se están atendiendo en Salesforce Chat?', '¿Cuáles son las principales causas de contacto de ayer?'.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "fuente": {"type": "STRING", "description": "Fuente opcional: 'todas' (consolidado), 'genesys' (voz y wpp) o 'salesforce' (chat y casos). Por defecto 'todas'."},
+                "servicio": {"type": "STRING", "description": "Filtro opcional por servicio, ej. 'LUA AMC', 'Ventas AMC', 'DT FFP AMC', 'Equipajes AMC'."},
+                "fecha": {"type": "STRING", "description": "Fecha opcional 'hoy' / 'en vivo' / 'actual' para tiempo real, o YYYY-MM-DD para histórico (ej. '2026-09-17')."}
+            }
+        }
     }
 ]
 
@@ -1659,7 +1737,8 @@ TOOLS_MAP = {
     "consultar_organigrama_jerarquia": lambda a: consultar_organigrama_jerarquia(a.get("nombre_o_servicio", "")),
     "consultar_cumplimiento_turnos_y_pausas": lambda a: consultar_cumplimiento_turnos_y_pausas(a.get("agente_o_supervisor", ""), a.get("fecha", "")),
     "consultar_metas_servicio": lambda a: consultar_metas_servicio(a.get("servicio", "")),
-    "consultar_presencia_tiempo_real": lambda a: consultar_presencia_tiempo_real(a.get("filtro_busqueda", ""), a.get("estado_presencia", ""))
+    "consultar_presencia_tiempo_real": lambda a: consultar_presencia_tiempo_real(a.get("filtro_busqueda", ""), a.get("estado_presencia", "")),
+    "consultar_tipologias_y_contingencias": lambda a: consultar_tipologias_y_contingencias(a.get("fuente", "todas"), a.get("fecha", "hoy"), a.get("servicio", ""))
 }
 
 SYSTEM_INSTRUCTION = """
@@ -1704,7 +1783,12 @@ REGLAS TEMPORALES Y OPERATIVAS CLAVE:
    - Si el usuario pregunta por: **"ORGANIGRAMA"**, **"ESTRUCTURA"**, **"QUIÉN LE REPORTA A"**, **"CUÁL ES EL EQUIPO DE"**, **"QUIÉNES SON LOS ASESORES DE"**, **"QUIÉN COORDINA"**, **"QUÉ SERVICIOS TIENE A CARGO"**:
      👉 Llama a `consultar_organigrama_jerarquia(nombre_o_servicio=...)`.
 
-5. RESOLUCIÓN INTUITIVA DE LÍDERES:
+5. TIPOLOGÍAS, MOTIVOS DE LLAMADA Y CONTINGENCIAS:
+   - Si el usuario pregunta por: **"MOTIVOS DE LLAMADA"**, **"TIPOLOGÍAS"**, **"POR QUÉ NOS LLAMAN"**, **"CAUSA DEL PICO DE DEMANDA"**, **"AUMENTO SÚBITO DE TRÁFICO"**, **"CONTINGENCIA"**, **"WRAP-UP CODES"**, **"CÓDIGOS DE FINALIZACIÓN"**, **"QUÉ CONSULTAN EN CHAT"**:
+     👉 DEBES LLAMAR INMEDIATAMENTE A `consultar_tipologias_y_contingencias(fuente=..., fecha=..., servicio=...)`.
+     Responde con el ranking de motivos más frecuentes, volumen, porcentaje de demanda y alerta si se detecta una contingencia activa o concentración >25%.
+
+6. RESOLUCIÓN INTUITIVA DE LÍDERES:
    - "David" o "David Jaramillo" -> Corresponde a **JARAMILLO VASQUEZ DAVID** (Supervisor de WPP LUA AMC bajo la coordinación de Yineidis Carbono).
    - "Marely" o "Marely Cardona" -> Corresponde a **CARDONA RAMIREZ MARELYN** (Coordinadora de Operaciones de Corporativo Pyme y Agencias B2B).
    - "Yineidis" o "Yineidis Carbono" -> Corresponde a **CARBONO PEDROZA YINEIDIS YESENIA** (Coordinadora de LUA AMC, WPP LUA AMC, LUA ING, CARGO BOOKING).
