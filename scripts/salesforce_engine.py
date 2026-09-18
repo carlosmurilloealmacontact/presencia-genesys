@@ -37,10 +37,13 @@ SALESFORCE_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "sal
 
 
 def get_latest_salesforce_file():
-    """Obtiene la ruta del archivo de reporte de casos mas reciente (excluyendo caches y demandas generadas)."""
+    """Obtiene la ruta del archivo de reporte de casos mas reciente (excluyendo chats, omni, caches y demandas generadas)."""
     raw_files = [
         f for f in glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.xlsx")) + glob.glob(os.path.join(SALESFORCE_DATA_DIR, "*.csv"))
-        if not any(ign in os.path.basename(f).lower() for ign in ["cases_amc_cleaned", "demanda_diaria", "maestro_asesores"])
+        if not any(ign in os.path.basename(f).lower() for ign in [
+            "cases_amc_cleaned", "demanda_diaria", "maestro_asesores",
+            "chat", "omni", "reportes_descubiertos"
+        ]) and any(cas in os.path.basename(f).lower() for cas in ["caso", "case", "dash_casos"])
     ]
     if not raw_files:
         return None
@@ -189,19 +192,26 @@ def load_and_clean_cases_data(file_path=None):
         df["Alias_Original"] = df["Alias del propietario del caso"].fillna("Sin Asignar")
         df["Esta_Asignado"] = ~df["Alias_Original"].str.contains("AMC", case=False, na=False)
 
-        # Mapear a Nombre Real y Nivel N1/N2/N3
-        def mapear_fila(alias):
-            info = mse.get_asesor_info(alias)
-            return pd.Series([
-                info.get("nombre_completo", "Sin Asignar"),
-                info.get("nivel", "N/A"),
-                info.get("bp", ""),
-                info.get("servicio", ""),
-                info.get("supervisor", "Sin Supervisor"),
-                info.get("coordinador", "Sin Coordinador")
-            ])
+        # Mapear a Nombre Real y Nivel N1/N2/N3 de forma optimizada
+        unique_aliases = df["Alias_Original"].dropna().unique()
+        alias_dict = {}
+        for al in unique_aliases:
+            info = mse.get_asesor_info(al)
+            alias_dict[al] = {
+                "Nombre_Real": info.get("nombre_completo", "Sin Asignar"),
+                "Nivel": info.get("nivel", "N/A"),
+                "BP": info.get("bp", ""),
+                "Servicio_Oficial": info.get("servicio", ""),
+                "Supervisor": info.get("supervisor", "Sin Supervisor"),
+                "Coordinador": info.get("coordinador", "Sin Coordinador")
+            }
 
-        df[["Nombre_Real", "Nivel", "BP", "Servicio_Oficial", "Supervisor", "Coordinador"]] = df["Alias_Original"].apply(mapear_fila)
+        df["Nombre_Real"] = df["Alias_Original"].map(lambda a: alias_dict.get(a, {}).get("Nombre_Real", "Sin Asignar"))
+        df["Nivel"] = df["Alias_Original"].map(lambda a: alias_dict.get(a, {}).get("Nivel", "N/A"))
+        df["BP"] = df["Alias_Original"].map(lambda a: alias_dict.get(a, {}).get("BP", ""))
+        df["Servicio_Oficial"] = df["Alias_Original"].map(lambda a: alias_dict.get(a, {}).get("Servicio_Oficial", ""))
+        df["Supervisor"] = df["Alias_Original"].map(lambda a: alias_dict.get(a, {}).get("Supervisor", "Sin Supervisor"))
+        df["Coordinador"] = df["Alias_Original"].map(lambda a: alias_dict.get(a, {}).get("Coordinador", "Sin Coordinador"))
         df["Asesor"] = df["Nombre_Real"]
     else:
         df["Alias_Original"] = "Desconocido"

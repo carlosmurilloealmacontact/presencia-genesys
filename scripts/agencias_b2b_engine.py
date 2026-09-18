@@ -1515,6 +1515,14 @@ def render_subtab_backlog_casos_b2b():
         st.warning("No hay datos de casos cargados en `data/salesforce/`.")
         return
 
+    COLAS_EXCLUSIVAS_B2B = {
+        "AMC AGENCIAS ESP",
+        "AMC CORPORATE SSC",
+        "AMC AGENCIAS INTER",
+        "AMC EMISIONES GRUPOS CORP",
+        "AMC EMISIONES GRUPOS SSC",
+    }
+
     if not df_cases_raw.empty:
         df_cases_raw = df_cases_raw[df_cases_raw.apply(
             lambda r: es_equipo_marely_cardona(
@@ -1523,7 +1531,7 @@ def render_subtab_backlog_casos_b2b():
                 supervisor=r.get("Supervisor", ""),
                 bp=r.get("BP", ""),
                 nombre=r.get("Nombre_Real", "")
-            ),
+            ) or (not r.get("Esta_Asignado", True) and str(r.get("Work Queue Control", "")).strip() in COLAS_EXCLUSIVAS_B2B),
             axis=1
         )].copy()
 
