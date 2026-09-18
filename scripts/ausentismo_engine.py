@@ -310,7 +310,9 @@ def obtener_presencia_historica_dia(fecha_str: str) -> dict:
                     duracion_min,
                     fecha
                 FROM segments
-                WHERE (fecha = ? OR fecha = ?) AND system_presence != 'OFFLINE'
+                WHERE (fecha = ? OR fecha = ?) 
+                  AND UPPER(system_presence) NOT IN ('OFFLINE', 'DESCONECTADO')
+                  AND UPPER(presence_label) NOT IN ('OFFLINE', 'DESCONECTADO')
             """, conn, params=(fecha_str, f_next))
             if df.empty:
                 return {}
