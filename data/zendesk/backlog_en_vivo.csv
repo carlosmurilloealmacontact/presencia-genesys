@@ -1,8 +1,14 @@
 ﻿id,subject,status,priority,assignee_id,created_at,updated_at,tipo_raw,grupo,tipo_gestion,Nombre_Asesor,TICKET_ASSIGNEE_PRIMARY_EMAIL
+71784991,Claim - Flight changes by the passenger,new,normal,,2026-09-18T07:59:36Z,2026-09-18T07:59:53Z,tg_cambios_voluntarios_adelanto_postergacion,LUA AMC,Cambios Voluntarios::Adelanto - Postergación,Sin Asignar,
+71784980,Claim - Special assistance on board,new,normal,,2026-09-18T07:50:52Z,2026-09-18T07:51:07Z,tg_ssee_solicitud_otros_pasajeros_especiales,LUA AMC,SSEE::Solicitud de otros Pasajeros Especiales,Sin Asignar,
+71784978,Claim - Flight changes by the passenger,new,normal,,2026-09-18T07:50:14Z,2026-09-18T07:50:28Z,tg_cambios_voluntarios_adelanto_postergacion,LUA AMC,Cambios Voluntarios::Adelanto - Postergación,Sin Asignar,
+71784974,Claim - Cancelled and delayed flights by LATAM,new,normal,,2026-09-18T07:41:51Z,2026-09-18T07:42:39Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
+71784964,Claim - Purchases in LATAM,new,normal,,2026-09-18T07:32:48Z,2026-09-18T07:33:08Z,tg_compras_latam_compra,LUA AMC,Compras en LATAM::Compra ,Sin Asignar,
+71784959,Claim - LATAM Pass,new,normal,,2026-09-18T07:29:11Z,2026-09-18T07:29:21Z,,LUA AMC,Sin Tipificar / Pendiente,Sin Asignar,
+71784956,Please help to find exchanged LA tickets on 057-5011011130/32,new,normal,,2026-09-18T07:26:46Z,2026-09-18T07:27:02Z,,LUA AMC,Sin Tipificar / Pendiente,Sin Asignar,
 71784936,Participants List of Routes World 2026,new,normal,,2026-09-18T07:09:05Z,2026-09-18T07:11:02Z,,LUA AMC,Sin Tipificar / Pendiente,Sin Asignar,
 71784927,Claim - Travel documentation,new,normal,,2026-09-18T07:03:05Z,2026-09-18T07:03:23Z,tg_informacion_viaje_informacion_vuelo,LUA AMC,Información de Viaje::Información de Vuelo,Sin Asignar,
 71784916,Please help ti find exchanged LA ticket on 057-9230862337,new,normal,,2026-09-18T06:57:13Z,2026-09-18T06:59:21Z,,LUA AMC,Sin Tipificar / Pendiente,Sin Asignar,
-71784912,Experiencia con Contact Center::Reclamo por error ejecutivo,new,normal,,2026-09-18T06:54:50Z,2026-09-18T06:55:02Z,tg_experiencia_contact_center_reclamo_error_ejecutivo,LUA AMC,Experiencia con Contact Center::Reclamo por error ejecutivo,Sin Asignar,
 71784911,Request - LATAM Travel,new,normal,,2026-09-18T06:54:05Z,2026-09-18T06:54:21Z,tg_latam_travel_venta_cotizacion,LUA AMC,LATAM Travel::Venta / Cotización LATAM Travel,Sin Asignar,
 71784894,Reclamo - Assistenza speciale in volo,new,normal,,2026-09-18T06:46:53Z,2026-09-18T06:47:14Z,tg_ssee_solicitud_otros_pasajeros_especiales,LUA AMC,SSEE::Solicitud de otros Pasajeros Especiales,Sin Asignar,
 71784874,Claim - Cancelled and delayed flights by LATAM,new,normal,,2026-09-18T06:31:05Z,2026-09-18T06:31:21Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
@@ -967,7 +973,7 @@
 71783977,Hoja de reclamación 000545 - 2026 GARCIA/KATTY VANESA,open,normal,40649985303699.0,2026-09-18T01:14:00Z,2026-09-18T01:29:56Z,,LUA AMC,Sin Tipificar / Pendiente,Marisol Quinonez Gil,mquinonez.almacontact@outsourcing-account.com
 71783824,Excepciones::Graves,open,normal,,2026-09-18T00:48:08Z,2026-09-18T02:35:25Z,tg_excepciones_graves,LUA AMC,Excepciones::Graves,Sin Asignar,
 71781571,Request - Flight changes by the passenger,open,normal,,2026-09-17T20:48:02Z,2026-09-18T07:08:50Z,tg_cambios_voluntarios_adelanto_postergacion,LUA AMC,Cambios Voluntarios::Adelanto - Postergación,Sin Asignar,
-71781562,Claim - Purchases in LATAM,open,normal,,2026-09-17T20:46:58Z,2026-09-18T06:48:17Z,tg_compras_latam_compra,LUA AMC,Compras en LATAM::Compra ,Sin Asignar,
+71781562,Claim - Purchases in LATAM,open,normal,,2026-09-17T20:46:58Z,2026-09-18T07:30:07Z,tg_compras_latam_compra,LUA AMC,Compras en LATAM::Compra ,Sin Asignar,
 71781193,Compras na LATAM::Emissão Pendente,open,normal,,2026-09-17T20:20:54Z,2026-09-18T01:04:07Z,tg_compras_latam_emision_pendiente,LUA AMC,Compras en LATAM::Emisión pendiente,Sin Asignar,
 71781018,Request - Flight changes by the passenger,open,normal,,2026-09-17T20:08:34Z,2026-09-18T05:16:01Z,tg_cambios_voluntarios_adelanto_postergacion,LUA AMC,Cambios Voluntarios::Adelanto - Postergación,Sin Asignar,
 71780982,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-17T20:05:48Z,2026-09-17T20:26:11Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
@@ -1005,6 +1011,7 @@
 71764928,Claim - Airport experience,open,normal,,2026-09-16T16:13:06Z,2026-09-18T01:29:17Z,tg_experiencia_aeropuerto_atencion_aeropuertos,LUA AMC,Experiencia Aeropuerto::Atención Aeropuertos,Sin Asignar,
 71763088,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-16T14:15:49Z,2026-09-17T16:36:18Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
 71761318,Cambios Involuntarios::Atraso CON responsabilidad,open,normal,,2026-09-16T12:03:24Z,2026-09-18T07:06:17Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
+71761155,Colaboración de LATAM Airlines e Iberia,open,normal,,2026-09-16T11:44:02Z,2026-09-18T08:10:50Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
 71760687,Claim - Special assistance on board,open,normal,,2026-09-16T10:38:08Z,2026-09-16T17:38:20Z,tg_ssee_solicitud_otros_pasajeros_especiales,LUA AMC,SSEE::Solicitud de otros Pasajeros Especiales,Sin Asignar,
 71759801,FORMATO DE QUEJA ALEXANDER VASQUEZ,open,normal,,2026-09-16T04:16:31Z,2026-09-17T22:09:15Z,tg_experiencia_aeropuerto_atencion_aeropuertos,LUA AMC,Experiencia Aeropuerto::Atención Aeropuertos,Sin Asignar,
 71759612,QUEJA MARIA JOSE MARTINEZ,open,normal,,2026-09-16T03:22:41Z,2026-09-17T22:09:15Z,tg_cambios_involuntarios_atraso_sin_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso SIN responsabilidad,Sin Asignar,
@@ -1058,7 +1065,7 @@
 71723083,Excepciones::Graves,open,normal,,2026-09-12T19:07:14Z,2026-09-15T22:12:27Z,tg_excepciones_graves,LUA AMC,Excepciones::Graves,Sin Asignar,
 71722439,LATAM PASS:: Actualización de Email / Datos,open,normal,,2026-09-12T17:46:25Z,2026-09-17T20:32:01Z,tg_latam_pass_actualizacion_mail,LUA AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
 71721583,Claim - Experience in our sales offices,open,normal,,2026-09-12T15:56:13Z,2026-09-13T03:03:12Z,,LUA AMC,Sin Tipificar / Pendiente,Sin Asignar,
-71720752,Hoja de reclamación 002964 Reyes/Leonardo,open,normal,48887886308371.0,2026-09-12T14:25:25Z,2026-09-17T23:45:28Z,tg_experiencia_aeropuerto_atencion_aeropuertos,LUA AMC,Experiencia Aeropuerto::Atención Aeropuertos,Vanessa Alexandra Sedan,vanessasedan.alma@outsourcing-account.com
+71720752,Hoja de reclamación 002964 Reyes/Leonardo,open,normal,,2026-09-12T14:25:25Z,2026-09-18T08:02:37Z,tg_experiencia_aeropuerto_atencion_aeropuertos,LUA AMC,Experiencia Aeropuerto::Atención Aeropuertos,Sin Asignar,
 71719859,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-12T12:38:46Z,2026-09-17T18:16:49Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
 71718859,Request - Flight changes by the passenger,open,normal,20085738528.0,2026-09-12T05:36:08Z,2026-09-16T13:15:27Z,tg_cambios_voluntarios_adelanto_postergacion,LUA AMC,Cambios Voluntarios::Adelanto - Postergación,Luz Nelly Palacios Perea,luzpalacios.almacontact@outsourcing-account.com
 71718693,Claim - Cancelled and delayed flights by LATAM,open,normal,,2026-09-12T04:09:25Z,2026-09-13T02:06:25Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
@@ -1134,7 +1141,7 @@
 71668299,Excepciones::Generales,open,normal,,2026-09-08T14:20:21Z,2026-09-16T15:29:00Z,tg_excepciones_generales,LUA AMC,Excepciones::Generales,Sin Asignar,
 71666140,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-08T11:41:41Z,2026-09-10T20:33:25Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
 71665696,Account Update  Alert!,open,normal,399194618894.0,2026-09-08T10:10:13Z,2026-09-08T19:39:06Z,tg_equipaje_informacion_general_peso_medidas_excesos,LUA AMC,Equipaje::Información general ,Jhon Fernando Villa Cadavid,jhonvilla.almacontact@outsourcing-account.com
-71665533,Reklamation - Käufe bei LATAM,open,normal,,2026-09-08T08:51:25Z,2026-09-08T22:08:49Z,tg_compras_latam_compra,LUA AMC,Compras en LATAM::Compra ,Sin Asignar,
+71665533,Reklamation - Käufe bei LATAM,open,normal,,2026-09-08T08:51:25Z,2026-09-18T08:10:04Z,tg_compras_latam_compra,LUA AMC,Compras en LATAM::Compra ,Sin Asignar,
 71661611,Excepciones::Corrección de nombre  ,open,normal,,2026-09-07T20:20:23Z,2026-09-07T21:12:36Z,tg_excepciones_correccion_nombre,LUA AMC,Excepciones::Corrección de nombre  ,Sin Asignar,
 71661156,Experiencia con Contact Center::Reclamo por error ejecutivo,open,normal,20085738528.0,2026-09-07T19:44:32Z,2026-09-12T12:17:08Z,tg_experiencia_contact_center_reclamo_error_ejecutivo,LUA AMC,Experiencia con Contact Center::Reclamo por error ejecutivo,Luz Nelly Palacios Perea,luzpalacios.almacontact@outsourcing-account.com
 71660533,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-07T18:53:24Z,2026-09-08T20:03:59Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
@@ -1193,7 +1200,7 @@
 71622051,Experiencia con Contact Center::Reclamo por error ejecutivo,open,normal,,2026-09-03T16:41:01Z,2026-09-03T16:48:24Z,tg_experiencia_contact_center_reclamo_error_ejecutivo,LUA AMC,Experiencia con Contact Center::Reclamo por error ejecutivo,Sin Asignar,
 71621938,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-03T16:35:00Z,2026-09-16T22:54:04Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
 71618354,Reklamation - Von LATAM stornierte oder verspätete Flüge,open,normal,,2026-09-03T12:54:25Z,2026-09-14T01:23:44Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
-71616868,Assento abaixo do padrão,open,normal,1528753936061.0,2026-09-03T07:56:54Z,2026-09-18T02:47:41Z,tg_experiencia_a_bordo_asiento_bajo_estandar,LUA AMC,Experiencia A Bordo::Asiento bajo estándar ,Mayra Alejandra Garcia Hernandez,mayragarcia.almacontact@outsourcing-account.com
+71616868,Assento abaixo do padrão,open,normal,,2026-09-03T07:56:54Z,2026-09-18T08:02:38Z,tg_experiencia_a_bordo_asiento_bajo_estandar,LUA AMC,Experiencia A Bordo::Asiento bajo estándar ,Sin Asignar,
 71616587,Excepciones::Graves,open,normal,,2026-09-03T05:03:35Z,2026-09-03T05:05:13Z,tg_excepciones_graves,LUA AMC,Excepciones::Graves,Sin Asignar,
 71615828,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-03T02:03:10Z,2026-09-03T02:30:21Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
 71615355,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-09-03T00:53:30Z,2026-09-08T12:39:30Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
@@ -1247,7 +1254,7 @@
 71565566,Cambios Involuntarios::Gastos Incurridos,open,normal,,2026-08-29T17:56:13Z,2026-08-29T22:09:15Z,tg_cambios_involuntarios_gastos_incurridos,LUA AMC,Cambios Involuntarios::Gastos Incurridos,Sin Asignar,
 71562440,Claim - Cancelled and delayed flights by LATAM,open,normal,,2026-08-29T10:30:44Z,2026-08-30T02:07:07Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
 71562354,Hoja de reclamación 002820 - 2026 FORIO/MARIA NOEMI,open,high,,2026-08-29T09:52:01Z,2026-09-18T05:06:23Z,tg_cambios_involuntarios_atraso_sin_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso SIN responsabilidad,Sin Asignar,
-71562332,Hoja de reclamación 002816 - 2026 FORIO/NESTOR FERNANDO,open,high,53043494864531.0,2026-08-29T09:43:35Z,2026-09-17T23:57:10Z,tg_cambios_involuntarios_atraso_sin_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso SIN responsabilidad,Valentina Prado,valentinaprado.alma@outsourcing-account.com
+71562332,Hoja de reclamación 002816 - 2026 FORIO/NESTOR FERNANDO,open,high,,2026-08-29T09:43:35Z,2026-09-18T08:02:38Z,tg_cambios_involuntarios_atraso_sin_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso SIN responsabilidad,Sin Asignar,
 71562141,Excepciones::Generales,open,normal,,2026-08-29T06:38:16Z,2026-08-30T02:50:55Z,tg_excepciones_generales,LUA AMC,Excepciones::Generales,Sin Asignar,
 71560793,Hoja de reclamación 000519-2026 cubel/jose,open,high,53043470053523.0,2026-08-29T00:29:11Z,2026-09-17T17:53:33Z,tg_cambios_involuntarios_atraso_sin_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso SIN responsabilidad,Tiany jasnaia Duran,tianyduran.alma@outsourcing-account.com
 71560010,Excepciones::Generales,open,normal,,2026-08-28T22:47:56Z,2026-08-29T15:54:01Z,tg_excepciones_generales,LUA AMC,Excepciones::Generales,Sin Asignar,
@@ -1637,7 +1644,6 @@
 70911085,SOLICTIUD FACTURA ELECTORNIC A NOMBRE DE QUIMTIA,hold,normal,40649985303699.0,2026-07-03T03:04:31Z,2026-09-14T21:06:51Z,tg_compras_latam_facturas,LUA AMC,Compras en LATAM::Facturas,Marisol Quinonez Gil,mquinonez.almacontact@outsourcing-account.com
 70910472,Claim - Cancelled and delayed flights by LATAM,hold,normal,46878810128275.0,2026-07-03T01:27:42Z,2026-09-15T18:11:01Z,tg_cambios_involuntarios_atraso_con_responsabilidad,LUA AMC,Cambios Involuntarios::Atraso CON responsabilidad,Simon Jaramillo,simonjaramillo.alma@outsourcing-account.com
 70172978,Solicitud verificación nota de ajuste crédito,hold,normal,40649985303699.0,2026-04-23T22:32:26Z,2026-09-16T21:16:21Z,tg_compras_latam_facturas,LUA AMC,Compras en LATAM::Facturas,Marisol Quinonez Gil,mquinonez.almacontact@outsourcing-account.com
-71784930,Reclamo - LATAM Pass,new,high,,2026-09-18T07:04:11Z,2026-09-18T07:04:31Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Sin Asignar,
 71784924,LATAM PASS::Unificación de cuentas*,new,normal,,2026-09-18T07:01:37Z,2026-09-18T07:02:20Z,tg_latam_pass_unificacion_ctas,DT FFP AMC,LATAM PASS::Unificación de cuentas*,Sin Asignar,
 71784782,Claim - Passwords,new,normal,,2026-09-18T05:31:53Z,2026-09-18T05:32:11Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
 71784468,LATAM PASS::Inconsistencia en Cartola ( Aereo / no aereo),new,normal,,2026-09-18T03:04:49Z,2026-09-18T03:05:06Z,tg_latam_pass_inconsistencia_cartola_aereo_no_aereo,DT FFP AMC,LATAM PASS::Inconsistencia en Cartola ( Aereo / no aereo),Sin Asignar,
@@ -1742,6 +1748,7 @@
 71432563,Claim - Experience with the Contact Center staff,new,normal,,2026-08-17T20:36:06Z,2026-09-07T21:59:48Z,tg_experiencia_contact_center_atencion_contact_center,DT FFP AMC,Experiencia con Contact Center::Atención Contact Center	,Sin Asignar,
 71311586,Reclamo - Devoluciones y Retracto,new,high,,2026-08-06T18:23:44Z,2026-08-07T14:09:48Z,tg_devolucion_anulacion_solicitud_devolucion,DT FFP AMC,Devoluciones / Anulaciones::Solicitud de Devolución,Sin Asignar,
 71133039,Regarding the LIAISON PHONE NUMBER or the Passenger’s Symptoms,new,normal,,2026-07-22T06:03:06Z,2026-08-05T08:10:12Z,,DT FFP AMC,Sin Tipificar / Pendiente,Sin Asignar,
+71784930,Reclamo - LATAM Pass,open,high,39791549150227.0,2026-09-18T07:04:11Z,2026-09-18T07:33:42Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Elizabeth Daniela Matheus Rivera,ematheusr.almacontact@outsourcing-account.com
 71784710,LATAM PASS::Registro mi cuenta está bloqueada,open,normal,39791549150227.0,2026-09-18T04:40:18Z,2026-09-18T04:47:57Z,tg_latam_pass_registro_mi_cta_esta_bloqueada,DT FFP AMC,LATAM PASS::Registro mi cuenta está bloqueada,Elizabeth Daniela Matheus Rivera,ematheusr.almacontact@outsourcing-account.com
 71784620,LATAM PASS::Cuenta activa con problemas de transacción*,open,normal,14927644658707.0,2026-09-18T03:58:28Z,2026-09-18T04:07:49Z,tg_latam_pass_cta_activa_problemas_transaccion,DT FFP AMC,LATAM PASS::Cuenta activa con problemas de transacción*,Cruz Melina Gonzalez Marin,cruzgonzalez.almacontact@outsourcing-account.com
 71784368,LATAM PASS::Actualización Datos Ebiz,open,normal,,2026-09-18T02:38:41Z,2026-09-18T02:44:50Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Sin Asignar,
@@ -1758,19 +1765,19 @@
 71784015,LATAM PASS::Actualización Datos Ebiz,open,normal,,2026-09-18T01:21:32Z,2026-09-18T01:32:04Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Sin Asignar,
 71783743,LATAM PASS:: Actualización de Email / Datos,open,normal,53675200313747.0,2026-09-18T00:34:25Z,2026-09-18T00:47:35Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Greisy margarita Ramos,greisyramos.alma@outsourcing-account.com
 71783584,Claim - LATAM Pass,open,high,,2026-09-18T00:11:09Z,2026-09-18T04:01:18Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
-71783247,LATAM PASS::Actualización Datos Ebiz,open,normal,41877806130835.0,2026-09-17T23:27:19Z,2026-09-17T23:37:13Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Maria Fernanda Rojo,mariafernandarojo.alma@outsourcing-account.com
-71783218,LATAM PASS:: Actualización de Email / Datos,open,normal,53675200313747.0,2026-09-17T23:23:36Z,2026-09-18T01:03:25Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Greisy margarita Ramos,greisyramos.alma@outsourcing-account.com
-71783140,LATAM PASS:: Actualización de Email / Datos,open,normal,46473865155987.0,2026-09-17T23:14:11Z,2026-09-18T00:52:30Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,William Esneider Galeano,williamgaleano.alma@outsourcing-account.com
+71783247,LATAM PASS::Actualización Datos Ebiz,open,normal,,2026-09-17T23:27:19Z,2026-09-18T08:02:34Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Sin Asignar,
+71783218,LATAM PASS:: Actualización de Email / Datos,open,normal,,2026-09-17T23:23:36Z,2026-09-18T08:02:34Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
+71783140,LATAM PASS:: Actualización de Email / Datos,open,normal,,2026-09-17T23:14:11Z,2026-09-18T08:02:35Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
 71783031,LATAM PASS::Actualización Datos Ebiz,open,normal,,2026-09-17T23:03:39Z,2026-09-17T23:14:31Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Sin Asignar,
-71782872,LATAM PASS::Actualización Datos Ebiz,open,normal,53675309393299.0,2026-09-17T22:48:33Z,2026-09-17T23:20:16Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Victor manuel Ortiz,victorortiz.alma@outsourcing-account.com
+71782872,LATAM PASS::Actualización Datos Ebiz,open,normal,,2026-09-17T22:48:33Z,2026-09-18T08:02:35Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Sin Asignar,
 71782633,Reclamo - LATAM Pass,open,normal,,2026-09-17T22:21:27Z,2026-09-18T07:06:15Z,,DT FFP AMC,Sin Tipificar / Pendiente,Sin Asignar,
-71782630,Reclamo - LATAM Pass,open,normal,35696861154835.0,2026-09-17T22:20:56Z,2026-09-17T23:48:32Z,,DT FFP AMC,Sin Tipificar / Pendiente,Victor Eduardo Gomez Martinez,victorgomez.almacontact@outsourcing-account.com
+71782630,Reclamo - LATAM Pass,open,normal,,2026-09-17T22:20:56Z,2026-09-18T08:02:35Z,,DT FFP AMC,Sin Tipificar / Pendiente,Sin Asignar,
 71782348,LATAM PASS::Actualización Datos Ebiz,open,normal,,2026-09-17T21:53:49Z,2026-09-18T07:06:15Z,,DT FFP AMC,Sin Tipificar / Pendiente,Sin Asignar,
 71782286,Reclamo - LATAM Pass,open,high,39790710174227.0,2026-09-17T21:47:50Z,2026-09-18T04:35:56Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Nayelis Valencia Moreno,nayelismoreno.almacontact@outsourcing-account.com
 71782163,LATAM PASS::Actualización Datos Ebiz,open,normal,,2026-09-17T21:37:16Z,2026-09-18T06:06:04Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Sin Asignar,
 71782135,Reclamo - LATAM Pass,open,high,39790710174227.0,2026-09-17T21:35:57Z,2026-09-18T03:56:53Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Nayelis Valencia Moreno,nayelismoreno.almacontact@outsourcing-account.com
 71782083,Reclamo - LATAM Pass,open,normal,,2026-09-17T21:31:38Z,2026-09-17T23:07:20Z,,DT FFP AMC,Sin Tipificar / Pendiente,Sin Asignar,
-71781898,Reclamo - LATAM Pass,open,high,14524161054355.0,2026-09-17T21:13:42Z,2026-09-17T23:48:30Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Lina Marcela Contreras Atencio,linacontreras.almacontact@outsourcing-account.com
+71781898,Reclamo - LATAM Pass,open,high,,2026-09-17T21:13:42Z,2026-09-18T08:02:35Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Sin Asignar,
 71781738,LATAM PASS:: Actualización de Email / Datos,open,normal,39790710174227.0,2026-09-17T21:02:01Z,2026-09-18T01:53:57Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Nayelis Valencia Moreno,nayelismoreno.almacontact@outsourcing-account.com
 71781493,Regularización de cuenta LATAM Wallet,open,normal,39790710174227.0,2026-09-17T20:42:05Z,2026-09-17T20:42:43Z,tg_latam_pass_wallet_suspendida,DT FFP AMC,LATAM PASS::Wallet suspendida,Nayelis Valencia Moreno,nayelismoreno.almacontact@outsourcing-account.com
 71781256,LATAM PASS:: Actualización de Email / Datos,open,normal,,2026-09-17T20:25:46Z,2026-09-18T05:06:17Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
@@ -1881,11 +1888,11 @@
 71760971,LATAM PASS::Registro mi cuenta está bloqueada,open,normal,,2026-09-16T11:20:59Z,2026-09-16T20:09:33Z,tg_latam_pass_registro_mi_cta_esta_bloqueada,DT FFP AMC,LATAM PASS::Registro mi cuenta está bloqueada,Sin Asignar,
 71760675,Reclamo - LATAM Pass,open,high,,2026-09-16T10:36:10Z,2026-09-17T13:07:49Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Sin Asignar,
 71760673,LATAM PASS:: Actualización de Email / Datos,open,normal,,2026-09-16T10:36:08Z,2026-09-16T19:11:25Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
-71760495,Devoluciones / Anulaciones::Devolución Rechazada,open,normal,34685843737491.0,2026-09-16T09:44:26Z,2026-09-18T06:23:18Z,tg_devolucion_anulacion_devolucion_rechazada,DT FFP AMC,Devoluciones / Anulaciones::Devolución Rechazada,Tomas Alonso Perez Zapata,tomasperez.almacontact@outsourcing-account.com
 71760337,LATAM PASS::Error Login,open,normal,34685843737491.0,2026-09-16T08:47:06Z,2026-09-18T00:08:41Z,tg_latam_pass_error_login,DT FFP AMC,LATAM PASS::Error Login,Tomas Alonso Perez Zapata,tomasperez.almacontact@outsourcing-account.com
+71760218,Request - Passwords,open,normal,25507231292435.0,2026-09-16T07:48:26Z,2026-09-18T07:32:50Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Natalia Bedoya Rojo,nataliabedoya.almacontact@outsourcing-account.com
 71760203,Claim - LATAM Travel,open,normal,,2026-09-16T07:41:53Z,2026-09-16T13:02:16Z,tg_latam_travel_venta_cotizacion,DT FFP AMC,LATAM Travel::Venta / Cotización LATAM Travel,Sin Asignar,
 71760196,LATAM PASS::Error Login,open,normal,,2026-09-16T07:34:15Z,2026-09-17T17:19:43Z,tg_latam_pass_error_login,DT FFP AMC,LATAM PASS::Error Login,Sin Asignar,
-71760149,Claim - Passwords,open,normal,25507231292435.0,2026-09-16T07:08:04Z,2026-09-18T00:04:06Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Natalia Bedoya Rojo,nataliabedoya.almacontact@outsourcing-account.com
+71760149,Claim - Passwords,open,normal,,2026-09-16T07:08:04Z,2026-09-18T08:02:36Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
 71759902,LATAM PASS::Error Login,open,normal,,2026-09-16T04:58:43Z,2026-09-18T03:39:45Z,tg_latam_pass_error_login,DT FFP AMC,LATAM PASS::Error Login,Sin Asignar,
 71759514,LATAM PASS::Actualización Datos Ebiz,open,normal,46473865155987.0,2026-09-16T03:00:16Z,2026-09-16T03:00:23Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,William Esneider Galeano,williamgaleano.alma@outsourcing-account.com
 71759403,Reclamo - LATAM Pass,open,high,46509081382419.0,2026-09-16T02:34:01Z,2026-09-17T04:37:38Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Isabela Santamaria,isabelasantamaria.alma@outsourcing-account.com
@@ -1943,6 +1950,7 @@
 71748358,Re: [LATAM] Solicitud de más información #71370264,open,high,,2026-09-15T12:26:46Z,2026-09-17T00:05:14Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Sin Asignar,
 71748188,Antrag - Passwörter,open,normal,27400192832019.0,2026-09-15T12:11:20Z,2026-09-18T06:36:40Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Juan Marin,juanmarin.almacontact@outsourcing-account.com
 71747929,LATAM PASS:: Actualización de Email / Datos,open,high,41877461271955.0,2026-09-15T11:42:58Z,2026-09-15T11:43:07Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Rolando Alberto Colina,rolandocolina.alma@outsourcing-account.com
+71747617,Demande - Mots de passe,open,normal,,2026-09-15T11:02:10Z,2026-09-18T07:33:14Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sin Asignar,
 71747530,Reclamo - LATAM Pass,open,normal,49095019750035.0,2026-09-15T10:48:22Z,2026-09-18T05:26:04Z,,DT FFP AMC,Sin Tipificar / Pendiente,Mileth paola Contreras,milethcontreras.alma@outsourcing-account.com
 71747405,Reclamo - LATAM Pass,open,high,,2026-09-15T10:11:16Z,2026-09-16T14:27:44Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Sin Asignar,
 71746886,LATAM PASS::Error Login,open,normal,,2026-09-15T05:54:24Z,2026-09-17T01:19:19Z,tg_latam_pass_error_login,DT FFP AMC,LATAM PASS::Error Login,Sin Asignar,
@@ -2392,7 +2400,6 @@
 71507113,Cambio de residencia ,open,normal,,2026-08-24T18:45:06Z,2026-08-25T04:03:08Z,,DT FFP AMC,Sin Tipificar / Pendiente,Sin Asignar,
 71506064,LATAM PASS::Actualización Datos Ebiz,open,normal,53675220999827.0,2026-08-24T17:41:51Z,2026-09-08T20:22:26Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Susana Cordoba,susanacordoba.alma@outsourcing-account.com
 71506021,LATAM PASS:: Actualización de Email / Datos,open,normal,53675220999827.0,2026-08-24T17:38:59Z,2026-08-29T14:10:53Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Susana Cordoba,susanacordoba.alma@outsourcing-account.com
-71504876,LATAM PASS::Unificación de cuentas*,open,normal,46509087732499.0,2026-08-24T16:24:43Z,2026-09-18T07:01:58Z,tg_latam_pass_unificacion_ctas,DT FFP AMC,LATAM PASS::Unificación de cuentas*,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
 71504610,LATAM PASS:: Actualización de Email / Datos,open,normal,53675220999827.0,2026-08-24T16:07:47Z,2026-08-30T14:35:22Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Susana Cordoba,susanacordoba.alma@outsourcing-account.com
 71503851,Claim - LATAM Pass,open,high,,2026-08-24T15:21:45Z,2026-08-27T18:31:30Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Sin Asignar,
 71503409,LATAM PASS::Registro mi cuenta está bloqueada,open,high,,2026-08-24T14:53:28Z,2026-09-18T02:58:04Z,tg_latam_pass_registro_mi_cta_esta_bloqueada,DT FFP AMC,LATAM PASS::Registro mi cuenta está bloqueada,Sin Asignar,
@@ -2746,7 +2753,7 @@
 71773291,Claim - LATAM Pass,pending,normal,27400192832019.0,2026-09-17T11:01:49Z,2026-09-17T13:52:13Z,,DT FFP AMC,Sin Tipificar / Pendiente,Juan Marin,juanmarin.almacontact@outsourcing-account.com
 71773254,Reclamo - LATAM Pass,pending,normal,35696683420307.0,2026-09-17T10:57:27Z,2026-09-17T11:33:48Z,,DT FFP AMC,Sin Tipificar / Pendiente,Mateo Gordon Atencio,mateogordon.almacontact@outsourcing-account.com
 71772814,Request - Passwords,pending,normal,27400192832019.0,2026-09-17T08:23:08Z,2026-09-17T14:23:24Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Juan Marin,juanmarin.almacontact@outsourcing-account.com
-71772686,Reclamo - LATAM Pass,pending,high,29703340829075.0,2026-09-17T06:59:17Z,2026-09-17T07:49:49Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
+71772686,Reclamo - LATAM Pass,pending,high,29703340829075.0,2026-09-17T06:59:17Z,2026-09-18T08:01:34Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
 71772607,LATAM PASS::Unificación de cuentas*,pending,normal,46509087732499.0,2026-09-17T06:13:28Z,2026-09-18T07:02:51Z,tg_latam_pass_unificacion_ctas,DT FFP AMC,LATAM PASS::Unificación de cuentas*,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
 71772527,LATAM PASS::Actualización Datos Ebiz,pending,normal,10517807890451.0,2026-09-17T05:14:07Z,2026-09-18T06:02:39Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Leidy Johana Rincon Molina,leidyrincon.almacontact@outsourcing-account.com
 71772489,LATAM PASS::Error Login,pending,normal,29703340829075.0,2026-09-17T04:55:02Z,2026-09-18T05:02:40Z,tg_latam_pass_error_login,DT FFP AMC,LATAM PASS::Error Login,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
@@ -2876,7 +2883,6 @@
 71760700,LATAM PASS:: Actualización de Email / Datos,pending,normal,10517807890451.0,2026-09-16T10:40:35Z,2026-09-17T12:02:32Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Leidy Johana Rincon Molina,leidyrincon.almacontact@outsourcing-account.com
 71760619,Reclamo - LATAM Pass,pending,high,29703340829075.0,2026-09-16T10:25:33Z,2026-09-18T05:02:42Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
 71760562,Claim - Passwords,pending,normal,25507231292435.0,2026-09-16T10:08:03Z,2026-09-17T19:03:03Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Natalia Bedoya Rojo,nataliabedoya.almacontact@outsourcing-account.com
-71760218,Request - Passwords,pending,normal,25507231292435.0,2026-09-16T07:48:26Z,2026-09-18T00:01:46Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Natalia Bedoya Rojo,nataliabedoya.almacontact@outsourcing-account.com
 71760202,LATAM PASS::Actualización Datos Ebiz,pending,normal,,2026-09-16T07:40:09Z,2026-09-17T11:19:55Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Sin Asignar,
 71760159,LATAM PASS::Unificación de cuentas*,pending,normal,29703340829075.0,2026-09-16T07:13:53Z,2026-09-17T08:02:28Z,tg_latam_pass_unificacion_ctas,DT FFP AMC,LATAM PASS::Unificación de cuentas*,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
 71760081,Reclamo - LATAM Pass,pending,high,29703340829075.0,2026-09-16T06:28:43Z,2026-09-17T07:02:59Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
@@ -3116,7 +3122,7 @@
 71732729,Reclamo - LATAM Pass,pending,high,29703340829075.0,2026-09-14T02:18:18Z,2026-09-15T03:01:55Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
 71732707,Reclamo - LATAM Pass,pending,high,29703340829075.0,2026-09-14T02:13:44Z,2026-09-15T03:01:55Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
 71732696,LATAM PASS::Actualización Datos Ebiz,pending,normal,35696820318355.0,2026-09-14T02:11:04Z,2026-09-15T03:01:55Z,tg_latam_pass_actualizacion_datos_ebiz,DT FFP AMC,LATAM PASS::Actualización Datos Ebiz,Joiner Luis Morelo Zuniga,joinermorelo.almacontact@outsourcing-account.com
-71732695,Reclamo - LATAM Pass,pending,normal,29703340829075.0,2026-09-14T02:10:53Z,2026-09-17T07:30:19Z,,DT FFP AMC,Sin Tipificar / Pendiente,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
+71732695,Reclamo - LATAM Pass,pending,normal,29703340829075.0,2026-09-14T02:10:53Z,2026-09-18T08:01:35Z,,DT FFP AMC,Sin Tipificar / Pendiente,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
 71732573,LATAM PASS::Unificación de cuentas*,pending,normal,35696861154835.0,2026-09-14T01:44:14Z,2026-09-15T02:01:43Z,tg_latam_pass_unificacion_ctas,DT FFP AMC,LATAM PASS::Unificación de cuentas*,Victor Eduardo Gomez Martinez,victorgomez.almacontact@outsourcing-account.com
 71732571,LATAM PASS:: Actualización de Email / Datos,pending,normal,39825390333843.0,2026-09-14T01:43:56Z,2026-09-15T02:01:43Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Alejandro Agudelo Acevedo,aagudeloa.almacontact@outsourcing-account.com
 71732430,Reclamo - LATAM Pass,pending,high,35696861154835.0,2026-09-14T01:16:01Z,2026-09-15T02:01:44Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Victor Eduardo Gomez Martinez,victorgomez.almacontact@outsourcing-account.com
@@ -3357,9 +3363,7 @@
 71707626,Reclamo - LATAM Pass,pending,high,35117638232851.0,2026-09-11T11:43:26Z,2026-09-12T12:02:37Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Laura Cristina Bran Arango,laurabran.almacontact@outsourcing-account.com
 71707273,Cambio de residencia ,pending,normal,21686074684947.0,2026-09-11T10:47:35Z,2026-09-12T11:02:34Z,,DT FFP AMC,Sin Tipificar / Pendiente,Edwin Fernando Serna Marin,edwinserna.almacontact@outsourcing-account.com
 71706880,Reclamo - LATAM Pass,pending,high,37639848548883.0,2026-09-11T08:18:19Z,2026-09-12T12:02:39Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Cesar Augusto Quintero Rodriguez,cesarquintero.almacontact@outsourcing-account.com
-71706812,LATAM PASS::Unificación de cuentas*,pending,normal,10517807890451.0,2026-09-11T07:37:04Z,2026-09-12T08:02:16Z,tg_latam_pass_unificacion_ctas,DT FFP AMC,LATAM PASS::Unificación de cuentas*,Leidy Johana Rincon Molina,leidyrincon.almacontact@outsourcing-account.com
 71706371,LATAM PASS::Cambio de registro - excepto correo electrónico y teléfono,pending,normal,25507231292435.0,2026-09-11T03:43:43Z,2026-09-13T15:02:56Z,tg_latam_pass_cambio_registro_excepto_correo_telefono,DT FFP AMC,LATAM PASS::Cambio de registro - excepto correo electrónico y teléfono,Natalia Bedoya Rojo,nataliabedoya.almacontact@outsourcing-account.com
-71706330,Reclamo - LATAM Pass - Contraseña,pending,normal,14927644658707.0,2026-09-11T03:32:17Z,2026-09-12T08:02:17Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Cruz Melina Gonzalez Marin,cruzgonzalez.almacontact@outsourcing-account.com
 71705797,Reclamo - LATAM Pass,pending,high,39790710174227.0,2026-09-11T01:47:13Z,2026-09-15T14:02:28Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Nayelis Valencia Moreno,nayelismoreno.almacontact@outsourcing-account.com
 71705344,LATAM PASS:: Actualización de Email / Datos,pending,normal,14927644658707.0,2026-09-11T00:36:15Z,2026-09-12T09:01:37Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Cruz Melina Gonzalez Marin,cruzgonzalez.almacontact@outsourcing-account.com
 71703816,Claim - Passwords,pending,normal,27400192832019.0,2026-09-10T22:00:38Z,2026-09-17T19:03:12Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Juan Marin,juanmarin.almacontact@outsourcing-account.com
@@ -3438,6 +3442,7 @@
 71509073,LATAM PASS:: Actualización de Email / Datos,pending,normal,46509087732499.0,2026-08-24T20:44:13Z,2026-09-15T10:01:46Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
 71506712,LATAM PASS::Sospecha de alto riesgo,pending,normal,46509087732499.0,2026-08-24T18:20:16Z,2026-09-14T09:01:26Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,LATAM PASS::Sospecha de alto riesgo,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
 71505680,LATAM PASS::Acreditacion vuelo LATAM,pending,normal,46509087732499.0,2026-08-24T17:15:51Z,2026-09-14T09:01:27Z,tg_latam_pass_acredit_vuelo_latam,DT FFP AMC,LATAM PASS::Acreditacion vuelo LATAM,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
+71504876,LATAM PASS::Unificación de cuentas*,pending,normal,46509087732499.0,2026-08-24T16:24:43Z,2026-09-18T07:36:27Z,tg_latam_pass_unificacion_ctas,DT FFP AMC,LATAM PASS::Unificación de cuentas*,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
 71503784,LATAM PASS:: Actualización de Email / Datos,pending,normal,46509104219795.0,2026-08-24T15:17:39Z,2026-09-12T16:03:15Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Sebastian Corcho,sebastiancorcho.alma@outsourcing-account.com
 71499226,Reclamo - Experiencia en oficinas de venta,pending,normal,46509087732499.0,2026-08-24T01:57:28Z,2026-09-14T09:01:28Z,tg_latam_pass_actualizacion_mail,DT FFP AMC,LATAM PASS:: Actualización de Email / Datos,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
 71496422,Reclamo - LATAM Pass,pending,normal,46509087732499.0,2026-08-23T17:30:40Z,2026-09-14T08:01:28Z,tg_latam_pass_registro_mi_cta_esta_bloqueada,DT FFP AMC,LATAM PASS::Registro mi cuenta está bloqueada,Miguel Angel Ramirez,miguelramirez.alma@outsourcing-account.com
@@ -3849,7 +3854,6 @@
 71776482,SOS**AHL//FCOLA14124//SEP26,open,normal,,2026-09-17T15:02:32Z,2026-09-17T21:44:26Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71775748,DAÑO//CCELA94636//SEP26,open,normal,,2026-09-17T14:19:51Z,2026-09-17T23:08:23Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71775606,DAÑO//ASULA13397//SEP26,open,normal,6306584988.0,2026-09-17T14:09:42Z,2026-09-17T14:20:06Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Geraldin Giraldo Arroyave,geraldingiraldo.almacontact@outsourcing-account.com
-71775519,DAÑO/EZELA64014/SEPT26,open,normal,,2026-09-17T14:04:08Z,2026-09-17T23:08:24Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71775472,G1NN//MADLA12152//SEP26,open,normal,23609588825747.0,2026-09-17T14:01:24Z,2026-09-18T06:37:04Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Anderson Alejandro Lopez Rodriguez,andersonlopez.almacontact@outsourcing-account.com
 71774252,Equipaje::Perdida,new,normal,,2026-09-17T12:48:02Z,2026-09-17T12:49:35Z,tg_experiencia_contact_center_reclamo_iberia,Equipajes AMC SSC,Experiencia con Contact Center::Reclamos Iberia,Sin Asignar,
 71774171,PRIORIDADE RA ,open,normal,,2026-09-17T12:41:02Z,2026-09-17T12:46:46Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Sin Asignar,
@@ -3898,10 +3902,10 @@
 71758971,MERMA//ALESSANDRA//SEP26,open,normal,,2026-09-16T01:18:45Z,2026-09-17T22:46:59Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
 71758913,MERMA//JOSUE//SEPTIEMBRE 2026,open,normal,35331070438419.0,2026-09-16T01:10:06Z,2026-09-18T01:19:02Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
 71758827,FP//ARTURO//SEPTEMBRE 2026,open,normal,35331070438419.0,2026-09-16T00:58:35Z,2026-09-18T03:05:47Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
-71758729,G1NN GERMAN SEP26,open,normal,28147104604435.0,2026-09-16T00:44:01Z,2026-09-17T23:12:49Z,tg_ancillaries_error_compra_servicios_adicionales,Equipajes AMC SSC,Ancillaries::Error compra servicios adicionales (ancillaries),Mauren Anet Arcon Gomez,maurenarcon.almacontact@outsourcing-account.com
+71758729,G1NN GERMAN SEP26,open,normal,,2026-09-16T00:44:01Z,2026-09-18T08:02:36Z,tg_ancillaries_error_compra_servicios_adicionales,Equipajes AMC SSC,Ancillaries::Error compra servicios adicionales (ancillaries),Sin Asignar,
 71758483,DAÑO//PUQLA26453//2026,open,normal,,2026-09-16T00:10:32Z,2026-09-16T09:02:42Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71758236,Equipaje::Perdida,open,normal,,2026-09-15T23:43:02Z,2026-09-18T00:03:30Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
-71758069,MERMA//AHL//AEPLA45871//SEP26,open,normal,43870853869331.0,2026-09-15T23:24:48Z,2026-09-17T23:26:26Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Valentin Miguel Mercado,valentinmercado.alma@outsourcing-account.com
+71758069,MERMA//AHL//AEPLA45871//SEP26,open,normal,,2026-09-15T23:24:48Z,2026-09-18T08:02:37Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Sin Asignar,
 71757775,DAÑO MISCELANEO//CCELA95506//SEP26,open,normal,35331040348307.0,2026-09-15T22:52:53Z,2026-09-17T22:07:50Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sebastian Agudelo Rincon,sebastianagudelo.almacontact@outsourcing-account.com
 71757356,Equipaje::Daño,open,normal,,2026-09-15T22:13:23Z,2026-09-15T23:33:17Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71757272,Reclamo - Problemas con equipaje en aeropuerto,open,normal,,2026-09-15T22:03:31Z,2026-09-15T22:14:21Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
@@ -3957,7 +3961,7 @@
 71736620,AHL//ZCOLA26050//AGOST26,open,normal,,2026-09-14T14:35:26Z,2026-09-17T15:46:58Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71736083,G1NN//MIALA36359//14SEP,open,normal,35656657669651.0,2026-09-14T14:02:25Z,2026-09-16T16:32:43Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Alexander Rodriguez Betancur,alexanderrodriguez.almacontact@outsourcing-account.com
 71735652,AHL//BOSLA10604//SEP26,open,normal,,2026-09-14T13:32:52Z,2026-09-15T19:04:51Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
-71734419,G1NN//CPTLA10202//SEP26,open,high,,2026-09-14T11:55:04Z,2026-09-17T15:17:45Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
+71734419,G1NN//CPTLA10202//SEP26,open,high,,2026-09-14T11:55:04Z,2026-09-18T07:37:00Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71733378,AHL//MVDLA44908//SEP26,open,normal,,2026-09-14T06:28:38Z,2026-09-18T00:03:30Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
 71733189,DAÑO//LUIS//SEP26,open,high,,2026-09-14T04:30:28Z,2026-09-14T05:25:42Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71732637,DAÑO//CCPLA21628//SEP26,open,normal,27196293887.0,2026-09-14T01:58:30Z,2026-09-17T22:45:24Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Valeria Delgado Bueno,valeriadelgado.almacontact@outsourcing-account.com
@@ -3987,6 +3991,7 @@
 71724356,DAÑO//AEPLA34638//AEP26,open,normal,,2026-09-12T22:05:20Z,2026-09-13T15:17:08Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71723241,DAÑOAHL/CCELA95437-LIMLA95786-sep26,open,high,,2026-09-12T19:29:03Z,2026-09-18T04:47:17Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
 71722442,DPR LIMLA65164 // DAÑO SILLA DE RUEDAS,new,high,,2026-09-12T17:46:29Z,2026-09-12T17:49:33Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Sin Asignar,
+71721392,G1NN//BCNLA12309//SEPTIEMBRE 2026,open,normal,35331070438419.0,2026-09-12T15:32:15Z,2026-09-18T07:23:00Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
 71720787,Prioridade Reclame Aqui,open,normal,,2026-09-12T14:30:28Z,2026-09-12T14:31:59Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Sin Asignar,
 71719998,G1NN//CWBLA34254//12SEP26,open,normal,,2026-09-12T13:00:17Z,2026-09-18T02:03:38Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71719189,G1NN//AMSLA10402//SEP26,open,normal,,2026-09-12T09:49:57Z,2026-09-18T06:06:06Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
@@ -3998,6 +4003,7 @@
 71716432,MERMA//CCELA95697//SEP26,open,normal,33031191374227.0,2026-09-11T21:56:27Z,2026-09-18T04:25:58Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Melina Andrea Garcia Garcia,melinagarcia.almacontact@outsourcing-account.com
 71713128,DAÑO/CCELA95648/SEP26,open,normal,42744719452435.0,2026-09-11T17:52:21Z,2026-09-18T06:21:34Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Andres Mauricio Zambrano,andreszambrano.alma@outsourcing-account.com
 71711883,G1NN/BRULA10203/SEP26,open,normal,1520299093602.0,2026-09-11T16:29:01Z,2026-09-17T12:38:20Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Camilo Andres Martinez Jimenez,camilomartinez.almacontact@outsourcing-account.com
+71711868,CBT//AMSLA10374//SEPTIEMBRE 2026,open,normal,35331070438419.0,2026-09-11T16:28:14Z,2026-09-18T07:19:11Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
 71711849,Equipaje CBT/D7 SSC,open,normal,35656657669651.0,2026-09-11T16:27:16Z,2026-09-14T22:00:49Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Alexander Rodriguez Betancur,alexanderrodriguez.almacontact@outsourcing-account.com
 71711841,Equipaje CBT/D7 SSC,open,normal,35656657669651.0,2026-09-11T16:26:54Z,2026-09-13T00:56:52Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Alexander Rodriguez Betancur,alexanderrodriguez.almacontact@outsourcing-account.com
 71711811,CBT//GRULA56166//SEP26,open,normal,,2026-09-11T16:25:23Z,2026-09-18T03:06:41Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
@@ -4006,7 +4012,6 @@
 71711736,Equipaje CBT/D7 SSC,open,normal,,2026-09-11T16:22:20Z,2026-09-17T01:06:58Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Sin Asignar,
 71711730,Equipaje CBT/D7 SSC,open,normal,42744719452435.0,2026-09-11T16:21:45Z,2026-09-11T22:08:50Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Andres Mauricio Zambrano,andreszambrano.alma@outsourcing-account.com
 71710714,Reclamo - Vuelos cancelados o atrasados por LATAM,open,normal,,2026-09-11T15:16:09Z,2026-09-14T11:10:02Z,tg_cambios_involuntarios_atraso_con_responsabilidad,Equipajes AMC SSC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
-71710664,DAÑO//CCELA95156//SEP26,open,normal,42741624125331.0,2026-09-11T15:12:38Z,2026-09-18T01:40:52Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Mariana Ochoa,marianaochoa.alma@outsourcing-account.com
 71710435,Devolución Equipaje DOT.,open,normal,,2026-09-11T15:00:21Z,2026-09-11T22:46:35Z,tg_devolucion_anulacion_ley_dot,Equipajes AMC SSC,Devoluciones / Anulaciones::Ley DOT,Sin Asignar,
 71709616,Equipaje::Perdida,open,high,,2026-09-11T14:10:52Z,2026-09-11T14:56:52Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71709302,G1NN//BCNLA12298 //SEP26,open,normal,,2026-09-11T13:52:53Z,2026-09-12T04:05:44Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
@@ -4036,6 +4041,7 @@
 71693793,DAÑO-G1NN//MADLA12231//AGO26,open,normal,,2026-09-10T08:45:19Z,2026-09-10T18:10:59Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71693676,MERMA//GIGLA43291//SEP26,open,normal,,2026-09-10T07:39:02Z,2026-09-11T12:37:47Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71693664,AHL/FCOLA14081/SEP26,open,normal,35331040348307.0,2026-09-10T07:36:10Z,2026-09-17T12:21:06Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sebastian Agudelo Rincon,sebastianagudelo.almacontact@outsourcing-account.com
+71693620,EQ MOJADO //GRULA56097//SEP26,open,normal,1520299093602.0,2026-09-10T07:11:52Z,2026-09-18T07:48:46Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Camilo Andres Martinez Jimenez,camilomartinez.almacontact@outsourcing-account.com
 71693487,G1NN//AEPLA45703//SEP26,open,normal,,2026-09-10T05:56:56Z,2026-09-18T00:04:33Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71693061,DAÑO//LIMLA64968//AUG26,open,normal,,2026-09-10T03:43:02Z,2026-09-10T12:08:00Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Sin Asignar,
 71691899,DAÑOAHL//GYNLA24217//SEP26,open,normal,,2026-09-10T01:20:16Z,2026-09-10T10:06:20Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
@@ -4102,7 +4108,7 @@
 71648318,G1NN//MADLA12126//AUG26,open,normal,,2026-09-06T09:12:27Z,2026-09-18T03:06:43Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71646607,Reclamo - Problemas con equipaje en aeropuerto,open,normal,,2026-09-05T22:37:35Z,2026-09-09T09:06:09Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
 71644564,DAÑO//CLARA//SEP26,open,normal,,2026-09-05T17:37:25Z,2026-09-16T09:02:45Z,tg_cambios_involuntarios_atraso_con_responsabilidad,Equipajes AMC SSC,Cambios Involuntarios::Atraso CON responsabilidad,Sin Asignar,
-71642830,AHL//MVDLA44757//MVDLA44907//SEP26,open,normal,49349529671059.0,2026-09-05T13:54:15Z,2026-09-17T23:17:07Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Natali Villada,natalivillada.alma@outsourcing-account.com
+71642830,AHL//MVDLA44757//MVDLA44907//SEP26,open,normal,,2026-09-05T13:54:15Z,2026-09-18T08:02:38Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71640597,MERMA// CCELA94725// SEP2026,open,normal,,2026-09-05T01:47:33Z,2026-09-18T02:03:39Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
 71640227,Re: [LATAM] Resolução do caso #71555139 [Re: [LATAM] Resolução do caso #71479511 [Resposta à sua solicitação – Bagagem]],open,normal,,2026-09-05T00:33:22Z,2026-09-10T15:00:18Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71639999,DPR//AEPLA34599//SEP26,open,normal,49315181240211.0,2026-09-05T00:02:19Z,2026-09-15T00:16:17Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Yohan Blandon,yohanblandon.alma@outsourcing-account.com
@@ -4117,7 +4123,7 @@
 71632010,CBT/CDGLA16528/AGO26,open,normal,,2026-09-04T13:28:29Z,2026-09-05T00:04:43Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Sin Asignar,
 71632003,CBT//MIALA36124//SEP26,open,normal,40519041745427.0,2026-09-04T13:28:27Z,2026-09-11T20:24:46Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Emily Del Valle Quevedo Garcia,emilyquevedo.almacontact@outsourcing-account.com
 71631997,CBT//MELLA13979//SEP26,open,normal,,2026-09-04T13:28:25Z,2026-09-18T06:06:07Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
-71632005,CBT/SCLLA17541/SEP/26,open,normal,35331042683539.0,2026-09-04T13:28:28Z,2026-09-18T00:40:42Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Gladis Omaira Gomez,gladisgomez.almacontact@outsourcing-account.com
+71632005,CBT/SCLLA17541/SEP/26,open,normal,,2026-09-04T13:28:28Z,2026-09-18T08:02:38Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71630053,AHL//AKLLA14375//SEP26,open,normal,27196293887.0,2026-09-04T08:41:59Z,2026-09-18T06:10:58Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Valeria Delgado Bueno,valeriadelgado.almacontact@outsourcing-account.com
 71629421,G1NN//MERMA//LIMLA94716//AUG26,open,normal,,2026-09-04T03:19:54Z,2026-09-04T03:22:48Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Sin Asignar,
 71627923,G1NN//MDZLA51344//SEPT26,open,normal,,2026-09-03T23:27:05Z,2026-09-14T16:41:04Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
@@ -4192,6 +4198,7 @@
 71776554,FP//ASTRID//SEP26,pending,normal,35605359709587.0,2026-09-17T15:05:53Z,2026-09-17T16:23:48Z,tg_equipaje_articulos_olvidados,Equipajes AMC SSC,Equipaje::Artículos olvidados,Juan David Osorio Mora,juandavidosorio.almacontact@outsourcing-account.com
 71775873,DAÑO//MDELA18148//SEP26,pending,normal,35605359709587.0,2026-09-17T14:26:40Z,2026-09-17T15:52:58Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Juan David Osorio Mora,juandavidosorio.almacontact@outsourcing-account.com
 71775798,DAÑO//CAROLINA//SEP2026,pending,normal,35331075781267.0,2026-09-17T14:22:21Z,2026-09-17T14:26:41Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Rubi Aide Marin Chanci,rubimarin.almacontact@outsourcing-account.com
+71775519,DAÑO/EZELA64014/SEPT26,pending,normal,42744719452435.0,2026-09-17T14:04:08Z,2026-09-18T07:35:40Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Andres Mauricio Zambrano,andreszambrano.alma@outsourcing-account.com
 71775486,MERMA//SCLLA44658//SEP26,pending,normal,43871604802835.0,2026-09-17T14:02:12Z,2026-09-17T14:29:27Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Gloria Marcela Avila,gloriaavila.alma@outsourcing-account.com
 71774251,CBT//AEPLA45108//JUL26,pending,normal,,2026-09-17T12:48:01Z,2026-09-17T12:50:50Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71774178,Equipaje::Perdida,hold,normal,43871604802835.0,2026-09-17T12:41:56Z,2026-09-17T15:17:14Z,tg_experiencia_contact_center_reclamo_iberia,Equipajes AMC SSC,Experiencia con Contact Center::Reclamos Iberia,Gloria Marcela Avila,gloriaavila.alma@outsourcing-account.com
@@ -4264,9 +4271,10 @@
 71750667,CBT//LIMLA94980// SEP2026,pending,high,35331075781267.0,2026-09-15T14:53:36Z,2026-09-16T18:03:27Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Rubi Aide Marin Chanci,rubimarin.almacontact@outsourcing-account.com
 71750211,DAÑO/GERONIMOBERGUNO/15SEP26,pending,normal,35605359709587.0,2026-09-15T14:26:58Z,2026-09-17T15:12:31Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Juan David Osorio Mora,juandavidosorio.almacontact@outsourcing-account.com
 71749368,Equipaje::Daño,pending,normal,40340652398099.0,2026-09-15T13:35:23Z,2026-09-16T14:03:22Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Druman Jose Gonzalez Gonzalez,drumangonzalez.almacontact@outsourcing-account.com
-71559401,CBT AMSLA10326 AG26,open,normal,28147104604435.0,2026-08-28T21:48:51Z,2026-09-17T23:25:02Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Mauren Anet Arcon Gomez,maurenarcon.almacontact@outsourcing-account.com
+71559401,CBT AMSLA10326 AG26,open,normal,,2026-08-28T21:48:51Z,2026-09-18T08:02:38Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71559390,G1NN/GRULA55452/AGO26,open,normal,,2026-08-28T21:48:48Z,2026-09-17T17:30:40Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Sin Asignar,
 71559372,CBT//D7//MDZLA51297//AGO26,open,normal,49315181240211.0,2026-08-28T21:48:37Z,2026-09-16T20:37:03Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Yohan Blandon,yohanblandon.alma@outsourcing-account.com
+71559379,Equipaje CBT/D7 SSC//BCNLA12141//AUG26,open,normal,35656657669651.0,2026-08-28T21:48:41Z,2026-09-18T07:33:20Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Alexander Rodriguez Betancur,alexanderrodriguez.almacontact@outsourcing-account.com
 71559353,CBT/GRULA55257/Sep/26,open,normal,35331042683539.0,2026-08-28T21:48:25Z,2026-09-15T14:32:15Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Gladis Omaira Gomez,gladisgomez.almacontact@outsourcing-account.com
 71559349,CBT/BCNLA12135/AGOS/26,open,normal,35331042683539.0,2026-08-28T21:48:22Z,2026-09-16T20:32:40Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Gladis Omaira Gomez,gladisgomez.almacontact@outsourcing-account.com
 71749068,CBT//GRULA52794//JUL26,pending,normal,34685857445139.0,2026-09-15T13:15:25Z,2026-09-16T14:03:24Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Estefania Ceballos Vera,estefaniaceballos.almacontact@outsourcing-account.com
@@ -4369,7 +4377,6 @@
 71722083,DAÑO MISCENALEO KATTERIN SEP26,pending,normal,28147104604435.0,2026-09-12T17:02:11Z,2026-09-13T21:01:51Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Mauren Anet Arcon Gomez,maurenarcon.almacontact@outsourcing-account.com
 71722029,Equipaje::Perdida,pending,normal,40340652398099.0,2026-09-12T16:54:51Z,2026-09-13T17:01:51Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Druman Jose Gonzalez Gonzalez,drumangonzalez.almacontact@outsourcing-account.com
 71721471,BPE//ENGLASH//SEP26,pending,normal,,2026-09-12T15:41:56Z,2026-09-13T17:02:02Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Sin Asignar,
-71721392,G1NN//BCNLA12309//SEPTIEMBRE 2026,pending,normal,35331070438419.0,2026-09-12T15:32:15Z,2026-09-18T00:01:50Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
 71721077,LEY DOT BOSLA10601 SEP26,hold,normal,28147104604435.0,2026-09-12T15:00:13Z,2026-09-15T19:09:53Z,tg_devolucion_anulacion_ley_dot,Equipajes AMC SSC,Devoluciones / Anulaciones::Ley DOT,Mauren Anet Arcon Gomez,maurenarcon.almacontact@outsourcing-account.com
 71720919,AHL//FWD//GRULA643234//12SEP26,pending,normal,40340652398099.0,2026-09-12T14:45:16Z,2026-09-17T16:26:36Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Druman Jose Gonzalez Gonzalez,drumangonzalez.almacontact@outsourcing-account.com
 71525328,G1NN//MELLA13879//AGO26,open,normal,,2026-08-26T06:03:51Z,2026-09-04T00:22:11Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
@@ -4403,7 +4410,6 @@
 71711882,CBT/JNBLA10378/SEP26,pending,normal,1520299093602.0,2026-09-11T16:28:59Z,2026-09-13T00:01:50Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Camilo Andres Martinez Jimenez,camilomartinez.almacontact@outsourcing-account.com
 71711872,CBT/JNBLA11967/SEP26,pending,normal,1520299093602.0,2026-09-11T16:28:30Z,2026-09-17T03:02:04Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Camilo Andres Martinez Jimenez,camilomartinez.almacontact@outsourcing-account.com
 71711869,CBT//FCOLA14075//SEPTIEMBRE 2026,pending,normal,35331070438419.0,2026-09-11T16:28:21Z,2026-09-13T00:01:50Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
-71711868,CBT//AMSLA10374//SEPTIEMBRE 2026,pending,normal,35331070438419.0,2026-09-11T16:28:14Z,2026-09-18T02:01:40Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
 71711861,CBT//AEPLA45770//SEPTIEMBRE 2026,pending,normal,35331070438419.0,2026-09-11T16:27:55Z,2026-09-13T00:01:50Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
 71711817,Equipaje CBT/D7 SSC,pending,normal,35656657669651.0,2026-09-11T16:25:35Z,2026-09-17T22:03:25Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Alexander Rodriguez Betancur,alexanderrodriguez.almacontact@outsourcing-account.com
 71711815,CBT//GIGLA44428//SEP26,pending,normal,35605359709587.0,2026-09-11T16:25:26Z,2026-09-13T01:02:45Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Juan David Osorio Mora,juandavidosorio.almacontact@outsourcing-account.com
@@ -4418,6 +4424,7 @@
 71711698,CBT//ASULA25094//SEP26,pending,normal,42741624125331.0,2026-09-11T16:20:18Z,2026-09-14T22:02:07Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Mariana Ochoa,marianaochoa.alma@outsourcing-account.com
 71711569,DAÑO//CCELA95251//SEP26,pending,normal,43871604802835.0,2026-09-11T16:10:41Z,2026-09-14T00:02:52Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Gloria Marcela Avila,gloriaavila.alma@outsourcing-account.com
 71711363,MERMA//MONICA//SEP26,pending,high,1520299093602.0,2026-09-11T15:57:32Z,2026-09-17T22:02:17Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Camilo Andres Martinez Jimenez,camilomartinez.almacontact@outsourcing-account.com
+71710664,DAÑO//CCELA95156//SEP26,pending,normal,42741624125331.0,2026-09-11T15:12:38Z,2026-09-18T07:18:47Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Mariana Ochoa,marianaochoa.alma@outsourcing-account.com
 71710610,Equipaje::Merma,pending,normal,35331040348307.0,2026-09-11T15:08:25Z,2026-09-18T07:06:39Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Sebastian Agudelo Rincon,sebastianagudelo.almacontact@outsourcing-account.com
 71710322,DAÑO/CCELA95519/SEP26,pending,normal,43871604802835.0,2026-09-11T14:53:12Z,2026-09-17T12:11:07Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Gloria Marcela Avila,gloriaavila.alma@outsourcing-account.com
 71710276,DPR//71710276//SEPT26,pending,normal,43871604802835.0,2026-09-11T14:50:20Z,2026-09-12T16:02:58Z,tg_equipaje_dano_o_merma,Equipajes AMC SSC,Equipaje::Daño o merma,Gloria Marcela Avila,gloriaavila.alma@outsourcing-account.com
@@ -4439,7 +4446,6 @@
 71500195,AHL//FCOLA13820//JUL26,open,normal,,2026-08-24T09:07:49Z,2026-09-06T12:06:47Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71694534,FP//ZUMEL//SEP26,pending,normal,27196293887.0,2026-09-10T11:34:29Z,2026-09-15T17:03:29Z,tg_equipaje_articulos_olvidados,Equipajes AMC SSC,Equipaje::Artículos olvidados,Valeria Delgado Bueno,valeriadelgado.almacontact@outsourcing-account.com
 71693878,G1NN//BCNLA12303//SEP26,pending,normal,27196293887.0,2026-09-10T09:31:17Z,2026-09-14T15:02:45Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Valeria Delgado Bueno,valeriadelgado.almacontact@outsourcing-account.com
-71693620,EQ MOJADO //GRULA56097//SEP26,pending,normal,1520299093602.0,2026-09-10T07:11:52Z,2026-09-16T03:02:49Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Camilo Andres Martinez Jimenez,camilomartinez.almacontact@outsourcing-account.com
 71693225,CBT//GIGLA43044//SEP26,pending,normal,30002183846931.0,2026-09-10T04:24:03Z,2026-09-17T19:56:27Z,tg_equipaje_informacion_general_peso_medidas_excesos,Equipajes AMC SSC,Equipaje::Información general ,Jose Alejandro Gonzalez Villa,josealejandrogonzalez.almacontact@outsourcing-account.com
 71693123,MERMA//CCELA95445//SEP26,pending,normal,27196293887.0,2026-09-10T03:56:01Z,2026-09-17T18:02:54Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Valeria Delgado Bueno,valeriadelgado.almacontact@outsourcing-account.com
 71692929,DAÑO//CCELA95103//SEP26,hold,normal,30002183846931.0,2026-09-10T03:20:08Z,2026-09-16T01:12:36Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Jose Alejandro Gonzalez Villa,josealejandrogonzalez.almacontact@outsourcing-account.com
@@ -4458,7 +4464,6 @@
 71680381,DAÑO//AHL//FRALA14374//CCELA94991//SEPT26,pending,normal,43871604802835.0,2026-09-09T12:59:48Z,2026-09-15T15:03:24Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Gloria Marcela Avila,gloriaavila.alma@outsourcing-account.com
 71679101,MERMA//CCELA94985//SEP26,hold,normal,49315181240211.0,2026-09-09T10:34:41Z,2026-09-18T02:30:40Z,tg_equipaje_merma,Equipajes AMC SSC,Equipaje::Merma,Yohan Blandon,yohanblandon.alma@outsourcing-account.com
 71679001,CBT/BCNLA12232/SEP26,pending,normal,,2026-09-09T10:06:16Z,2026-09-17T22:08:06Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
-71678176,DAÑO//AKLLA14361//AUG26,pending,normal,42741624125331.0,2026-09-09T03:41:56Z,2026-09-17T15:26:44Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Mariana Ochoa,marianaochoa.alma@outsourcing-account.com
 71677890,DAÑO//LIMLA95655//CCELA94998//SEP26,pending,normal,43871604802835.0,2026-09-09T02:29:35Z,2026-09-17T14:02:20Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Gloria Marcela Avila,gloriaavila.alma@outsourcing-account.com
 71493391,CBT// BCNLA12128 // AUG26,open,normal,,2026-08-23T02:14:33Z,2026-09-17T04:02:46Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Sin Asignar,
 71493375,CBT//LIMLA94783//LIMLA95243//AUG26,open,normal,35605359709587.0,2026-08-23T02:14:26Z,2026-09-17T22:22:59Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Juan David Osorio Mora,juandavidosorio.almacontact@outsourcing-account.com
@@ -4598,7 +4603,6 @@
 71559413,CBT//MIALA36073//SEPT26,pending,normal,35331042683539.0,2026-08-28T21:48:54Z,2026-09-17T23:23:03Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Gladis Omaira Gomez,gladisgomez.almacontact@outsourcing-account.com
 71559387,CBT//BCNLA12154//AGOSTO 2026,pending,normal,35331070438419.0,2026-08-28T21:48:46Z,2026-09-12T22:03:10Z,tg_equipaje_perdida,Equipajes AMC SSC,Equipaje::Perdida,Angie Melissa Botero Cartagena,angiebotero.almacontact@outsourcing-account.com
 71559377,CBT//D7//SCLLA17161//AGO26,pending,normal,35331075781267.0,2026-08-28T21:48:39Z,2026-09-18T06:02:09Z,tg_equipaje_dano,Equipajes AMC SSC,Equipaje::Daño,Rubi Aide Marin Chanci,rubimarin.almacontact@outsourcing-account.com
-71559379,Equipaje CBT/D7 SSC//BCNLA12141//AUG26,pending,normal,35656657669651.0,2026-08-28T21:48:41Z,2026-09-17T22:40:05Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Alexander Rodriguez Betancur,alexanderrodriguez.almacontact@outsourcing-account.com
 71559352,CBT//CCSLA14062//AUG26,pending,normal,35331042683539.0,2026-08-28T21:48:25Z,2026-09-18T00:55:44Z,,Equipajes AMC SSC,Sin Tipificar / Pendiente,Gladis Omaira Gomez,gladisgomez.almacontact@outsourcing-account.com
 71557724,FP//BENJAMIN//AUGUST26,hold,normal,1520299093602.0,2026-08-28T19:50:05Z,2026-09-15T23:33:13Z,tg_equipaje_articulos_olvidados,Equipajes AMC SSC,Equipaje::Artículos olvidados,Camilo Andres Martinez Jimenez,camilomartinez.almacontact@outsourcing-account.com
 71557118,Compras en LATAM::Facturas,pending,normal,,2026-08-28T19:09:39Z,2026-09-17T16:52:31Z,tg_compras_latam_facturas,Equipajes AMC SSC,Compras en LATAM::Facturas,Sin Asignar,
