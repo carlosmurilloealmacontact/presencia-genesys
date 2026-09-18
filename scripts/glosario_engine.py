@@ -177,6 +177,39 @@ TERMINOS_GLOSARIO = [
         "formula": r"\text{Filtro Tabla} = \text{Estado}_A \cup \text{Estado}_B \cup \dots",
         "ejemplo": "Activar 'En Interacción' + 'En Cola' muestra todo el frente de asesores productivos."
     },
+    {
+        "termino": "ININ-WRAP-UP / ACW (After Call Work / Trabajo Posterior)",
+        "categoria": "Monitoreo en Vivo",
+        "badge": "ACD Genesys",
+        "color": "#0ea5e9",
+        "resumen": "Estado técnico posterior a la interacción donde el asesor tipifica, documenta notas o cierra el caso.",
+        "definicion": (
+            "Es el estado en que entra un asesor inmediatamente después de colgar una llamada o finalizar un chat.<br>"
+            "• <b>¿Qué significa WRA / WRAP-UP?</b> Trabajo Posterior a la Llamada (ACW - After Call Work). En esta fase el asesor registra la tipificación obligatoria del contacto, notas de seguimiento o radicado de reclamo antes de volver a quedar disponible.<br>"
+            "• <b>¿Por qué lleva el prefijo 'ININ'?</b> Proviene de <i>Interactive Intelligence (ININ)</i>, la empresa creadora original de la plataforma (antes PureCloud), adquirida por Genesys en 2016. Todos los identificadores nativos del motor de enrutamiento conservan el prefijo <code>ININ-</code> en las APIs.<br>"
+            "• <b>Impacto:</b> Mientras el asesor está en Wrap-Up, el ACD no le envía otra llamada hasta que finalice o venza el temporizador contractual de tipificación."
+        ),
+        "formula": r"\text{AHT} = \text{Talk} + \text{Hold} + \text{ACW (ININ-WRAP-UP)}",
+        "ejemplo": "Si un asesor atiende una llamada de 8 minutos y tarda 45 segundos tipificando, esos 45 segundos quedan registrados como ININ-WRAP-UP."
+    },
+    {
+        "termino": "Códigos Nativos de Sistema Genesys (Prefijo ININ)",
+        "categoria": "Monitoreo en Vivo",
+        "badge": "Arquitectura",
+        "color": "#6366f1",
+        "resumen": "Eventos de sistema generados por el motor de telefonía para enrutamiento y señalización técnica.",
+        "definicion": (
+            "Casuísticas comunes generadas automáticamente por Genesys Cloud con el prefijo <code>ININ-</code>:<br>"
+            "• <b>ININ-WRAP-UP:</b> Asesor tipificando la interacción post-llamada.<br>"
+            "• <b>ININ-WRAP-UP-TIMEOUT:</b> El tiempo asignado para tipificar expiró y el sistema cerró la ventana automáticamente devolviendo al asesor a cola.<br>"
+            "• <b>ININ-OUTBOUND:</b> Marcación manual o llamada saliente generada desde la consola.<br>"
+            "• <b>ININ-INTERACTION-BLIND-TRANSFER:</b> Transferencia ciega enviada a otra cola o agente.<br>"
+            "• <b>ININ-VOICEMAIL:</b> Asesor escuchando o gestionando un mensaje de buzón de voz.<br>"
+            "• <b>ININ-SYSTEM-PRESENCE-*:</b> Presencias primarias nativas del sistema (Available, Busy, Away, Break, Meal, Training, Meeting)."
+        ),
+        "formula": r"\text{Identificador de Fábrica Genesys Cloud (Legacy Interactive Intelligence)}",
+        "ejemplo": "Un reporte con 'ININ-WRAP-UP-TIMEOUT' indica que el asesor excedió el tiempo pactado para tipificar y fue forzado a disponibilidad."
+    },
 
     # ── GTR & Telefonía ───────────────────────────────────────────────────────
     {
@@ -288,6 +321,30 @@ TERMINOS_GLOSARIO = [
         ),
         "formula": r"\text{Productivo si } \text{Servicio} \in \{\text{Back Office, Células BO}\}",
         "ejemplo": "Un asesor de Voz en 'Casos Backoffice' genera alerta roja; un asesor de BO en el mismo estado está cumpliendo su labor."
+    },
+    {
+        "termino": "Diccionario de Códigos de Novedades WFM (Mallas de Turno)",
+        "categoria": "Ausentismo & Adherencia",
+        "badge": "WFM Almaverso",
+        "color": "#8b5cf6",
+        "resumen": "Significado oficial de los códigos abreviados de novedades reportados en la malla de turnos.",
+        "definicion": (
+            "Códigos estándar devueltos por la API de Almaverso y registrados en la base de datos:<br>"
+            "• <b>TUR (Turno Operativo):</b> Jornada laboral activa programada. Es la que se evalúa contra la conexión real.<br>"
+            "• <b>DES (Descanso):</b> Día de descanso remunerado o compensatorio programado. Exonera de evaluación de adherencia.<br>"
+            "• <b>VAC (Vacaciones):</b> Periodo oficial de vacaciones aprobado.<br>"
+            "• <b>FOR (Formación):</b> Asesor en proceso de capacitación inicial o entrenamiento.<br>"
+            "• <b>LMA (Licencia de Maternidad):</b> Licencia de maternidad formalmente acreditada.<br>"
+            "• <b>ICCP (Incapacidad Común / Permiso Médico):</b> Certificado médico de EPS que justifica legalmente la inasistencia.<br>"
+            "• <b>SUS (Suspensión):</b> Suspensión disciplinaria laboral.<br>"
+            "• <b>PAB (Permiso Administrativo):</b> Permiso remunerado autorizado por gerencia o gestión humana.<br>"
+            "• <b>SST (Salud en el Trabajo):</b> Cita médica ocupacional o brigada de salud laboral.<br>"
+            "• <b>SC (Sanción / Calamidad):</b> Calamidad doméstica de fuerza mayor o sanción aplicada.<br>"
+            "• <b>LNR / LR (Licencias):</b> Licencia No Remunerada o Remunerada.<br>"
+            "• <b>CDF / CMP (Compensatorios):</b> Cambio de fecha o descanso compensatorio por festivo laborado."
+        ),
+        "formula": r"\text{Novedad Oficial WFM} \in \{\text{TUR, DES, VAC, FOR, LMA, ICCP, SUS, PAB, SST, SC}\}",
+        "ejemplo": "Si un asesor cambia de TUR a ICCP en la auditoría, su inasistencia queda automáticamente justificada como incapacidad médica."
     },
 
     # ── Zendesk & Soporte Digital ─────────────────────────────────────────────
