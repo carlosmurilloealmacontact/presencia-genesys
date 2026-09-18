@@ -525,7 +525,7 @@ def procesar_antiguedad_backlog(df_backlog: pd.DataFrame) -> Tuple[pd.DataFrame,
     return df, matriz_display, df_desglose
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def cargar_bundle_zendesk() -> dict:
     """Carga y pre-enriquece todos los datasets de Zendesk en memoria para filtrado ultrarrápido (<50ms)."""
     file_asesores = DATA_DIR / "asesores_tipologia_metricas.csv"
@@ -833,7 +833,11 @@ def render_tab_zendesk(email_usuario: str = ""):
             hora_s = datetime.fromtimestamp(latest_mtime).strftime('%d/%m/%Y %I:%M:%S %p')
 
     ts_corte = status_info.get("timestamp_label", hora_s)
-    next_c = status_info.get("next_sync_est", "Próxima hora")
+    tipo_corte = status_info.get("tipo_corte", "full")
+    duracion = status_info.get("duracion_seg", 0)
+    ultimo_full = status_info.get("ultimo_corte_full", "")
+    next_c = status_info.get("next_sync_est", "Próximos minutos")
+
     df_b_op_raw = bundle.get("df_b_operativo")
     if df_b_op_raw is not None and not df_b_op_raw.empty and "status" in df_b_op_raw.columns:
         bl_op_c = len(df_b_op_raw[df_b_op_raw["status"].isin(["new", "open", "hold"])])
@@ -842,13 +846,23 @@ def render_tab_zendesk(email_usuario: str = ""):
         bl_op_c = len(df_b_op_raw) if df_b_op_raw is not None else 0
         bl_pend_c = 0
 
-    sol_op_c = len(bundle.get("df_p_operativo", [])) if bundle.get("df_p_operativo") is not None else 0
+    # Si el corte fue rápido y contiene el conteo de backlog más reciente, reflejarlo
+    if tipo_corte == "fast" and status_info.get("backlog_count"):
+        bl_op_c = status_info.get("backlog_count", bl_op_c)
+        sol_op_c = status_info.get("solved_today_count", len(bundle.get("df_p_operativo", [])) if bundle.get("df_p_operativo") is not None else 0)
+    else:
+        sol_op_c = len(bundle.get("df_p_operativo", [])) if bundle.get("df_p_operativo") is not None else 0
+
     bl_auth_c = len(bundle.get("df_b_auth", [])) if bundle.get("df_b_auth") is not None else 0
     sol_auth_c = len(bundle.get("df_p_auth", [])) if bundle.get("df_p_auth") is not None else 0
 
     col_h1, col_h2 = st.columns([3.5, 0.9])
     with col_h1:
-        st.info(f"🕒 **Corte Horario Zendesk:** `{ts_corte}` *(Hora Col / UTC-5)* | 🚨 **Backlog Operativo:** `{bl_op_c:,}` | 🟡 **Pendientes (Cliente):** `{bl_pend_c:,}` | ✅ **Resueltos Hoy:** `{sol_op_c:,}` | 🛡️ **Autorizaciones:** `{bl_auth_c} cola / {sol_auth_c} hoy`")
+        if tipo_corte == "fast":
+            txt_full = f" | 📦 Corte Profundo: `{ultimo_full}`" if ultimo_full else ""
+            st.info(f"🟢 **Zendesk En Vivo (Corte Rápido):** `{ts_corte}` *(cadencia 5 min / {duracion}s)* | 🚨 **Backlog Activo:** `{bl_op_c:,}` | ✅ **Resueltos Hoy:** `{sol_op_c:,}`{txt_full}")
+        else:
+            st.info(f"📦 **Corte Profundo Zendesk:** `{ts_corte}` *(Hora Col / UTC-5)* | 🚨 **Backlog Operativo:** `{bl_op_c:,}` | 🟡 **Pendientes (Cliente):** `{bl_pend_c:,}` | ✅ **Resueltos Hoy:** `{sol_op_c:,}` | 🛡️ **Autorizaciones:** `{bl_auth_c} cola / {sol_auth_c} hoy`")
 
     with col_h2:
         if st.button("🔄 Refrescar Vista", use_container_width=True, help="Limpia la memoria caché y recarga las métricas con el último corte disponible."):
