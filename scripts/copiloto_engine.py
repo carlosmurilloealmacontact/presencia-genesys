@@ -1,5 +1,6 @@
 # copiloto_engine.py - Motor de Inteligencia Operativa y Copiloto Conversacional 4DX
 # Impulsado por Vertex AI (Google Cloud) & Gemini 2.5 Flash
+# Implementación nativa vía REST API con google-auth + httpx (100% compatible con Streamlit Cloud)
 
 import os
 import sqlite3
@@ -9,31 +10,10 @@ from datetime import datetime
 from pathlib import Path
 import pandas as pd
 import streamlit as st
-import sys
-
-import importlib
-import subprocess
-
-VERTEX_ERROR = ""
-try:
-    from google import genai
-    from google.genai import types
-    from google.oauth2 import service_account
-    VERTEX_AVAILABLE = True
-except Exception as _ve:
-    # Auto-recuperación en Streamlit Cloud: si el contenedor no corrió pip install al reiniciar
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "google-genai", "--quiet"])
-        importlib.invalidate_caches()
-        if "google" in sys.modules:
-            importlib.reload(sys.modules["google"])
-        from google import genai
-        from google.genai import types
-        from google.oauth2 import service_account
-        VERTEX_AVAILABLE = True
-    except Exception as _install_err:
-        VERTEX_AVAILABLE = False
-        VERTEX_ERROR = f"Error al importar/instalar google-genai: {_ve} | {_install_err}"
+import httpx
+from google.oauth2 import service_account
+import google.auth
+import google.auth.transport.requests
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "data" / "presencia.db"
@@ -45,12 +25,9 @@ LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-flash"
 
 
-def _obtener_cliente_vertex():
-    """Inicializa el cliente oficial de Google GenAI con Vertex AI (soporta Streamlit Cloud secrets y local)."""
-    if not VERTEX_AVAILABLE:
-        return None, f"La librería `google-genai` no está instalada en el contenedor ({VERTEX_ERROR}). Streamlit Cloud necesita reiniciar para instalarla desde requirements.txt."
-    
-    # 1. Soporte para Streamlit Cloud vía st.secrets["gcp_service_account"]
+def _obtener_token_vertex():
+    """Obtiene un token de acceso OAuth2 para Vertex AI desde Streamlit Secrets o credenciales locales."""
+    # 1. Intentar desde st.secrets["gcp_service_account"] (Streamlit Cloud)
     if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
         try:
             sa_raw = st.secrets["gcp_service_account"]
@@ -61,21 +38,41 @@ def _obtener_cliente_vertex():
             creds = service_account.Credentials.from_service_account_info(
                 sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
-            client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION, credentials=creds)
-            return client, None
-        except Exception as err_sa:
-            return None, f"Error leyendo `[gcp_service_account]` en Streamlit Secrets: {err_sa}"
+            auth_req = google.auth.transport.requests.Request()
+            creds.refresh(auth_req)
+            return creds.token, None
+        except Exception as e:
+            return None, f"Error leyendo credenciales de `[gcp_service_account]` en Streamlit Secrets: {e}"
 
-    # 2. Fallback local / Application Default Credentials
+    # 2. Intentar desde archivo local común si existe
+    local_key = Path(r"C:\Users\cames\.gcp\pipeline-service-account.json")
+    if local_key.exists():
+        try:
+            with open(local_key, "r") as f:
+                sa_info = json.load(f)
+            creds = service_account.Credentials.from_service_account_info(
+                sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            auth_req = google.auth.transport.requests.Request()
+            creds.refresh(auth_req)
+            return creds.token, None
+        except Exception:
+            pass
+
+    # 3. Fallback a credenciales por defecto de entorno
     try:
-        client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
-        return client, None
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        auth_req = google.auth.transport.requests.Request()
+        creds.refresh(auth_req)
+        return creds.token, None
     except Exception as e:
         return None, (
-            "Faltan las credenciales de Google Cloud en Streamlit Cloud. "
-            "Debes agregar el bloque `[gcp_service_account]` en los Secrets de la aplicación en share.streamlit.io (Settings > Secrets)."
+            "No se encontraron credenciales válidas de Google Cloud en Streamlit Secrets. "
+            "Por favor verifica que `[gcp_service_account]` esté configurado en share.streamlit.io (Settings > Secrets)."
         )
 
+
+# ── HERRAMIENTAS ANALÍTICAS LOCALES ──────────────────────────────────────────
 
 def obtener_fechas_disponibles() -> str:
     """Devuelve las fechas más recientes con datos en la base de datos de presencia y Salesforce."""
@@ -155,8 +152,7 @@ def consultar_asesor(nombre_o_id: str, fecha: str = "") -> str:
 
     if not rows_s and not row_t and sf_info["casos_gestionados"] == 0:
         return json.dumps({
-            "mensaje": f"No se encontraron datos para '{nombre_o_id}' en fecha {fecha}.",
-            "sugerencia": "Verifica si el nombre está bien escrito o consulta las fechas disponibles."
+            "mensaje": f"No se encontraron datos para '{nombre_o_id}' en fecha {fecha}."
         }, ensure_ascii=False)
 
     nombre_oficial = rows_s[0][0] if rows_s else (row_t[0] if row_t else nombre_o_id)
@@ -165,12 +161,6 @@ def consultar_asesor(nombre_o_id: str, fecha: str = "") -> str:
     coordinador = rows_s[0][3] if rows_s else "No registrado en Genesys"
 
     estados = {r[4]: r[5] for r in rows_s}
-    minutos_disponible = estados.get("Available", 0.0)
-    minutos_almuerzo = estados.get("Almuerzo", estados.get("Lunch", 0.0))
-    minutos_break = estados.get("Break", estados.get("Descanso", 0.0))
-    minutos_bano = estados.get("Baño", estados.get("Bathroom", 0.0))
-    minutos_casos = estados.get("Casos Backoffice", 0.0)
-
     resultado = {
         "fecha": fecha,
         "asesor": nombre_oficial,
@@ -185,14 +175,7 @@ def consultar_asesor(nombre_o_id: str, fecha: str = "") -> str:
             "break_2_programado": f"{row_t[9]} a {row_t[10]}" if (row_t and row_t[9]) else "No asignado",
             "novedad": row_t[11] if (row_t and row_t[11]) else None
         } if row_t else "Sin turno registrado",
-        "genesys_tiempos_minutos": {
-            "disponible_llamadas": minutos_disponible,
-            "almuerzo_real": minutos_almuerzo,
-            "breaks_real": minutos_break,
-            "bano": minutos_bano,
-            "casos_backoffice": minutos_casos,
-            "todos_los_estados": estados
-        },
+        "genesys_tiempos_minutos": estados,
         "salesforce_b2b": sf_info
     }
     return json.dumps(resultado, ensure_ascii=False)
@@ -310,7 +293,7 @@ def consultar_servicio_macro(servicio: str, fecha: str = "") -> str:
 def consultar_backlog_salesforce(criterio: str = "todos") -> str:
     """Analiza el estado del backlog de Salesforce B2B: volumen total de casos, infracción del SLA de 24 horas, antigüedad y colas críticas."""
     if not SF_CASES_PATH.exists():
-        return json.dumps({"error": "No se encontró el archivo de casos de Salesforce (cases_amc_cleaned.csv)."})
+        return json.dumps({"error": "No se encontró el archivo de casos de Salesforce."})
 
     try:
         df = pd.read_csv(SF_CASES_PATH, encoding="latin1", low_memory=False)
@@ -327,7 +310,6 @@ def consultar_backlog_salesforce(criterio: str = "todos") -> str:
         if col_queue in df.columns:
             colas_top = df[col_queue].value_counts().head(5).to_dict()
 
-        # Casos críticos (>24 horas)
         casos_criticos = []
         if "Es_Infraccion" in df.columns and "Número del caso" in df.columns:
             df_crit = df[df["Es_Infraccion"] == True].sort_values(by="Antiguedad_Horas", ascending=False if "Antiguedad_Horas" in df.columns else True).head(5)
@@ -372,7 +354,6 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "") -> str:
     c.execute(query_t, params_t)
     turnos = c.fetchall()
 
-    # Obtener agentes conectados en Genesys
     c.execute("SELECT DISTINCT agente FROM segments WHERE fecha = ?", (fecha,))
     agentes_genesys = [r[0] for r in c.fetchall()]
     conn.close()
@@ -382,8 +363,6 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "") -> str:
         nombre = t[0]
         serv = t[1]
         novedad = t[5]
-        
-        # Verificar si aparece en Genesys
         en_genesys = any(nombre.lower() in g.lower() or g.lower() in nombre.lower() for g in agentes_genesys)
         if not en_genesys:
             ausentes.append({
@@ -398,18 +377,84 @@ def consultar_ausentismos(fecha: str = "", servicio: str = "") -> str:
         "fecha": fecha,
         "total_turnos_evaluados": len(turnos),
         "total_sin_conexion_genesys": len(ausentes),
-        "lista_ausentes_o_con_novedad": ausentes[:15]
+        "lista_ausentes_o_con_novedad": ausentes[:20]
     }, ensure_ascii=False)
 
 
-COPILOTO_TOOLS = [
-    obtener_fechas_disponibles,
-    consultar_asesor,
-    consultar_equipo_supervisor,
-    consultar_servicio_macro,
-    consultar_backlog_salesforce,
-    consultar_ausentismos
+# ── DECLARACIONES DE HERRAMIENTAS PARA VERTEX AI (OPENAPI SPEC) ───────────────
+
+TOOLS_DECLARATIONS = [
+    {
+        "name": "obtener_fechas_disponibles",
+        "description": "Devuelve las fechas más recientes con datos en la base de datos de presencia y Salesforce."
+    },
+    {
+        "name": "consultar_asesor",
+        "description": "Consulta integral de un asesor: turno programado, presencia en Genesys, pausas, descansos, supervisor y actividad en Salesforce.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "nombre_o_id": {"type": "STRING", "description": "Nombre o documento del asesor"},
+                "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD"}
+            },
+            "required": ["nombre_o_id"]
+        }
+    },
+    {
+        "name": "consultar_equipo_supervisor",
+        "description": "Consulta el desempeño global, lista de asesores, horas de conexión y alertas para el equipo de un supervisor específico.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "supervisor": {"type": "STRING", "description": "Nombre del supervisor, ej. Marely Cardona"},
+                "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD"}
+            },
+            "required": ["supervisor"]
+        }
+    },
+    {
+        "name": "consultar_servicio_macro",
+        "description": "Obtiene el resumen ejecutivo para una macro-campaña o servicio (ej. Agencias B2B, LATAM Pasajeros, Equipajes).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "servicio": {"type": "STRING", "description": "Nombre del servicio, ej. CORPORATE PYME o VENTAS"},
+                "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD"}
+            },
+            "required": ["servicio"]
+        }
+    },
+    {
+        "name": "consultar_backlog_salesforce",
+        "description": "Analiza el estado del backlog de Salesforce B2B: volumen total de casos, infracción del SLA de 24 horas, antigüedad y colas críticas.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "criterio": {"type": "STRING", "description": "Criterio opcional, ej. 'todos'"}
+            }
+        }
+    },
+    {
+        "name": "consultar_ausentismos",
+        "description": "Detecta asesores con turnos programados que no tuvieron conexión en Genesys ni actividad en Salesforce.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "fecha": {"type": "STRING", "description": "Fecha YYYY-MM-DD"},
+                "servicio": {"type": "STRING", "description": "Filtro opcional por servicio o área, ej. 'VENTAS' o 'CHAT VENTAS AMC'"}
+            }
+        }
+    }
 ]
+
+TOOLS_MAP = {
+    "obtener_fechas_disponibles": lambda a: obtener_fechas_disponibles(),
+    "consultar_asesor": lambda a: consultar_asesor(a.get("nombre_o_id", ""), a.get("fecha", "")),
+    "consultar_equipo_supervisor": lambda a: consultar_equipo_supervisor(a.get("supervisor", ""), a.get("fecha", "")),
+    "consultar_servicio_macro": lambda a: consultar_servicio_macro(a.get("servicio", ""), a.get("fecha", "")),
+    "consultar_backlog_salesforce": lambda a: consultar_backlog_salesforce(a.get("criterio", "todos")),
+    "consultar_ausentismos": lambda a: consultar_ausentismos(a.get("fecha", ""), a.get("servicio", ""))
+}
 
 SYSTEM_INSTRUCTION = """
 Eres el **Copiloto Operacional 4DX**, el asistente de inteligencia artificial de alto nivel para el equipo de Inteligencia Operativa de LATAM Airlines y AlmaContact.
@@ -430,30 +475,75 @@ REGLAS CRÍTICAS:
 
 
 def ejecutar_pregunta_copiloto(pregunta: str, historial_mensajes: list = None) -> str:
-    """Ejecuta una consulta contra Vertex AI utilizando las herramientas locales y el historial de chat."""
-    client, error_msg = _obtener_cliente_vertex()
-    if not client:
-        return f"⚠️ {error_msg}"
+    """Ejecuta una consulta contra Vertex AI vía REST API con multi-turn tool calling."""
+    token, error_msg = _obtener_token_vertex()
+    if not token:
+        return f"⚠️ Error de autenticación con Google Cloud: {error_msg}"
+
+    endpoint_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL_NAME}:generateContent"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    # Reconstruir contenidos previos
+    contents = []
+    if historial_mensajes:
+        for m in historial_mensajes[-6:]:
+            role = "user" if m["role"] == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": m["content"]}]})
+    contents.append({"role": "user", "parts": [{"text": pregunta}]})
+
+    body = {
+        "contents": contents,
+        "tools": [{"functionDeclarations": TOOLS_DECLARATIONS}],
+        "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
+        "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
+        "generationConfig": {"temperature": 0.2}
+    }
 
     try:
-        # Formatear contenidos
-        contents = []
-        if historial_mensajes:
-            for m in historial_mensajes[-6:]:  # Mantener últimos turnos de contexto
-                role = "user" if m["role"] == "user" else "model"
-                contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
-        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=pregunta)]))
+        MAX_TURNS = 5
+        for _ in range(MAX_TURNS):
+            with httpx.Client(timeout=45.0) as client:
+                r = client.post(endpoint_url, headers=headers, json=body)
+            
+            if r.status_code != 200:
+                return f"⚠️ Error en respuesta de Vertex AI (HTTP {r.status_code}): {r.text}"
 
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=COPILOTO_TOOLS,
-                system_instruction=SYSTEM_INSTRUCTION,
-                temperature=0.2
-            )
-        )
-        return response.text if response.text else "No se obtuvo una respuesta detallada del modelo."
+            res_json = r.json()
+            candidate = res_json.get("candidates", [{}])[0].get("content", {})
+            parts = candidate.get("parts", [])
+
+            has_fc = False
+            for part in parts:
+                if "functionCall" in part:
+                    has_fc = True
+                    fc = part["functionCall"]
+                    fn = fc.get("name")
+                    fa = fc.get("args", {})
+                    
+                    func = TOOLS_MAP.get(fn)
+                    tool_output = func(fa) if func else json.dumps({"error": f"Herramienta {fn} no encontrada"})
+                    
+                    body["contents"].append(candidate)
+                    body["contents"].append({
+                        "role": "user",
+                        "parts": [{
+                            "functionResponse": {
+                                "name": fn,
+                                "response": {"result": tool_output}
+                            }
+                        }]
+                    })
+                    break
+
+            if not has_fc:
+                text_parts = [p.get("text", "") for p in parts if "text" in p]
+                final_text = "\n".join(text_parts).strip()
+                return final_text if final_text else "No se obtuvo una respuesta detallada del modelo."
+
+        return "⚠️ Se superó el límite de llamadas internas de herramientas."
     except Exception as e:
         return f"⚠️ Error durante el procesamiento de la consulta con Vertex AI: {str(e)}"
 
@@ -476,7 +566,7 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
                 </div>
                 <div style="text-align: right; background: rgba(15, 23, 42, 0.6); padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(56, 189, 248, 0.3);">
                     <span style="color: #38bdf8; font-size: 11px; font-weight: 700; text-transform: uppercase;">Estado de Crédito GCP</span><br>
-                    <span style="color: #4ade80; font-size: 12px; font-weight: 600;">🟢 Disponible ($3.6M COP)</span>
+                    <span style="color: #4ade80; font-size: 12px; font-weight: 600;">🟢 Conectado ($3.6M COP)</span>
                 </div>
             </div>
         </div>
@@ -484,13 +574,13 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
         unsafe_allow_html=True
     )
 
-    # Validar conexión con Vertex AI
-    client_test, client_err = _obtener_cliente_vertex()
-    if not client_test:
+    # Validar credenciales de Google Cloud
+    token_test, token_err = _obtener_token_vertex()
+    if not token_test:
         st.warning(
-            f"⚙️ **Configuración requerida en Streamlit Cloud:**\n\n"
-            f"{client_err}\n\n"
-            "👉 Para solucionarlo: Entra a tu consola de **Streamlit Cloud** (share.streamlit.io) ➔ **Settings** ➔ **Secrets** y pega las credenciales de `[gcp_service_account]`."
+            f"⚙️ **Paso de configuración requerido en Streamlit Cloud:**\n\n"
+            f"{token_err}\n\n"
+            "👉 Ve a **Streamlit Cloud** (share.streamlit.io) ➔ **Settings** ➔ **Secrets** y guarda el bloque `[gcp_service_account]`."
         )
 
     # Inicializar historial en session_state
@@ -540,12 +630,10 @@ def render_tab_copiloto(agentes_map=None, current_email=""):
     prompt_a_procesar = pregunta_rapida or user_prompt
 
     if prompt_a_procesar:
-        # Añadir al historial
         st.session_state.copiloto_chat_history.append({"role": "user", "content": prompt_a_procesar})
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt_a_procesar)
 
-        # Respuesta con spinner
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Consultando bases de datos operativas y analizando con Vertex AI..."):
                 respuesta = ejecutar_pregunta_copiloto(prompt_a_procesar, st.session_state.copiloto_chat_history[:-1])

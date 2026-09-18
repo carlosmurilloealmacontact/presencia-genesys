@@ -8,5 +8,4 @@ httpx
 lxml
 gspread
 google-auth
-google-genai
 pyxlsb
