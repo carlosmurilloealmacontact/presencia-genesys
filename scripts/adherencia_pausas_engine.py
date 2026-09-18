@@ -718,7 +718,9 @@ def render_ui_auditoria_integral(ambito: str = "PASAJEROS", key_prefix: str = "p
 
     # ── TARJETAS DE KPIS UNIFICADAS ──────────────────────────────────────────
     tot_asesores = len(df_unif)
-    pct_cumpl_jornada = round(df_unif["% Cumplimiento"].mean(), 1)
+    h_prog_tot = float(df_unif["Horas Prog"].sum())
+    h_con_tot = float(df_unif["Horas Conectado"].sum())
+    pct_cumpl_jornada = round((h_con_tot / h_prog_tot * 100), 1) if h_prog_tot > 0 else 0.0
     tot_pausas_prog = int(df_unif["Pausas Prog"].sum())
     tot_pausas_punt = int(df_unif["Pausas Puntuales"].sum())
     pct_adh_pausas = round(tot_pausas_punt / max(1, tot_pausas_prog) * 100, 1)
