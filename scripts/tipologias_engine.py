@@ -264,23 +264,30 @@ def obtener_tipologias_genesys(token: str, fecha: str = "hoy", servicio: str = "
         except Exception:
             pass
 
-    # Resolver intervalo ISO-8601
+    # Resolver intervalo ISO-8601 en base a la zona horaria de Colombia (UTC-5 / America/Bogota)
     f_clean = str(fecha or "").strip().lower()
     es_hoy = f_clean in ["", "hoy", "today", "en vivo", "tiempo real", "actual", "ahora"]
 
+    tz_col = timezone(timedelta(hours=-5))
+    ahora_col = datetime.now(tz_col)
+
     if es_hoy:
-        ahora_utc = datetime.now(timezone.utc)
-        inicio_utc = ahora_utc.replace(hour=5, minute=0, second=0, microsecond=0)
-        fin_utc = ahora_utc + timedelta(hours=1)
+        hoy_col = ahora_col.date()
+        dt_ini_col = datetime(hoy_col.year, hoy_col.month, hoy_col.day, 0, 0, 0, tzinfo=tz_col)
+        inicio_utc = dt_ini_col.astimezone(timezone.utc)
+        fin_utc = datetime.now(timezone.utc) + timedelta(minutes=5)
     else:
         try:
-            dt_base = datetime.strptime(fecha, "%Y-%m-%d")
-            inicio_utc = dt_base.replace(hour=5, minute=0, second=0, tzinfo=timezone.utc)
-            fin_utc = inicio_utc + timedelta(days=1)
+            dt_base = datetime.strptime(str(fecha)[:10], "%Y-%m-%d").date()
+            dt_ini_col = datetime(dt_base.year, dt_base.month, dt_base.day, 0, 0, 0, tzinfo=tz_col)
+            dt_fin_col = dt_ini_col + timedelta(days=1)
+            inicio_utc = dt_ini_col.astimezone(timezone.utc)
+            fin_utc = dt_fin_col.astimezone(timezone.utc)
         except Exception:
-            ahora_utc = datetime.now(timezone.utc)
-            inicio_utc = ahora_utc.replace(hour=5, minute=0, second=0, microsecond=0)
-            fin_utc = ahora_utc + timedelta(hours=1)
+            hoy_col = ahora_col.date()
+            dt_ini_col = datetime(hoy_col.year, hoy_col.month, hoy_col.day, 0, 0, 0, tzinfo=tz_col)
+            inicio_utc = dt_ini_col.astimezone(timezone.utc)
+            fin_utc = datetime.now(timezone.utc) + timedelta(minutes=5)
 
     interval_str = f"{inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ')}/{fin_utc.strftime('%Y-%m-%dT%H:%M:%SZ')}"
 

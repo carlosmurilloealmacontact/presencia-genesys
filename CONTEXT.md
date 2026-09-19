@@ -183,3 +183,10 @@ flowchart TD
 * **Filtros de Fecha en `scripts/zendesk_engine.py`:**
   * Los botones de preset rápido (`7 días`, `15 días`, `30 días`, `Mes actual`, `Todo`) sincronizan explícitamente `st.session_state["zd_sel_fechas"]` con la tupla `(ini, fin)`, asegurando reactividad instantánea en el widget de Streamlit.
   * Incluye capa de defensa en profundidad en `cargar_bundle_zendesk()` para corroborar integridad de `Casos_Resueltos` en memoria.
+
+---
+
+## 10. Corrección de Intervalo UTC en Tipologías de Contacto (`scripts/tipologias_engine.py`)
+* **Diagnóstico del Problema:** Después de las 7:00 PM hora de Colombia (00:00 UTC del día siguiente), la Analytics API de Genesys Cloud arrojaba error `400 Bad Request: The interval value is invalid`. La causa era que `inicio_utc` se calculaba como `ahora_utc.replace(hour=5)` (que tras las 00:00 UTC pasaba a ser las 05:00 UTC de mañana), mientras que `fin_utc` era la hora actual (01:00 UTC), quedando `inicio_utc > fin_utc`.
+* **Impacto en el Dashboard:** Al fallar la llamada a Genesys Cloud, retornaba `0` llamadas, dejando únicamente los datos de Salesforce CRM Casos / Omni-Chat (que son casi en su totalidad Agencias B2B y Canales Indirectos). Esto provocaba que el gráfico de dona y treemap mostraran erróneamente un 80%+ de demanda de Agencias.
+* **Solución:** Se implementó el cálculo del intervalo basado formalmente en la zona horaria de Colombia (`America/Bogota`, UTC-5). Con la corrección, Genesys Cloud aporta más de **14,500 interacciones (68% del volumen total)**, restaurando el balance operativo real de la tri-plataforma (Genesys 68%, Salesforce 28%, Zendesk 4%).
