@@ -65,9 +65,9 @@ def procesar_casos_y_demanda_salesforce(file_path: str = None) -> bool:
         df_amc['fecha_outflow'] = df_amc['Fecha_Finalizacion_dt'].dt.strftime('%Y-%m-%d')
 
     os.makedirs(DATA_DIR, exist_ok=True)
-    df_amc.to_pickle(OUTPUT_CASES_PKL)
+    df_amc.to_pickle(OUTPUT_CASES_PKL, compression='gzip')
     df_amc.to_csv(OUTPUT_CASES_CSV, index=False)
-    print(f'[OK] Base maestra de casos enriquecida guardada: {OUTPUT_CASES_PKL} ({len(df_amc)} casos)')
+    print(f'[OK] Base maestra de casos enriquecida guardada: {OUTPUT_CASES_PKL} ({len(df_amc)} casos, comprimida gzip)')
 
     df_inflow = (
         df_amc.dropna(subset=['fecha_inflow'])

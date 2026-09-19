@@ -255,7 +255,10 @@ def obtener_actividad_salesforce_por_fecha(fecha: str) -> dict:
     df_sf = None
     if os.path.exists(pkl_path):
         try:
-            df_sf = pd.read_pickle(pkl_path)
+            try:
+                df_sf = pd.read_pickle(pkl_path)
+            except Exception:
+                df_sf = pd.read_pickle(pkl_path, compression="gzip")
         except Exception:
             pass
     if df_sf is None and os.path.exists(csv_path):

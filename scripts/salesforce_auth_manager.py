@@ -303,7 +303,7 @@ def completar_desafio_mfa_si_es_necesario(page) -> bool:
                     pass
                 btn = page.locator("#save, input[type='submit'], input[value='Verificar'], button:has-text('Verificar')").first
                 if btn.is_visible(timeout=3000):
-                    btn.click()
+                    btn.click(no_wait_after=True)
                     time.sleep(6)
                 return True
     except Exception as e:

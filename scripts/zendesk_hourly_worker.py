@@ -321,6 +321,47 @@ def asegurar_salesforce_worker_activo():
     return None
 
 
+LAST_DAILY_SYNC_FILE = PROJECT_ROOT / "data" / "last_daily_sync.txt"
+
+
+def verificar_y_ejecutar_sincronizacion_diaria():
+    """
+    Verifica si ya se ejecutó la sincronización y auditoría diaria (Genesys + Ausentismo + Casos).
+    Si no se ha ejecutado hoy, la dispara de forma desatendida en segundo plano.
+    """
+    try:
+        now_col = get_colombia_now()
+        hoy_str = now_col.strftime("%Y-%m-%d")
+
+        ultima_fecha = ""
+        if LAST_DAILY_SYNC_FILE.exists():
+            try:
+                ultima_fecha = LAST_DAILY_SYNC_FILE.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+
+        if ultima_fecha != hoy_str:
+            print(f"\n[DAILY MASTER] 🌅 Disparando chequeo y actualización automática diaria para {hoy_str}...")
+            from threading import Thread
+
+            def _run_bg():
+                try:
+                    daily_script = PROJECT_ROOT / "scripts" / "daily_master_sync.py"
+                    if daily_script.exists():
+                        res = subprocess.run([sys.executable, str(daily_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=900)
+                        if res.returncode == 0:
+                            LAST_DAILY_SYNC_FILE.write_text(hoy_str, encoding="utf-8")
+                            print(f"[DAILY MASTER] ✅ Sincronización y auditoría diaria completada exitosamente ({hoy_str}).")
+                        else:
+                            print(f"[DAILY MASTER] [WARN] Sincronización diaria retornó código {res.returncode}.")
+                except Exception as e_d:
+                    print(f"[DAILY MASTER] [WARN] Excepción en sincronización diaria: {e_d}")
+
+            Thread(target=_run_bg, daemon=True).start()
+    except Exception as e:
+        print(f"[DAILY MASTER] [WARN] Error evaluando sincronización diaria: {e}")
+
+
 def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full: int = 12):
     """
     Bucle infinito blindado para ejecución autónoma desatendida multicanal (Zendesk + Salesforce):
@@ -340,9 +381,11 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
     print(f"   • Zendesk Fast Sync: cada {intervalo_fast_segundos // 60} min (Backlog en tiempo real + Productividad hoy)")
     print(f"   • Zendesk Full Sync: cada {ciclos_para_full * (intervalo_fast_segundos // 60)} min (Dump profundo, Tipologías, Demanda Inflow/Outflow)")
     print(f"   • Salesforce Omni-Supervisor: Monitoreo continuo 30s")
+    print(f"   • Sincronizador Maestro Diario: Genesys + Ausentismo + Casos B2B (Auto-check 06:00 COT)")
     print(f"   • Blindaje: Reintento automático, limpieza de bloqueos y persistencia en Windows Task Scheduler.")
 
     asegurar_salesforce_worker_activo()
+    verificar_y_ejecutar_sincronizacion_diaria()
 
     ciclo = 0
     ultimo_full_label = ""
@@ -364,6 +407,7 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
         try:
             # Supervisar que el scraper de Salesforce esté vivo y saludable
             asegurar_salesforce_worker_activo()
+            verificar_y_ejecutar_sincronizacion_diaria()
 
             es_full = (ciclo % ciclos_para_full == 0)
             tipo = "full" if es_full else "fast"

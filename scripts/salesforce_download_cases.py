@@ -12,8 +12,15 @@ import os
 import sys
 import time
 import json
+import shutil
 from datetime import datetime
 from playwright.sync_api import sync_playwright
+
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(BASE_DIR, ".."))
@@ -127,25 +134,62 @@ def descargar_reporte_casos_2026(headless: bool = True):
 
             print("[*] 6. Disparando descarga del archivo CSV...")
 
-            # Intentar descarga capturando evento download en página o popup
-            try:
-                with page.expect_download(timeout=90000) as download_info:
-                    modal_export_btn.click(no_wait_after=True)
-                    print("[+] Solicitud de exportación enviada. Esperando descarga de Salesforce...")
-                download = download_info.value
+            download_holder = [None]
+
+            def on_download(download):
+                print(f"[+] ¡Evento de descarga recibido!: {download.suggested_filename}")
+                download_holder[0] = download
+
+            page.on("download", on_download)
+            context.on("page", lambda p_new: p_new.on("download", on_download))
+
+            modal_export_btn.click(no_wait_after=True)
+            print("[+] Solicitud de exportación enviada. Esperando descarga o verificación...")
+
+            start_wait = time.time()
+            mfa_resolved = False
+            last_log_t = start_wait
+            while time.time() - start_wait < 600 and not download_holder[0]:
+                now_t = time.time()
+                if now_t - last_log_t >= 30:
+                    last_log_t = now_t
+                    print(f"  [*] Salesforce compilando reporte en servidor... ({int(now_t - start_wait)}s transcurridos)")
+
+                if not mfa_resolved:
+                    for p_extra in list(context.pages):
+                        if p_extra != page:
+                            try:
+                                curr_u = p_extra.url.lower()
+                                title_u = p_extra.title().lower()
+                                if "verification" in curr_u or "identity" in curr_u or "verificar" in title_u or p_extra.locator("#emc").is_visible(timeout=500):
+                                    print("[*] Desafío 2FA detectado en ventana emergente de exportación. Resolviendo con Outlook MAPI...")
+                                    sam.completar_desafio_mfa_si_es_necesario(p_extra)
+                                    mfa_resolved = True
+                                    time.sleep(3)
+                                    break
+                            except Exception:
+                                pass
+                if download_holder[0]:
+                    break
+                page.wait_for_timeout(1500)
+
+            if download_holder[0]:
+                download = download_holder[0]
+                sugg_name = download.suggested_filename or ""
+                ext = ".xls" if sugg_name.endswith(".xls") else (".xlsx" if sugg_name.endswith(".xlsx") else ".csv")
+                download_path = os.path.join(DATA_DIR, f"casos_amc_2026_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}")
                 download.save_as(download_path)
                 print(f"\n[✓] ¡ARCHIVO DESCARGADO EXITOSAMENTE!")
                 print(f"Ruta: {download_path} ({os.path.getsize(download_path)/1024:.1f} KB)")
+                main_cases_path = os.path.join(DATA_DIR, f"casos_amc_2026_downloaded{ext}")
+                try:
+                    shutil.copyfile(download_path, main_cases_path)
+                    print(f"[✓] Copia actualizada en: {main_cases_path}")
+                except Exception as e_cp:
+                    print(f"[*] Nota copia a downloaded: {e_cp}")
                 export_success = True
-            except Exception as e_down:
-                print(f"[*] Nota captura descarga directa: {e_down}")
-                # Si abrió en popup (desafío MFA de exportación)
-                for p_extra in context.pages:
-                    if p_extra != page and ("verification" in p_extra.url.lower() or "identity" in p_extra.url.lower()):
-                        print("[*] Desafío 2FA detectado en ventana de exportación. Resolviendo con Outlook MAPI...")
-                        sam.completar_desafio_mfa_si_es_necesario(p_extra)
-                        time.sleep(3)
-                        break
+            else:
+                print("[*] Nota: No se detectó evento de descarga en el tiempo de espera.")
 
             # Fallback interactivo si se ejecutó visible y la descarga requiere asistencia
             if not export_success and not headless:
@@ -164,7 +208,10 @@ def descargar_reporte_casos_2026(headless: bool = True):
                     pass
 
             print("[*] Cerrando sesión del navegador...")
-            browser.close()
+            try:
+                browser.close()
+            except Exception:
+                pass
 
             # 7. Procesar y consolidar la base de datos
             if export_success and os.path.exists(download_path):
@@ -181,10 +228,10 @@ def descargar_reporte_casos_2026(headless: bool = True):
                 print("\n" + "=" * 70)
                 print("¡EXTRACCIÓN Y ACTUALIZACIÓN 2026 COMPLETADA CON ÉXITO!")
                 print("=" * 70)
-                return True
+                return download_path
             else:
                 print("[!] No se completó la descarga del archivo en este ciclo.")
-                return False
+                return None
 
         except Exception as e:
             print(f"[!] Error durante el proceso de extracción: {e}")

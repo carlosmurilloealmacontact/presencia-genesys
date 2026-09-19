@@ -67,7 +67,10 @@ def load_and_clean_cases_data(file_path=None):
     if file_path is None or not os.path.exists(file_path):
         if os.path.exists(cache_pkl):
             try:
-                df_pkl = pd.read_pickle(cache_pkl)
+                try:
+                    df_pkl = pd.read_pickle(cache_pkl)
+                except Exception:
+                    df_pkl = pd.read_pickle(cache_pkl, compression="gzip")
                 if "Work Queue Control" in df_pkl.columns and "Es_Infraccion" in df_pkl.columns:
                     return df_pkl
             except Exception as e:
@@ -89,7 +92,10 @@ def load_and_clean_cases_data(file_path=None):
     if os.path.exists(cache_pkl):
         try:
             if os.path.getmtime(cache_pkl) >= os.path.getmtime(file_path):
-                df_pkl = pd.read_pickle(cache_pkl)
+                try:
+                    df_pkl = pd.read_pickle(cache_pkl)
+                except Exception:
+                    df_pkl = pd.read_pickle(cache_pkl, compression="gzip")
                 if "Work Queue Control" in df_pkl.columns and "Es_Infraccion" in df_pkl.columns:
                     return df_pkl
         except Exception:

@@ -23,10 +23,14 @@ credentials/
 # Bases de datos y logs locales
 *.db
 *.sqlite
+*.log
 data/*.db
+data/*.log
 data/auditoria_*.csv
 data/*.png
 data/*.pkl
+*.xls
+*.xlsx
 log_ejecucion.txt
 scratch_media/
 scratch/
@@ -34,7 +38,6 @@ scripts/implementation_plan.md
 
 # Archivos de datos esenciales para Salesforce B2B
 !data/salesforce/cases_amc_cleaned.pkl
-!data/salesforce/cases_amc_cleaned.csv
 !data/salesforce/maestro_asesores_b2b.json
 !data/salesforce/demanda_diaria_salesforce_bo.csv
 !data/salesforce/omni_presencia_resumen.pkl
