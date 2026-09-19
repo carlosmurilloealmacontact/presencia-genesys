@@ -1,5 +1,6 @@
 ﻿id,subject,status,assignee_id,created_at,updated_at,tipo_raw,grupo,Fecha,Tipo_de_Gestion,Nombre_Asesor,TICKET_ASSIGNEE_PRIMARY_EMAIL
 71795821,Excepciones::Graves,solved,398908268653.0,2026-09-19T04:34:52Z,2026-09-19T05:33:00Z,tg_excepciones_graves,LUA AMC,2026-09-19,Excepciones::Graves,Eva Allizon Herrera Alvarez,evaherrera.almacontact@outsourcing-account.com
+71796150,回复：Estatus de tu caso 71524970,closed,,2026-09-19T08:42:40Z,2026-09-19T08:42:40Z,tg_ancillaries_error_compra_servicios_adicionales,LUA AMC,2026-09-19,Ancillaries::Error compra servicios adicionales (ancillaries),Sin Asignar,
 71796036,Re: [LATAM] Resolución del caso #71661532 [Contacto Proactivo],closed,2876617008.0,2026-09-19T07:24:04Z,2026-09-19T07:24:04Z,tg_compras_latam_compra,LUA AMC,2026-09-19,Compras en LATAM::Compra ,LATAM Airlines,system@latam.com
 71796029,Reclamo - LATAM Pass,solved,29703340829075.0,2026-09-19T07:11:19Z,2026-09-19T07:54:35Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,2026-09-19,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
 71795873,Reclamo - LATAM Pass,solved,29703340829075.0,2026-09-19T05:08:36Z,2026-09-19T06:30:04Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,2026-09-19,LATAM PASS::Sospecha de alto riesgo,Luis Daniel Narvaez Martinez,luisnarvaez.almacontact@outsourcing-account.com
