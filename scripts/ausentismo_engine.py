@@ -209,7 +209,8 @@ def obtener_turnos_programados_dia(fecha_str: str) -> pd.DataFrame:
                     t.hora_inicio, 
                     t.hora_fin,
                     COALESCE(td.servicio, '') as servicio_turno,
-                    COALESCE(td.novedad, '') as novedad
+                    COALESCE(td.novedad, '') as novedad,
+                    COALESCE(td.nombre_agente, '') as nombre_turno
                 FROM turnos t
                 LEFT JOIN turnos_detallados td ON t.bp = td.bp AND t.fecha = td.fecha
                 WHERE t.fecha = ?
@@ -225,6 +226,7 @@ def obtener_turnos_programados_dia(fecha_str: str) -> pd.DataFrame:
                 )
                 df["servicio_turno"] = ""
                 df["novedad"] = ""
+                df["nombre_turno"] = ""
                 return df
             except Exception:
                 return pd.DataFrame()
@@ -346,28 +348,69 @@ def obtener_presencia_historica_dia(fecha_str: str) -> dict:
             return {}
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=3600)
 def cargar_sociodemografico_db() -> dict:
-    """Carga el maestro sociodemográfico completo (14k+ asesores o dim_agentes) para identificar BPs y jerarquía."""
+    """Carga el maestro de jerarquía y sociodemográfico unificando Google Sheets Base y SQLite."""
+    res = {}
+    
+    # 1. Base maestra en Google Sheets (14K+ registros con Coordinador, Supervisor y Servicio)
+    try:
+        from jerarquia import load_jerarquia
+        res = load_jerarquia()
+    except Exception:
+        res = {}
+
+    # 2. Complementar con SQLite local (sociodemografico o dim_agentes)
     db_path = Path(BASE_DIR) / DB_PATH
-    if not db_path.exists():
-        return {}
-    with sqlite3.connect(db_path) as conn:
-        try:
-            df = pd.read_sql_query("SELECT bp, nombre, servicio, jefe_inmediato, coordinador, cargo, estado_laboral FROM sociodemografico", conn)
-            from exclusion_list import filtrar_df_exclusiones
-            df = filtrar_df_exclusiones(df)
-            return df.set_index("bp").to_dict(orient="index")
-        except Exception:
+    if db_path.exists():
+        with sqlite3.connect(db_path) as conn:
             try:
-                df = pd.read_sql_query("SELECT agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM dim_agentes", conn)
-                df["bp"] = df["agente"].apply(lambda x: str(x).split(" - ")[0].strip() if " - " in str(x) else str(x).strip())
-                df["nombre"] = df["agente"].apply(lambda x: str(x).split(" - ")[1].strip() if " - " in str(x) else str(x).strip())
+                df_socio = pd.read_sql_query(
+                    "SELECT bp, nombre, servicio, jefe_inmediato, coordinador, cargo, estado_laboral FROM sociodemografico",
+                    conn
+                )
                 from exclusion_list import filtrar_df_exclusiones
-                df = filtrar_df_exclusiones(df)
-                return df.set_index("bp").to_dict(orient="index")
+                df_socio = filtrar_df_exclusiones(df_socio)
+                for bp_k, d in df_socio.set_index("bp").to_dict(orient="index").items():
+                    bp_str = str(bp_k).strip()
+                    if bp_str not in res:
+                        res[bp_str] = d
+                    else:
+                        for k, v in d.items():
+                            if v and not res[bp_str].get(k):
+                                res[bp_str][k] = v
             except Exception:
-                return {}
+                try:
+                    df_dim = pd.read_sql_query(
+                        "SELECT agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM dim_agentes",
+                        conn
+                    )
+                    from exclusion_list import filtrar_df_exclusiones
+                    df_dim = filtrar_df_exclusiones(df_dim)
+                    for _, row in df_dim.iterrows():
+                        ag_s = str(row.get("agente", ""))
+                        bp_s = ag_s.split(" - ")[0].strip() if " - " in ag_s else ag_s.strip()
+                        nom_s = ag_s.split(" - ")[1].strip() if " - " in ag_s else ag_s.strip()
+                        if bp_s not in res:
+                            res[bp_s] = {
+                                "nombre": nom_s,
+                                "cargo": row.get("cargo", "ASESOR"),
+                                "estado_laboral": row.get("estado_laboral", "Activo"),
+                                "servicio": row.get("servicio", ""),
+                                "jefe_inmediato": row.get("jefe_inmediato", ""),
+                                "coordinador": row.get("coordinador", "")
+                            }
+                        else:
+                            if nom_s and not res[bp_s].get("nombre"):
+                                res[bp_s]["nombre"] = nom_s
+                            if row.get("jefe_inmediato") and not res[bp_s].get("jefe_inmediato"):
+                                res[bp_s]["jefe_inmediato"] = row.get("jefe_inmediato")
+                            if row.get("coordinador") and not res[bp_s].get("coordinador"):
+                                res[bp_s]["coordinador"] = row.get("coordinador")
+                except Exception:
+                    pass
+
+    return res
 
 
 def construir_radar_ausentismo(
@@ -438,23 +481,35 @@ def construir_radar_ausentismo(
         h_ini = str(r["hora_inicio"]).strip()
         h_fin = str(r["hora_fin"]).strip()
 
-        # 1. Buscar en segmentos de Genesys
-        info_ag = agentes_bp_map.get(bp) or agentes_map.get(bp, {})
-
-        # 2. Cruzar con el maestro sociodemográfico
+        # 1. Buscar en jerarquía y socios
         socio_ag = socio_map.get(bp, {})
-        agente_nom = info_ag.get("agente", "")
-        if not agente_nom or agente_nom.startswith("Asesor ") or agente_nom == f"{bp} - Colaborador":
-            nombre_socio = socio_ag.get("nombre", "").strip()
-            if nombre_socio:
-                agente_nom = f"{bp} - {nombre_socio}"
-            else:
-                agente_nom = f"{bp} - {socio_ag.get('cargo', 'Asesor')}" if socio_ag else f"Asesor {bp}"
+        info_ag = agentes_bp_map.get(bp) or agentes_map.get(bp, {})
+        live_info = presencia_act_map.get(bp, {})
 
-        sup = info_ag.get("jefe_inmediato") or socio_ag.get("jefe_inmediato") or "Sin Supervisor"
-        coord = info_ag.get("coordinador") or socio_ag.get("coordinador") or "Sin Coordinador"
+        # Nombre del asesor con cascada completa de resolución
+        nom_turno = str(r.get("nombre_turno", "")).strip()
+        nom_socio = str(socio_ag.get("nombre", "")).strip()
+        nom_info = str(info_ag.get("agente", "")).strip()
+        nom_genesys = str(live_info.get("full_name_genesys", "")).strip()
+
+        nombre_candidato = ""
+        for n in [nom_turno, nom_socio, nom_info, nom_genesys]:
+            if n and not n.startswith("Asesor ") and n != f"{bp} - Colaborador" and n != f"{bp} - Asesor":
+                nombre_candidato = n
+                break
+
+        if nombre_candidato:
+            if " - " in nombre_candidato:
+                agente_nom = nombre_candidato
+            else:
+                agente_nom = f"{bp} - {nombre_candidato}"
+        else:
+            agente_nom = f"{bp} - {socio_ag.get('cargo', 'Asesor')}" if socio_ag else f"Asesor {bp}"
+
+        sup = socio_ag.get("jefe_inmediato") or info_ag.get("jefe_inmediato") or "Sin Supervisor"
+        coord = socio_ag.get("coordinador") or info_ag.get("coordinador") or "Sin Coordinador"
         srv_turno = str(r.get("servicio_turno", "")).strip()
-        srv = srv_turno or info_ag.get("servicio") or socio_ag.get("servicio") or "General"
+        srv = srv_turno or socio_ag.get("servicio") or info_ag.get("servicio") or "General"
 
         # Excluir categóricamente campañas ajenas a LATAM (Claro, Chec, Colmédica, etc.)
         if srv and srv != "General" and (not es_servicio_latam(srv) or es_campana_ajena(srv)):

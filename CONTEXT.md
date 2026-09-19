@@ -206,5 +206,8 @@ flowchart TD
      * `🟢 Turno En Curso` (`t_ini <= now <= t_fin`): Monitoreo de conexión en vivo con umbrales de retraso (Margen $\le$ 5m, Leve 5-15m, Crítico $>$ 15m, Ausencia $>$ 60m).
      * `🟢 Turno Finalizado` (`now > t_fin`): Valida si el asesor tuvo actividad y cierre de sesión en Genesys hoy (`modifiedDate` de hoy). Si cumplió su jornada se clasifica como `🟢 Cumplió Turno (Salió HH:MM)` y no computa como ausente. Solo si no tuvo conexiones en todo el día computa como ausencia real.
   3. **Novedades en Malla:** Colaboradores con `VAC`, `LMA`, `ICCP`, `LNR`, `PAB`, `DES`, `FOR` se clasifican como `📑 Novedad (Justificada)`.
-  4. **Corrección de Maestro Sociodemográfico:** Carga BPs y jerarquía desde `dim_agentes` como fallback ante ausencia de la tabla `sociodemografico`.
+  4. **Resolución Jerárquica Plena al 100% (Identificación de Asesores, Supervisores y Coordinadores):**
+     * Integración unificada en `cargar_sociodemografico_db()` de la **Base Maestra de Google Sheets (`jerarquia.py`: 14,584 colaboradores)** con `dim_agentes` de SQLite.
+     * Incorporación de `nombre_turno` desde `turnos_detallados` y `full_name_genesys` desde la API de Genesys Cloud.
+     * **Resultado:** Eliminación total de agentes genéricos ("Asesor BP" o "Sin Supervisor"). La tasa de agentes sin identificar pasó de **79 a 0 (100% plenamente identificados)** con su nombre completo, supervisor y coordinador.
   5. **Resultado Operativo:** El indicador de ausentismo pasó de un 88.8% artificial (1,215 ausentes) a un **11.3% real (57 ausentes no justificados)**, con métricas de capacidad y pendientes por justificar 100% fidedignas.
