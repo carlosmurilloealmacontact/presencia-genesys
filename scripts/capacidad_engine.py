@@ -325,6 +325,66 @@ def cargar_presencia_resumen_dia(fecha_str: str) -> pd.DataFrame:
     return cargar_presencia_resumen_rango(fecha_str, fecha_str, num_dias=1)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def obtener_pausas_programadas_rango(fecha_desde: str, fecha_hasta: str) -> pd.DataFrame:
+    """
+    Calcula el % de auxiliares y pausas programadas en la malla de turnos (turnos_detallados)
+    para el rango de fechas seleccionado, agrupado por servicio homologado a SORE.
+    Suma minutos de Descansos (Breaks 1, 2, 3), Diálogo Diario 4DX y Capacitaciones frente a las horas de turno.
+    """
+    real_db_path = Path(__file__).parent / DB_PATH
+    if not os.path.exists(real_db_path):
+        return pd.DataFrame()
+
+    def _diff_min(ini, fin):
+        if not ini or not fin or str(ini).strip() in ("None", ""):
+            return 0.0
+        try:
+            t1 = datetime.strptime(str(ini)[:8].strip(), "%H:%M:%S")
+            t2 = datetime.strptime(str(fin)[:8].strip(), "%H:%M:%S")
+            diff = (t2 - t1).total_seconds() / 60.0
+            if diff < 0:
+                diff += 1440.0
+            return diff
+        except Exception:
+            return 0.0
+
+    conn = sqlite3.connect(real_db_path)
+    query = """
+        SELECT servicio, horas_programadas, dialogo_ini, dialogo_fin,
+               des_1_ini, des_1_fin, des_2_ini, des_2_fin, des_3_ini, des_3_fin,
+               training_1_ini, training_1_fin
+        FROM turnos_detallados
+        WHERE fecha >= ? AND fecha <= ? AND servicio IS NOT NULL AND servicio != ''
+    """
+    try:
+        df_t = pd.read_sql(query, conn, params=(fecha_desde, fecha_hasta))
+    except Exception:
+        df_t = pd.DataFrame()
+    finally:
+        conn.close()
+
+    if df_t.empty:
+        return pd.DataFrame()
+
+    df_t["min_turno"] = df_t["horas_programadas"] * 60.0
+    df_t["min_des1"] = df_t.apply(lambda r: _diff_min(r["des_1_ini"], r["des_1_fin"]), axis=1)
+    df_t["min_des2"] = df_t.apply(lambda r: _diff_min(r["des_2_ini"], r["des_2_fin"]), axis=1)
+    df_t["min_des3"] = df_t.apply(lambda r: _diff_min(r["des_3_ini"], r["des_3_fin"]), axis=1)
+    df_t["min_dialogo"] = df_t.apply(lambda r: _diff_min(r["dialogo_ini"], r["dialogo_fin"]), axis=1)
+    df_t["min_training"] = df_t.apply(lambda r: _diff_min(r["training_1_ini"], r["training_1_fin"]), axis=1)
+    df_t["min_pau_prog"] = df_t["min_des1"] + df_t["min_des2"] + df_t["min_des3"] + df_t["min_dialogo"] + df_t["min_training"]
+
+    df_t["servicio"] = df_t["servicio"].map(lambda s: HOMOLOGACION_PRESENCIA_A_SORE.get(str(s).strip(), str(s).strip()))
+
+    agg = df_t.groupby("servicio", as_index=False).agg({
+        "min_turno": "sum",
+        "min_pau_prog": "sum"
+    })
+    agg["pct_aux_programado"] = (agg["min_pau_prog"] / agg["min_turno"] * 100.0).round(1)
+    return agg[["servicio", "pct_aux_programado"]]
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def calcular_evolucion_diaria_servicio(
     fecha_desde: str, fecha_hasta: str, servicio_sel: str, df_fore_all: pd.DataFrame
@@ -1416,6 +1476,14 @@ def render_tab_capacidad(agentes_map: dict):
         matriz["sl_numerator"] = 0
         matriz["sl_denominator"] = 0
 
+    # 3.2 Cargar auxiliares y pausas programadas desde turnos_detallados
+    df_pau_prog = obtener_pausas_programadas_rango(fecha_desde, fecha_hasta)
+    if not df_pau_prog.empty:
+        matriz = pd.merge(matriz, df_pau_prog, on="servicio", how="left")
+        matriz["pct_aux_programado"] = matriz["pct_aux_programado"].fillna(META_AUXILIARES_OFICIAL)
+    else:
+        matriz["pct_aux_programado"] = META_AUXILIARES_OFICIAL
+
     # Aplicar filtro por mundo
     if filtro_mundo == "📞 Línea / Inbound Voz":
         matriz = matriz[matriz["tipo_mundo"].str.contains("Línea|Voz|Multi", case=False, na=False)]
@@ -1437,6 +1505,11 @@ def render_tab_capacidad(agentes_map: dict):
         fte_con = row["fte_reales_conectados"]
         fte_disp = row["fte_reales_disponibles"]
         aux_real = row["pct_auxiliares_real"]
+        aux_prog = row.get("pct_aux_programado", META_AUXILIARES_OFICIAL)
+        if pd.isna(aux_prog):
+            aux_prog = META_AUXILIARES_OFICIAL
+        fuga_aux_real = round(aux_real - aux_prog, 1) if pd.notna(aux_real) else 0.0
+
         meta_aht = row["meta_aht_plana"]
         meta_ns = row.get("meta_ns", 80.0)
         min_req = row["minutos_req"]
@@ -1486,8 +1559,10 @@ def render_tab_capacidad(agentes_map: dict):
             "FTE Con": fte_con,
             "FTE Disp": fte_disp,
             "Brecha FTE": gap_fte,
-            "% Aux Real": aux_real,
             "Meta Aux": META_AUXILIARES_OFICIAL,
+            "% Aux Prog": aux_prog,
+            "% Aux Real": aux_real,
+            "Fuga Aux": fuga_aux_real,
             "Horas Fuga Aux": horas_exceso_aux,
             "Tráfico Plan": traf_plan,
             "Tráfico Real": traf_real if pd.notna(traf_real) else np.nan,
@@ -2011,9 +2086,17 @@ def render_tab_capacidad(agentes_map: dict):
         else: color = "#ef4444"
         return f"background-color: {color}20; color: {color}; font-weight: 600;"
 
+    def estilo_fuga_aux(val):
+        if pd.isna(val) or val == 0: return ""
+        if val <= 0.0: color = "#10b981"
+        elif val <= 4.0: color = "#f59e0b"
+        else: color = "#ef4444"
+        return f"background-color: {color}20; color: {color}; font-weight: 700;"
+
     cols_matriz_ejecutiva = [
         "Servicio", "Canal", "FTE Req", "FTE Con", "FTE Disp", "Brecha FTE",
-        "% Aux Real", "Meta Aux", "Tráfico Plan", "Tráfico Real", "% Desv Tráfico",
+        "Meta Aux", "% Aux Prog", "% Aux Real", "Fuga Aux",
+        "Tráfico Plan", "Tráfico Real", "% Desv Tráfico",
         "Meta AHT (s)", "AHT Real (s)", "% NS", "% Capacidad", "Diagnóstico Operativo"
     ]
 
@@ -2022,6 +2105,7 @@ def render_tab_capacidad(agentes_map: dict):
         .map(estilo_gap, subset=["Brecha FTE"])
         .map(estilo_cumpl, subset=["% Capacidad"])
         .map(estilo_aux, subset=["% Aux Real"])
+        .map(estilo_fuga_aux, subset=["Fuga Aux"])
         .map(estilo_ns, subset=["% NS"])
         .map(estilo_desv_trafico, subset=["% Desv Tráfico"])
     )
@@ -2036,11 +2120,14 @@ def render_tab_capacidad(agentes_map: dict):
         column_config={
             "Servicio": st.column_config.TextColumn("Servicio", help="Nombre oficial en Genesys y Base del Requerido"),
             "Canal": st.column_config.TextColumn("Mundo / Canal"),
-            "FTE Req": st.column_config.NumberColumn("FTE Req", format="%.1f", help="Asesores requeridos en el mes"),
-            "FTE Con": st.column_config.NumberColumn("FTE Con", format="%.1f", help="Asesores conectados en Genesys"),
+            "FTE Req": st.column_config.NumberColumn("FTE Req", format="%.1f", help="Asesores requeridos por SORE"),
+            "FTE Con": st.column_config.NumberColumn("FTE Con", format="%.1f", help="Asesores conectados en Genesys (Bruto)"),
+            "FTE Disp": st.column_config.NumberColumn("FTE Disp", format="%.1f", help="Asesores disponibles reales (Productivos netos)"),
             "Brecha FTE": st.column_config.NumberColumn("Brecha FTE", format="%+.1f", help="Diferencia de personal: Conectados - Requeridos"),
-            "% Aux Real": st.column_config.NumberColumn("% Aux", format="%.1f%%", help="% de tiempo en pausas"),
-            "Meta Aux": st.column_config.NumberColumn("Meta Aux", format="%.0f%%"),
+            "Meta Aux": st.column_config.NumberColumn("Meta Aux", format="%.0f%%", help="Meta contractual oficial acordada (14%)"),
+            "% Aux Prog": st.column_config.NumberColumn("% Aux Prog", format="%.1f%%", help="% de pausas y descansos programados en la malla de turnos"),
+            "% Aux Real": st.column_config.NumberColumn("% Aux Real", format="%.1f%%", help="% real de tiempo en pausas consumido en Genesys"),
+            "Fuga Aux": st.column_config.NumberColumn("Fuga Aux", format="%+.1f%%", help="Desvío de pausas sobre lo programado (% Aux Real - % Aux Prog)"),
             "Tráfico Plan": st.column_config.NumberColumn("Tráfico Plan", format="%.0f", help="Volumen proyectado en forecast"),
             "Tráfico Real": st.column_config.NumberColumn("Tráfico Real", format="%.0f", help="Volumen real recibido (Genesys o Zendesk para Back Office)"),
             "% Desv Tráfico": st.column_config.NumberColumn("% Desv Tráfico", format="%+.1f%%", help="Desviación de volumen vs Forecast"),
