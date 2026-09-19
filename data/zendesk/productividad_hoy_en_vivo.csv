@@ -1,2 +1,3 @@
 ﻿id,subject,status,assignee_id,created_at,updated_at,tipo_raw,grupo,Fecha,Tipo_de_Gestion,Nombre_Asesor,TICKET_ASSIGNEE_PRIMARY_EMAIL
 71718691,Reclamo - LATAM Pass,closed,39791549150227,2026-09-12T04:09:07Z,2026-09-19T05:01:35Z,tg_latam_pass_sospecha_alto_riesgo,DT FFP AMC,2026-09-19,LATAM PASS::Sospecha de alto riesgo,Elizabeth Daniela Matheus Rivera,ematheusr.almacontact@outsourcing-account.com
+71795877,Solicitud aprobacion reemision involuntaria,closed,20847557216019,2026-09-19T05:10:09Z,2026-09-19T05:13:45Z,,Autorización Supervisor AMC,2026-09-19,Sin Tipificar / Null,Juan Pablo Restrepo Bedoya,juanpablorestrepo.almacontact@outsourcing-account.com
