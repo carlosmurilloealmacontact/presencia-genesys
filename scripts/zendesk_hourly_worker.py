@@ -241,7 +241,7 @@ def ejecutar_corte_zendesk(tipo: str = "fast", ultimo_full_label: str = "") -> d
                 "backlog_por_grupo": res_data.get("backlog_por_grupo", {}),
                 "solved_today_count": solved_c,
                 "next_sync_est": (now_col + timedelta(minutes=5 if tipo == "fast" else 60)).strftime("%I:%M %p"),
-                "ultimo_corte_full": ultimo_full_label or ts_label
+                "ultimo_corte_full": ts_label if tipo == "full" else (ultimo_full_label or ts_label)
             }
             with open(STATUS_FILE, "w", encoding="utf-8") as f:
                 json.dump(status_payload, f, ensure_ascii=False, indent=2)
@@ -372,11 +372,24 @@ def verificar_y_ejecutar_sincronizacion_diaria():
         print(f"[DAILY MASTER] [WARN] Error evaluando sincronización diaria: {e}")
 
 
+def necesita_corte_full(ultimo_full_label: str, max_minutos: int = 60) -> bool:
+    if not ultimo_full_label:
+        return True
+    try:
+        lbl = ultimo_full_label.strip()
+        dt_full = datetime.strptime(lbl, "%d/%m/%Y %I:%M:%S %p")
+        diff_seg = (datetime.now() - dt_full).total_seconds()
+        return diff_seg >= (max_minutos * 60)
+    except Exception:
+        return True
+
+
 def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full: int = 12):
     """
-    Bucle infinito blindado para ejecución autónoma desatendida multicanal (Zendesk + Salesforce):
-    - Fast Sync cada 5 min (300s).
-    - Full Sync cada 60 min (cada 12 ciclos) o en el primer ciclo si falta data.
+    Bucle principal infinito del Demonio:
+    - Corte rápido cada 5 min.
+    - Corte profundo cada 60 min (o si el último corte profundo tiene más de 60 min).
+    - Monitoreo continuo del scraper de Salesforce.
     - Sincronización continua de Git.
     - Blindado contra interrupciones o fallos de red.
     """
@@ -408,7 +421,8 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
             pass
 
     hay_datos_base = (DATA_ZD_DIR / "backlog_en_vivo.csv").exists() and (DATA_ZD_DIR / "demanda_diaria_colas.csv").exists()
-    if not hay_datos_base:
+    # Si hace más de 60 min que no hay corte full, iniciar en ciclo 0 para forzar full inmediato
+    if not hay_datos_base or necesita_corte_full(ultimo_full_label, max_minutos=60):
         ciclo = 0
     else:
         ciclo = 1
@@ -419,8 +433,8 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
             asegurar_salesforce_worker_activo()
             verificar_y_ejecutar_sincronizacion_diaria()
 
-            es_full = (ciclo % ciclos_para_full == 0)
-            tipo = "full" if es_full else "fast"
+            debe_full = necesita_corte_full(ultimo_full_label, max_minutos=60) or (ciclo % ciclos_para_full == 0)
+            tipo = "full" if debe_full else "fast"
 
             res = ejecutar_corte_zendesk(tipo=tipo, ultimo_full_label=ultimo_full_label)
             if res.get("status") == "ok":
@@ -441,7 +455,17 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
 
 
 if __name__ == "__main__":
-    if "--fast" in sys.argv or "-f" in sys.argv:
+    if "--check" in sys.argv:
+        pid_actual = os.getpid()
+        zd_pids = obtener_procesos_wmi("zendesk_hourly_worker", ignorar_pid=pid_actual)
+        if zd_pids:
+            print(f"Worker Zendesk activo en segundo plano (PID {zd_pids[0]}).")
+            sys.exit(0)
+        else:
+            print("Worker no activo. Ejecutando corte rapido...")
+            res = ejecutar_corte_zendesk(tipo="fast")
+            sys.exit(0 if res.get("status") == "ok" else 1)
+    elif "--fast" in sys.argv or "-f" in sys.argv:
         ejecutar_corte_zendesk(tipo="fast")
     elif "--full" in sys.argv:
         ejecutar_corte_zendesk(tipo="full")

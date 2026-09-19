@@ -660,6 +660,7 @@ def construir_radar_ausentismo(
 
         # Verificar si pertenece a Cargo (no operan con Genesys)
         es_cargo = ("CARGO" in str(srv).upper()) or ("CARGO" in str(socio_ag.get("cargo", "")).upper())
+        es_retraso = False
 
         # Evaluación según temporalidad (Pasado, Futuro o En Vivo)
         if es_novedad_aprobada:
@@ -746,14 +747,17 @@ def construir_radar_ausentismo(
                         estado_asistencia = "🟢 Conectó a Tiempo"
                         semaforo = "🟢"
                         es_ausente = False
+                        es_retraso = False
                     elif diff_min <= 15:
                         estado_asistencia = "🟠 Retraso Leve (5-15m)"
                         semaforo = "🟠"
-                        es_ausente = True
+                        es_ausente = False
+                        es_retraso = True
                     else:
                         estado_asistencia = "🔴 Retraso Crítico (>15m)"
                         semaforo = "🔴"
-                        es_ausente = True
+                        es_ausente = False
+                        es_retraso = True
 
                     tot_min_int = int(round(sum(float(s[1].get("duracion_min", 0)) for s in segs_validos)))
                     h_ini_disp = primer_login.split(" ")[-1][:5]
@@ -761,6 +765,7 @@ def construir_radar_ausentismo(
                 else:
                     esta_conectado = False
                     es_ausente = True
+                    es_retraso = False
                     estado_asistencia = "🚨 Ausencia / No Login"
                     semaforo = "🚨"
                     minutos_desde_inicio = int(round(duracion_turno_horas * 60))
@@ -768,6 +773,7 @@ def construir_radar_ausentismo(
             else:
                 esta_conectado = False
                 es_ausente = True
+                es_retraso = False
                 estado_asistencia = "🚨 Ausencia / No Login"
                 semaforo = "🚨"
                 minutos_desde_inicio = int(round(duracion_turno_horas * 60))
@@ -818,24 +824,29 @@ def construir_radar_ausentismo(
                     estado_asistencia = "🟢 Conectado"
                     semaforo = "🟢"
                     es_ausente = False
+                    es_retraso = False
                     minutos_desde_inicio = 0
                 else:
                     if minutos_desde_inicio <= 5:
                         estado_asistencia = "🟡 En Margen (<=5m)"
                         semaforo = "🟡"
                         es_ausente = False
+                        es_retraso = False
                     elif minutos_desde_inicio <= 15:
                         estado_asistencia = "🟠 Retraso Leve (5-15m)"
                         semaforo = "🟠"
-                        es_ausente = True
+                        es_ausente = False
+                        es_retraso = True
                     elif minutos_desde_inicio <= 60:
                         estado_asistencia = "🔴 Retraso Crítico (>15m)"
                         semaforo = "🔴"
                         es_ausente = True
+                        es_retraso = True
                     else:
                         estado_asistencia = "🚨 Ausencia / No Login"
                         semaforo = "🚨"
                         es_ausente = True
+                        es_retraso = False
             else:
                 # Turno ya finalizado hoy (la hora de fin ya pasó)
                 ya_debio_iniciar = True
@@ -849,18 +860,21 @@ def construir_radar_ausentismo(
                     estado_asistencia = "🟢 Conectado (Horas Extra)"
                     semaforo = "🟢"
                     es_ausente = False
+                    es_retraso = False
                     minutos_desde_inicio = 0
                 elif actividad_hoy:
                     h_disp = f" • Salió {h_ult[:5]}" if h_ult else ""
                     estado_asistencia = f"🟢 Cumplió Turno{h_disp}"
                     semaforo = "🟢"
                     es_ausente = False
+                    es_retraso = False
                     minutos_desde_inicio = 0
                     pres_label = f"Finalizado{h_disp}"
                 else:
                     estado_asistencia = "🚨 Ausencia / No Login"
                     semaforo = "🚨"
                     es_ausente = True
+                    es_retraso = False
                     minutos_desde_inicio = int(round(duracion_turno_horas * 60))
                     pres_label = "Sin Conexión Hoy"
 
@@ -898,7 +912,7 @@ def construir_radar_ausentismo(
             "Hora Inicio": h_ini,
             "Hora Fin": h_fin,
             "Duracion Horas": round(duracion_turno_horas, 1),
-            "Min Retraso": max(0, int(round(minutos_desde_inicio))) if es_ausente and ya_debio_iniciar else 0,
+            "Min Retraso": max(0, int(round(minutos_desde_inicio))) if (es_retraso or (es_ausente and ya_debio_iniciar)) else 0,
             "Estado Genesys": ("No Aplica (Cargo)" if es_cargo else pres_label),
             "Justificación": justificacion_val,
             "Es Justificado": es_justificado_str,
@@ -906,6 +920,7 @@ def construir_radar_ausentismo(
             "Registrado Por": reg_por,
             "Ya Inició": ya_debio_iniciar,
             "Esta Conectado": esta_conectado,
+            "Con Retraso": es_retraso,
             "Es Ausente": es_ausente,
             "Es Cargo": es_cargo,
             "Aplica Genesys": aplica_genesys
@@ -1239,6 +1254,7 @@ def render_tab_ausentismo(agentes_map: dict):
             resumen_sup = evaluables_sup.groupby("Supervisor").agg(
                 Programados=("BP", "count"),
                 Conectados=("Esta Conectado", "sum"),
+                Con_Retraso=("Con Retraso", "sum"),
                 Ausentes=("Es Ausente", "sum"),
                 Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
             ).reset_index()
@@ -1282,6 +1298,7 @@ def render_tab_ausentismo(agentes_map: dict):
             resumen_sede = evaluables_sup.groupby("Sede").agg(
                 Programados=("BP", "count"),
                 Conectados=("Esta Conectado", "sum"),
+                Con_Retraso=("Con Retraso", "sum"),
                 Ausentes=("Es Ausente", "sum"),
                 Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
             ).reset_index()
@@ -1291,6 +1308,7 @@ def render_tab_ausentismo(agentes_map: dict):
             resumen_srv = evaluables_sup.groupby("Servicio").agg(
                 Programados=("BP", "count"),
                 Conectados=("Esta Conectado", "sum"),
+                Con_Retraso=("Con Retraso", "sum"),
                 Ausentes=("Es Ausente", "sum"),
                 Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
             ).reset_index()
@@ -1305,6 +1323,8 @@ def render_tab_ausentismo(agentes_map: dict):
                     use_container_width=True,
                     hide_index=True,
                     column_config={
+                        "Con_Retraso": st.column_config.NumberColumn("Con Retraso", help="Asesores que asistieron pero iniciaron sesión tarde (>5m)"),
+                        "Ausentes": st.column_config.NumberColumn("Ausentes (No Login)", help="Asesores sin registro de conexión en su turno"),
                         "% Ausentismo": st.column_config.NumberColumn("% Ausentismo", format="%.1f%%"),
                         "Horas_Perdidas": st.column_config.NumberColumn("Horas Perdidas", format="%.1f h")
                     }
@@ -1318,6 +1338,8 @@ def render_tab_ausentismo(agentes_map: dict):
                     use_container_width=True,
                     hide_index=True,
                     column_config={
+                        "Con_Retraso": st.column_config.NumberColumn("Con Retraso", help="Asesores que asistieron pero iniciaron sesión tarde (>5m)"),
+                        "Ausentes": st.column_config.NumberColumn("Ausentes (No Login)", help="Asesores sin registro de conexión en su turno"),
                         "% Ausentismo": st.column_config.NumberColumn("% Ausentismo", format="%.1f%%"),
                         "Horas_Perdidas": st.column_config.NumberColumn("Horas Perdidas", format="%.1f h")
                     }
@@ -1330,6 +1352,8 @@ def render_tab_ausentismo(agentes_map: dict):
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "Con_Retraso": st.column_config.NumberColumn("Con Retraso", help="Asesores que asistieron pero iniciaron sesión tarde (>5m)"),
+                    "Ausentes": st.column_config.NumberColumn("Ausentes (No Login)", help="Asesores sin registro de conexión en su turno"),
                     "% Ausentismo": st.column_config.NumberColumn("% Ausentismo", format="%.1f%%"),
                     "Horas_Perdidas": st.column_config.NumberColumn("Horas Perdidas", format="%.1f h")
                 }
@@ -1351,6 +1375,7 @@ def render_tab_ausentismo(agentes_map: dict):
             df_encuadre = evaluables_sup.groupby(["Servicio", "Sede"]).agg(
                 Programados=("BP", "count"),
                 Conectados=("Esta Conectado", "sum"),
+                Con_Retraso=("Con Retraso", "sum"),
                 Ausentes=("Es Ausente", "sum"),
                 Horas_Perdidas=("Duracion Horas", lambda h: h[evaluables_sup.loc[h.index, "Es Ausente"]].sum())
             ).reset_index()
@@ -1365,6 +1390,8 @@ def render_tab_ausentismo(agentes_map: dict):
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "Con_Retraso": st.column_config.NumberColumn("Con Retraso", help="Asesores con login > 5m"),
+                    "Ausentes": st.column_config.NumberColumn("Ausentes", help="Asesores sin conexión"),
                     "% Ausentismo": st.column_config.NumberColumn("% Ausentismo", format="%.1f%%"),
                     "Capacidad Efectiva %": st.column_config.NumberColumn("% Efectiva", format="%.1f%%"),
                     "Horas_Perdidas": st.column_config.NumberColumn("Horas Perdidas", format="%.1f h")
