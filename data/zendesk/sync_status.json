@@ -1,13 +1,13 @@
 {
   "status": "ok",
   "tipo_corte": "fast",
-  "timestamp": "2026-09-19 00:26:40",
-  "timestamp_label": "19/09/2026 12:26:40 AM",
-  "duracion_seg": 37.6,
-  "backlog_count": 4845,
+  "timestamp": "2026-09-19 00:32:21",
+  "timestamp_label": "19/09/2026 12:32:21 AM",
+  "duracion_seg": 37.1,
+  "backlog_count": 4849,
   "backlog_por_grupo": {
-    "LUA AMC": 1626,
-    "DT FFP AMC": 2139,
+    "LUA AMC": 1628,
+    "DT FFP AMC": 2141,
     "Equipajes AMC SSC": 930,
     "Autorización Supervisor AMC": 12,
     "Autorización Supervisor HVC AMC ES": 65,
@@ -15,6 +15,6 @@
     "Autorización SOP LUA AMC": 0
   },
   "solved_today_count": 4,
-  "next_sync_est": "12:31 AM",
+  "next_sync_est": "12:37 AM",
   "ultimo_corte_full": "18/09/2026 11:25:36 PM"
 }
