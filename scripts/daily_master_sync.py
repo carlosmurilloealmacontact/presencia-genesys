@@ -300,6 +300,7 @@ def sincronizar_a_git(mensaje: str) -> bool:
 
 
 def run_daily_sync(fecha: str = None, solo_check: bool = False):
+    t0 = time.time()
     if not fecha:
         # Por defecto el día de ayer en Hora Colombia (UTC-5)
         ahora_col = datetime.now(timezone.utc) - timedelta(hours=5)
@@ -343,8 +344,20 @@ def run_daily_sync(fecha: str = None, solo_check: bool = False):
             todo_ok = False
 
     log("=" * 75)
-    log(f"ESTADO GLOBAL: {'✓ 100% OPERATIVO Y AL DÍA' if todo_ok else '⚠️ CON NOVEDADES PENDIENTES'}")
+    if todo_ok:
+        log("ESTADO GLOBAL: ✓ 100% OPERATIVO Y AL DÍA")
+    else:
+        log("ESTADO GLOBAL: ⚠️ ATENCIÓN REQUERIDA EN MÓDULOS PENDIENTES")
     log("=" * 75 + "\n")
+
+    # 8. Notificación oficial por Telegram
+    try:
+        duracion = time.time() - t0
+        from telegram_notifier import notificar_resumen_diario
+        notificar_resumen_diario(fecha, chk, tiempo_seg=duracion, git_ok=True)
+        log("✓ Notificación de checklist diario enviada a Telegram exitosamente.")
+    except Exception as e_tg:
+        log(f"Aviso: no se pudo enviar notificación a Telegram: {e_tg}")
     return todo_ok
 
 

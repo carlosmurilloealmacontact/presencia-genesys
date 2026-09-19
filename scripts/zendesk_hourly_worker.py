@@ -354,8 +354,18 @@ def verificar_y_ejecutar_sincronizacion_diaria():
                             print(f"[DAILY MASTER] ✅ Sincronización y auditoría diaria completada exitosamente ({hoy_str}).")
                         else:
                             print(f"[DAILY MASTER] [WARN] Sincronización diaria retornó código {res.returncode}.")
+                            try:
+                                from telegram_notifier import notificar_alerta
+                                notificar_alerta("Sincronización Diaria Fallida", res.stderr or res.stdout, contexto="daily_master_sync.py vía zendesk_hourly_worker")
+                            except Exception:
+                                pass
                 except Exception as e_d:
                     print(f"[DAILY MASTER] [WARN] Excepción en sincronización diaria: {e_d}")
+                    try:
+                        from telegram_notifier import notificar_alerta
+                        notificar_alerta("Excepción en Sincronización Diaria", str(e_d), contexto="daily_master_sync.py vía zendesk_hourly_worker")
+                    except Exception:
+                        pass
 
             Thread(target=_run_bg, daemon=True).start()
     except Exception as e:
