@@ -1484,6 +1484,7 @@ def render_tab_capacidad(agentes_map: dict):
             "Canal": tipo,
             "FTE Req": fte_req,
             "FTE Con": fte_con,
+            "FTE Disp": fte_disp,
             "Brecha FTE": gap_fte,
             "% Aux Real": aux_real,
             "Meta Aux": META_AUXILIARES_OFICIAL,
@@ -1519,7 +1520,12 @@ def render_tab_capacidad(agentes_map: dict):
 
     cumpl_global = (tot_min_disp / tot_min_req * 100.0) if tot_min_req > 0 else 0.0
     pct_aux_global = (tot_min_pau / tot_min_con * 100.0) if tot_min_con > 0 else 0.0
-    gap_fte_global = tot_fte_con - tot_fte_req
+
+    # Desglose Opción B: FTEs Efectivos Disponibles vs Presencia Bruta Conectada
+    tot_fte_disp = tot_min_disp / (480.0 * num_dias)
+    gap_fte_neto = tot_fte_disp - tot_fte_req
+    gap_fte_bruto = tot_fte_con - tot_fte_req
+
     tot_horas_fuga = df_ejecutiva["Horas Fuga Aux"].sum()
     fte_fuga_equivalentes = tot_horas_fuga / (8.0 * num_dias)
 
@@ -1533,7 +1539,7 @@ def render_tab_capacidad(agentes_map: dict):
     aht_global_seg = ((tot_th_sum / tot_th_cnt) / 1000.0) if tot_th_cnt > 0 else np.nan
 
     st.markdown("---")
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     with m1:
         color_cumpl = "normal" if cumpl_global >= 90 else "inverse"
         st.metric(
@@ -1544,16 +1550,25 @@ def render_tab_capacidad(agentes_map: dict):
             help="% de minutos productivos reales frente al total requerido del mes."
         )
     with m2:
-        color_gap = "normal" if gap_fte_global >= 0 else "inverse"
-        delta_gap = f"{gap_fte_global:+.1f} FTEs" if num_dias == 1 else f"{gap_fte_global:+.1f} FTEs/día"
+        color_gap_neto = "normal" if gap_fte_neto >= 0 else "inverse"
+        delta_neto = f"{gap_fte_neto:+.1f} FTEs netos" if num_dias == 1 else f"{gap_fte_neto:+.1f} FTEs/día"
         st.metric(
-            "Balance FTEs",
-            f"{tot_fte_con:.1f} / {tot_fte_req:.1f}",
-            delta=delta_gap,
-            delta_color=color_gap,
-            help="Asesores equivalentes conectados vs asesores requeridos."
+            "FTEs Efectivos / Req",
+            f"{tot_fte_disp:.1f} / {tot_fte_req:.1f}",
+            delta=delta_neto,
+            delta_color=color_gap_neto,
+            help="Asesores equivalentes realmente disponibles (productivos) frente al requerimiento SORE. Refleja la cobertura real de llamadas sin la distorsión de pausas."
         )
     with m3:
+        delta_bruto = f"{gap_fte_bruto:+.1f} logueados" if num_dias == 1 else f"{gap_fte_bruto:+.1f} logueados/día"
+        st.metric(
+            "Presencia Bruta",
+            f"{tot_fte_con:.1f} FTEs",
+            delta=delta_bruto,
+            delta_color="off",
+            help="Total de asesores equivalentes conectados en Genesys en cualquier estado a lo largo del día (suma minutos productivos y no productivos)."
+        )
+    with m4:
         color_aux = "normal" if pct_aux_global <= META_AUXILIARES_OFICIAL else "inverse"
         st.metric(
             "% Auxiliares",
@@ -1562,7 +1577,7 @@ def render_tab_capacidad(agentes_map: dict):
             delta_color=color_aux,
             help="% del tiempo conectado consumido en pausas en toda la operación."
         )
-    with m4:
+    with m5:
         delta_fuga = f"≈ {fte_fuga_equivalentes:.1f} Asesores" if num_dias == 1 else f"≈ {fte_fuga_equivalentes:.1f} FTEs/día"
         st.metric(
             "Fuga Auxiliares",
@@ -1571,7 +1586,7 @@ def render_tab_capacidad(agentes_map: dict):
             delta_color="off",
             help="Horas hombre netas destruidas por haber superado el 14% de auxiliares."
         )
-    with m5:
+    with m6:
         if pd.notna(ns_global):
             color_ns = "normal" if ns_global >= 80.0 else "inverse"
             delta_ns = f"{ns_global - 80.0:+.1f}% vs 80%"
@@ -1584,7 +1599,7 @@ def render_tab_capacidad(agentes_map: dict):
             )
         else:
             st.metric("Nivel de Servicio", "N/A", help="No aplica o sin datos en canales backoffice")
-    with m6:
+    with m7:
         if pd.notna(aht_global_seg):
             st.metric(
                 "AHT Real Promedio",
@@ -1997,7 +2012,7 @@ def render_tab_capacidad(agentes_map: dict):
         return f"background-color: {color}20; color: {color}; font-weight: 600;"
 
     cols_matriz_ejecutiva = [
-        "Servicio", "Canal", "FTE Req", "FTE Con", "Brecha FTE",
+        "Servicio", "Canal", "FTE Req", "FTE Con", "FTE Disp", "Brecha FTE",
         "% Aux Real", "Meta Aux", "Tráfico Plan", "Tráfico Real", "% Desv Tráfico",
         "Meta AHT (s)", "AHT Real (s)", "% NS", "% Capacidad", "Diagnóstico Operativo"
     ]
