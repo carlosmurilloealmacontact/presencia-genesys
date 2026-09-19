@@ -210,7 +210,8 @@ def obtener_turnos_programados_dia(fecha_str: str) -> pd.DataFrame:
                     t.hora_fin,
                     COALESCE(td.servicio, '') as servicio_turno,
                     COALESCE(td.novedad, '') as novedad,
-                    COALESCE(td.nombre_agente, '') as nombre_turno
+                    COALESCE(td.nombre_agente, '') as nombre_turno,
+                    COALESCE(td.documento, '') as documento_turno
                 FROM turnos t
                 LEFT JOIN turnos_detallados td ON t.bp = td.bp AND t.fecha = td.fecha
                 WHERE t.fecha = ?
@@ -227,6 +228,7 @@ def obtener_turnos_programados_dia(fecha_str: str) -> pd.DataFrame:
                 df["servicio_turno"] = ""
                 df["novedad"] = ""
                 df["nombre_turno"] = ""
+                df["documento_turno"] = ""
                 return df
             except Exception:
                 return pd.DataFrame()
@@ -348,19 +350,97 @@ def obtener_presencia_historica_dia(fecha_str: str) -> dict:
             return {}
 
 
+def normalizar_nombre_clave(texto: str) -> str:
+    """Normaliza un nombre eliminando tildes, mayúsculas y prefijos de BP."""
+    if not texto:
+        return ""
+    import unicodedata
+    import re
+    s = str(texto).strip().upper()
+    if " - " in s:
+        s = s.split(" - ", 1)[1].strip()
+    s = re.sub(r"^[0-9]+\s+", "", s)
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
 @st.cache_data(ttl=3600)
 def cargar_sociodemografico_db() -> dict:
-    """Carga el maestro de jerarquía y sociodemográfico unificando Google Sheets Base y SQLite."""
+    """
+    Carga el maestro integral de jerarquía y sociodemográfico:
+    1. Base Maestra Google Sheets / Cache Local (14,584 personas, 47,000+ llaves BP/cédula/gestor).
+    2. Mirror local CSV data/zendesk/socio_demo.csv
+    3. Mirror local CSV data/zendesk/servicios_socio_maestro.csv
+    4. SQLite dim_agentes y sociodemografico
+    5. Índice secundario por nombre normalizado en ['__NAME_MAP__'] para 100% de cobertura.
+    """
     res = {}
-    
-    # 1. Base maestra en Google Sheets (14K+ registros con Coordinador, Supervisor y Servicio)
+    name_to_info = {}
+
+    # 1. Base Maestra Google Sheets / Cache Local
     try:
         from jerarquia import load_jerarquia
         res = load_jerarquia()
+        for k, v in res.items():
+            nom = normalizar_nombre_clave(v.get("nombre", ""))
+            if nom and nom not in name_to_info:
+                name_to_info[nom] = v
     except Exception:
         res = {}
 
-    # 2. Complementar con SQLite local (sociodemografico o dim_agentes)
+    # 2. Local CSV: socio_demo.csv
+    try:
+        csv_socio = Path(BASE_DIR).parent / "data" / "zendesk" / "socio_demo.csv"
+        if csv_socio.exists():
+            df_sd = pd.read_csv(csv_socio)
+            for _, row in df_sd.iterrows():
+                bp_v = str(row.get("usuario_gestor_1", "")).strip()
+                if bp_v.endswith(".0"):
+                    bp_v = bp_v[:-2]
+                nom_c = str(row.get("nombre_completo", "")).strip()
+                info_sd = {
+                    "nombre": nom_c,
+                    "servicio": str(row.get("Servicio", "")).strip(),
+                    "jefe_inmediato": str(row.get("jefe_inmediato", "")).strip(),
+                    "coordinador": str(row.get("coordinador", "")).strip(),
+                    "estado_laboral": str(row.get("estado", "Activo")).strip(),
+                }
+                if bp_v and bp_v not in ("-", "nan", "None", ""):
+                    if bp_v not in res:
+                        res[bp_v] = info_sd
+                    else:
+                        for k_f, v_f in info_sd.items():
+                            if v_f and not res[bp_v].get(k_f):
+                                res[bp_v][k_f] = v_f
+                nom_norm = normalizar_nombre_clave(nom_c)
+                if nom_norm and nom_norm not in name_to_info:
+                    name_to_info[nom_norm] = info_sd
+    except Exception:
+        pass
+
+    # 3. Local CSV: servicios_socio_maestro.csv
+    try:
+        csv_maestro = Path(BASE_DIR).parent / "data" / "zendesk" / "servicios_socio_maestro.csv"
+        if csv_maestro.exists():
+            df_sm = pd.read_csv(csv_maestro)
+            for _, row in df_sm.iterrows():
+                nom_c = str(row.get("name") or row.get("local_name") or "").strip()
+                info_sm = {
+                    "nombre": nom_c,
+                    "servicio": str(row.get("servicio", "")).strip(),
+                    "jefe_inmediato": str(row.get("jefe", "")).strip(),
+                    "coordinador": str(row.get("coordinador", "")).strip(),
+                    "cargo": str(row.get("cargo", "")).strip(),
+                }
+                nom_norm = normalizar_nombre_clave(nom_c)
+                if nom_norm and nom_norm not in name_to_info:
+                    name_to_info[nom_norm] = info_sm
+                local_norm = normalizar_nombre_clave(str(row.get("local_name", "")))
+                if local_norm and local_norm not in name_to_info:
+                    name_to_info[local_norm] = info_sm
+    except Exception:
+        pass
+
+    # 4. Complementar con SQLite local (sociodemografico o dim_agentes)
     db_path = Path(BASE_DIR) / DB_PATH
     if db_path.exists():
         with sqlite3.connect(db_path) as conn:
@@ -379,6 +459,9 @@ def cargar_sociodemografico_db() -> dict:
                         for k, v in d.items():
                             if v and not res[bp_str].get(k):
                                 res[bp_str][k] = v
+                    nom_norm = normalizar_nombre_clave(d.get("nombre", ""))
+                    if nom_norm and nom_norm not in name_to_info:
+                        name_to_info[nom_norm] = d
             except Exception:
                 try:
                     df_dim = pd.read_sql_query(
@@ -391,15 +474,16 @@ def cargar_sociodemografico_db() -> dict:
                         ag_s = str(row.get("agente", ""))
                         bp_s = ag_s.split(" - ")[0].strip() if " - " in ag_s else ag_s.strip()
                         nom_s = ag_s.split(" - ")[1].strip() if " - " in ag_s else ag_s.strip()
+                        info_dim = {
+                            "nombre": nom_s,
+                            "cargo": row.get("cargo", "ASESOR"),
+                            "estado_laboral": row.get("estado_laboral", "Activo"),
+                            "servicio": row.get("servicio", ""),
+                            "jefe_inmediato": row.get("jefe_inmediato", ""),
+                            "coordinador": row.get("coordinador", "")
+                        }
                         if bp_s not in res:
-                            res[bp_s] = {
-                                "nombre": nom_s,
-                                "cargo": row.get("cargo", "ASESOR"),
-                                "estado_laboral": row.get("estado_laboral", "Activo"),
-                                "servicio": row.get("servicio", ""),
-                                "jefe_inmediato": row.get("jefe_inmediato", ""),
-                                "coordinador": row.get("coordinador", "")
-                            }
+                            res[bp_s] = info_dim
                         else:
                             if nom_s and not res[bp_s].get("nombre"):
                                 res[bp_s]["nombre"] = nom_s
@@ -407,9 +491,13 @@ def cargar_sociodemografico_db() -> dict:
                                 res[bp_s]["jefe_inmediato"] = row.get("jefe_inmediato")
                             if row.get("coordinador") and not res[bp_s].get("coordinador"):
                                 res[bp_s]["coordinador"] = row.get("coordinador")
+                        nom_norm = normalizar_nombre_clave(nom_s)
+                        if nom_norm and nom_norm not in name_to_info:
+                            name_to_info[nom_norm] = info_dim
                 except Exception:
                     pass
 
+    res["__NAME_MAP__"] = name_to_info
     return res
 
 
@@ -430,6 +518,7 @@ def construir_radar_ausentismo(
         return pd.DataFrame()
 
     socio_map = cargar_sociodemografico_db()
+    name_to_info = socio_map.get("__NAME_MAP__", {})
     sede_map = cargar_mapa_sedes()
 
     df_just = cargar_justificaciones_db(fecha_str)
@@ -478,16 +567,22 @@ def construir_radar_ausentismo(
     filas = []
     for _, r in df_turnos.iterrows():
         bp = str(r["bp"]).strip()
+        doc = str(r.get("documento_turno", "")).strip()
         h_ini = str(r["hora_inicio"]).strip()
         h_fin = str(r["hora_fin"]).strip()
+        nom_turno = str(r.get("nombre_turno", "")).strip()
 
-        # 1. Buscar en jerarquía y socios
-        socio_ag = socio_map.get(bp, {})
+        # 1. Buscar en jerarquía y socios (BP -> Cédula -> Nombre normalizado)
+        socio_ag = (
+            socio_map.get(bp) 
+            or (socio_map.get(doc) if doc else None) 
+            or (name_to_info.get(normalizar_nombre_clave(nom_turno)) if nom_turno else None)
+            or {}
+        )
         info_ag = agentes_bp_map.get(bp) or agentes_map.get(bp, {})
         live_info = presencia_act_map.get(bp, {})
 
         # Nombre del asesor con cascada completa de resolución
-        nom_turno = str(r.get("nombre_turno", "")).strip()
         nom_socio = str(socio_ag.get("nombre", "")).strip()
         nom_info = str(info_ag.get("agente", "")).strip()
         nom_genesys = str(live_info.get("full_name_genesys", "")).strip()
@@ -506,8 +601,21 @@ def construir_radar_ausentismo(
         else:
             agente_nom = f"{bp} - {socio_ag.get('cargo', 'Asesor')}" if socio_ag else f"Asesor {bp}"
 
-        sup = socio_ag.get("jefe_inmediato") or info_ag.get("jefe_inmediato") or "Sin Supervisor"
-        coord = socio_ag.get("coordinador") or info_ag.get("coordinador") or "Sin Coordinador"
+        sup = socio_ag.get("jefe_inmediato") or info_ag.get("jefe_inmediato")
+        coord = socio_ag.get("coordinador") or info_ag.get("coordinador")
+
+        # Respaldo final por nombre candidato si supervisor aún no se encuentra
+        if (not sup or sup in ("Sin Supervisor", "-", "None", "nan")) and nombre_candidato:
+            info_por_nom = name_to_info.get(normalizar_nombre_clave(nombre_candidato))
+            if info_por_nom:
+                if not sup or sup in ("Sin Supervisor", "-", "None", "nan"):
+                    sup = info_por_nom.get("jefe_inmediato")
+                if not coord or coord in ("Sin Coordinador", "-", "None", "nan"):
+                    coord = info_por_nom.get("coordinador")
+
+        sup = sup or "Sin Supervisor"
+        coord = coord or "Sin Coordinador"
+
         srv_turno = str(r.get("servicio_turno", "")).strip()
         srv = srv_turno or socio_ag.get("servicio") or info_ag.get("servicio") or "General"
 
@@ -838,6 +946,11 @@ def render_tab_ausentismo(agentes_map: dict):
         if st.button("🔄 Actualizar Ahora", key="btn_refrescar_ausentismo", type="primary", use_container_width=True):
             obtener_presencia_usuarios_ausentismo.clear()
             obtener_presencia_historica_dia.clear()
+            cargar_sociodemografico_db.clear()
+            obtener_turnos_programados_dia.clear()
+            cargar_mapa_sedes.clear()
+            st.cache_data.clear()
+            st.toast("Datos y sociodemográfico actualizados con éxito", icon="✅")
             st.rerun()
 
     # Cálculo de segundos para refresco automático

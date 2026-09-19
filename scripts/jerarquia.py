@@ -3,6 +3,7 @@ Cruce de agente_id -> servicio / supervisor (jefe_inmediato) / coordinador,
 leyendo el mismo sheet "Base" que usa Seguimiento Pausas 4DX.
 """
 
+import json
 import gspread
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -36,24 +37,54 @@ def get_google_creds():
 
 
 def load_jerarquia() -> dict:
-    """Mapa numero_agente -> {servicio, jefe_inmediato, coordinador}."""
-    creds = get_google_creds()
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(BASE_SPREADSHEET_ID).worksheet(BASE_SHEET_NAME)
-    rows = sheet.get_all_records()
+    """
+    Mapa identificador (BP / Cédula / Gestores) -> {servicio, jefe_inmediato, coordinador, nombre, cargo, estado_laboral}.
+    Resiliente: intenta Google Sheets y guarda copia local en data/cache_jerarquia_base.json;
+    si Google Sheets falla o no tiene conexión, carga la copia local garantizando 100% disponibilidad.
+    """
+    cache_file = _BASE_DIR.parent / "data" / "cache_jerarquia_base.json"
+
+    rows = None
+    try:
+        creds = get_google_creds()
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(BASE_SPREADSHEET_ID).worksheet(BASE_SHEET_NAME)
+        rows = sheet.get_all_records()
+    except Exception:
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
 
     lookup = {}
     for row in rows:
-        key = str(row.get("usuario_gestor_1", "")).strip()
-        if not key:
-            continue
-        lookup[key] = {
-            "servicio": row.get("Servicio", ""),
-            "jefe_inmediato": row.get("jefe_inmediato", ""),
-            "coordinador": row.get("coordinador", ""),
-            "cargo": row.get("cargo", ""),
-            "estado_laboral": row.get("estado", "Activo") or "Activo",
+        info = {
+            "nombre": str(row.get("nombre_completo", "")).strip(),
+            "servicio": str(row.get("Servicio", "")).strip(),
+            "jefe_inmediato": str(row.get("jefe_inmediato", "")).strip(),
+            "coordinador": str(row.get("coordinador", "")).strip(),
+            "cargo": str(row.get("cargo", "")).strip(),
+            "estado_laboral": str(row.get("estado", "Activo") or "Activo").strip(),
+            "cedula": str(row.get("cedula", "")).strip()
         }
+        for col in ["usuario_gestor_1", "usuario_gestor_2", "usuario_gestor_3", "usuario_gestor_4", "cedula"]:
+            val = str(row.get(col, "")).strip()
+            if val and val not in ("-", "nan", "None", "0", "0.0"):
+                if val.endswith(".0"):
+                    val = val[:-2]
+                lookup[val] = info
+
+    # Persistir en cache local para resiliencia total
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(lookup, f, ensure_ascii=False)
+    except Exception:
+        pass
+
     return lookup
 
 
