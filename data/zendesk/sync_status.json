@@ -1,9 +1,9 @@
 {
   "status": "ok",
   "tipo_corte": "fast",
-  "timestamp": "2026-09-19 11:44:44",
-  "timestamp_label": "19/09/2026 11:44:44 AM",
-  "duracion_seg": 41.5,
+  "timestamp": "2026-09-19 11:50:31",
+  "timestamp_label": "19/09/2026 11:50:31 AM",
+  "duracion_seg": 41.8,
   "backlog_count": 4872,
   "backlog_por_grupo": {
     "LUA AMC": 1641,
@@ -14,7 +14,7 @@
     "Célula PI AMC ES": 73,
     "Autorización SOP LUA AMC": 0
   },
-  "solved_today_count": 234,
-  "next_sync_est": "11:49 AM",
+  "solved_today_count": 240,
+  "next_sync_est": "11:55 AM",
   "ultimo_corte_full": "19/09/2026 08:48:32 AM"
 }
