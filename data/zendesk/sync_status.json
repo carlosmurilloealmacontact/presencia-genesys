@@ -1,9 +1,9 @@
 {
   "status": "ok",
   "tipo_corte": "fast",
-  "timestamp": "2026-09-19 03:30:19",
-  "timestamp_label": "19/09/2026 03:30:19 AM",
-  "duracion_seg": 37.8,
+  "timestamp": "2026-09-19 03:36:00",
+  "timestamp_label": "19/09/2026 03:36:00 AM",
+  "duracion_seg": 37.5,
   "backlog_count": 4870,
   "backlog_por_grupo": {
     "LUA AMC": 1652,
@@ -15,6 +15,6 @@
     "Autorización SOP LUA AMC": 0
   },
   "solved_today_count": 24,
-  "next_sync_est": "03:35 AM",
+  "next_sync_est": "03:41 AM",
   "ultimo_corte_full": "19/09/2026 02:59:24 AM"
 }
