@@ -164,4 +164,22 @@ flowchart TD
   * `09. Intraday Forecast BO Septiembre - Latam.xlsx`
 * **Fuentes de Zendesk Back Office:**
   * `data/zendesk/productividad_hoy_en_vivo.csv`
+  * `data/zendesk/productividad_diaria_fechas.csv`
+  * `data/zendesk/productividad_historica_2026.parquet`
   * `data/zendesk/demanda_diaria_colas.csv`
+
+---
+
+## 9. Pipeline de Sincronización Zendesk y Demanda/Capacidad (Septiembre 2026)
+* **Arquitectura de Sincronización:**
+  * `scripts/zendesk_hourly_worker.py`: Demonio autónomo con arquitectura de 2 niveles:
+    * **Tier 1 (Fast Sync - cada 5 min):** Extracción instantánea de conteos de backlog por cola (<2s) y productividad resuelta en vivo de hoy (`productividad_hoy_en_vivo.csv`).
+    * **Tier 2 (Full Sync - cada 60 min):** Extracción profunda, tipologías completas y mantenimiento.
+    * **Persistencia Continua:** `actualizar_historico_productividad()` actualiza en cada ciclo tanto `productividad_diaria_fechas.csv` como `productividad_historica_2026.parquet`.
+    * **Recálculo de Demanda Automático:** `recalcular_demanda()` ejecuta `generar_demanda_diaria()` en cada ciclo para garantizar que `demanda_diaria_colas.csv` refleje inmediatamente las resoluciones y entradas sin rezago.
+* **Blindaje de `generar_demanda_diaria.py`:**
+  * Combina entradas históricas y en vivo (`created_at` convertido a UTC-5 America/Bogota) a partir de parquet, backlog activo y tickets de hoy.
+  * Calcula salidas (`Casos_Resueltos`) fusionando `productividad_historica_2026.parquet`, `productividad_hoy_en_vivo.csv` y `productividad_diaria_fechas.csv` para garantizar que ninguna cola ni día muestre resoluciones en cero si hubo actividad.
+* **Filtros de Fecha en `scripts/zendesk_engine.py`:**
+  * Los botones de preset rápido (`7 días`, `15 días`, `30 días`, `Mes actual`, `Todo`) sincronizan explícitamente `st.session_state["zd_sel_fechas"]` con la tupla `(ini, fin)`, asegurando reactividad instantánea en el widget de Streamlit.
+  * Incluye capa de defensa en profundidad en `cargar_bundle_zendesk()` para corroborar integridad de `Casos_Resueltos` en memoria.

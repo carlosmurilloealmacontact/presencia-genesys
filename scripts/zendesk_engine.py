@@ -639,6 +639,22 @@ def cargar_bundle_zendesk() -> dict:
     # Pre-cargar demanda diaria y balance de colas separando autorizaciones
     file_demanda = DATA_DIR / "demanda_diaria_colas.csv"
     df_demanda = pd.read_csv(file_demanda) if file_demanda.exists() else None
+
+    # Blindaje de integridad: si df_diario_raw tiene resueltos registrados que falten en demanda
+    if df_demanda is not None and not df_demanda.empty and df_diario_raw is not None and not df_diario_raw.empty:
+        try:
+            res_por_dia_grupo = df_diario_raw.groupby(["Fecha", "grupo"])["Recuento_Tickets"].sum().to_dict()
+            mask_zero_res = (df_demanda["Casos_Resueltos"] == 0)
+            for idx in df_demanda[mask_zero_res].index:
+                f_val = str(df_demanda.at[idx, "Fecha"])
+                g_val = str(df_demanda.at[idx, "grupo"])
+                c_real = res_por_dia_grupo.get((f_val, g_val), 0)
+                if c_real > 0:
+                    df_demanda.at[idx, "Casos_Resueltos"] = int(c_real)
+                    df_demanda.at[idx, "Balance_Neto"] = int(df_demanda.at[idx, "Casos_Nuevos"]) - int(c_real)
+        except Exception:
+            pass
+
     df_demanda_operativo = None
     df_demanda_auth = None
     if df_demanda is not None and not df_demanda.empty:
@@ -882,21 +898,25 @@ def render_tab_zendesk(email_usuario: str = ""):
     f_min_def = bundle["f_min_def"]
     f_max_def = bundle["f_max_def"]
 
-    if "zd_f_ini" not in st.session_state:
+    if "zd_f_ini" not in st.session_state or "zd_sel_fechas" not in st.session_state:
         st.session_state["zd_f_ini"] = f_min_def
         st.session_state["zd_f_fin"] = f_max_def
+        st.session_state["zd_sel_fechas"] = (f_min_def, f_max_def)
 
     def set_preset_zd(dias):
         from datetime import timedelta
         if dias == 0:
-            st.session_state["zd_f_ini"] = f_max_def.replace(day=1)
-            st.session_state["zd_f_fin"] = f_max_def
+            ini = f_max_def.replace(day=1)
+            fin = f_max_def
         elif dias is None:
-            st.session_state["zd_f_ini"] = f_min_def
-            st.session_state["zd_f_fin"] = f_max_def
+            ini = f_min_def
+            fin = f_max_def
         else:
-            st.session_state["zd_f_ini"] = max(f_min_def, f_max_def - timedelta(days=dias - 1))
-            st.session_state["zd_f_fin"] = f_max_def
+            ini = max(f_min_def, f_max_def - timedelta(days=dias - 1))
+            fin = f_max_def
+        st.session_state["zd_f_ini"] = ini
+        st.session_state["zd_f_fin"] = fin
+        st.session_state["zd_sel_fechas"] = (ini, fin)
 
     # Selectores rápidos de rangos de fechas
     col_p1, col_p2, col_p3, col_p4, col_p5, _ = st.columns([1, 1, 1, 1, 1, 3.5])

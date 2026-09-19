@@ -45,11 +45,16 @@ def get_colombia_now() -> datetime:
 
 
 def actualizar_historico_productividad(df_hoy: pd.DataFrame) -> None:
-    """Anexa de forma segura la productividad del día de hoy al archivo histórico en disco."""
+    """Anexa de forma segura la productividad del día de hoy tanto al acumulado diario como al parquet histórico."""
     file_hist = DATA_ZD_DIR / "productividad_diaria_fechas.csv"
+    file_hist_zd = ZENDESK_PROCESSED_DIR / "productividad_diaria_fechas.csv"
+    file_pq = DATA_ZD_DIR / "productividad_historica_2026.parquet"
+    file_pq_zd = ZENDESK_PROCESSED_DIR / "productividad_historica_2026.parquet"
+
     if df_hoy is None or df_hoy.empty:
         return
 
+    # 1. Actualizar acumulado diario CSV
     try:
         df_diario_raw = pd.read_csv(file_hist) if file_hist.exists() else pd.DataFrame()
         grp_cols = ["Fecha", "grupo", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Tipo_de_Gestion"] if "grupo" in df_hoy.columns else ["Fecha", "TICKET_ASSIGNEE_PRIMARY_EMAIL", "Tipo_de_Gestion"]
@@ -66,9 +71,27 @@ def actualizar_historico_productividad(df_hoy: pd.DataFrame) -> None:
             df_consolidado = df_hoy_agg
 
         df_consolidado.to_csv(file_hist, index=False, encoding="utf-8-sig")
+        if ZENDESK_PROCESSED_DIR.exists():
+            df_consolidado.to_csv(file_hist_zd, index=False, encoding="utf-8-sig")
         print(f"  [HISTÓRICO] Actualizado {file_hist.name} con {len(df_consolidado)} registros totales.")
     except Exception as e:
-        print(f"  [WARN] Error anexando al histórico: {e}")
+        print(f"  [WARN] Error anexando al histórico diario: {e}")
+
+    # 2. Actualizar Parquet histórico detallado
+    try:
+        target_pq = file_pq if file_pq.exists() else file_pq_zd
+        if target_pq.exists() and "id" in df_hoy.columns:
+            df_pq = pd.read_parquet(target_pq)
+            cols_pq = [c for c in df_pq.columns if c in df_hoy.columns]
+            df_pq_upd = pd.concat([df_pq, df_hoy[cols_pq]], ignore_index=True)
+            df_pq_upd.drop_duplicates(subset=["id"], keep="last", inplace=True)
+            df_pq_upd.sort_values(by=["Fecha", "updated_at"], inplace=True)
+            df_pq_upd.to_parquet(file_pq, index=False)
+            if ZENDESK_PROCESSED_DIR.exists():
+                df_pq_upd.to_parquet(file_pq_zd, index=False)
+            print(f"  [HISTÓRICO PARQUET] Actualizado {file_pq.name} con {len(df_pq_upd)} tickets totales.")
+    except Exception as e_pq:
+        print(f"  [WARN] Error actualizando histórico parquet: {e_pq}")
 
 
 def recalcular_demanda():
@@ -197,9 +220,9 @@ def ejecutar_corte_zendesk(tipo: str = "fast", ultimo_full_label: str = "") -> d
                 except Exception as ex:
                     print(f"  [WARN] Error procesando hoy: {ex}")
 
-            # 3. Recalcular Demanda Diaria si fue corte profundo
+            # 3. Recalcular Demanda Diaria (Inflow vs Outflow)
+            recalcular_demanda()
             if tipo == "full":
-                recalcular_demanda()
                 ultimo_full_label = ts_label
 
             # 4. Guardar archivo de estado para el Dashboard
@@ -278,7 +301,7 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
     pid_actual = os.getpid()
     try:
         chk_zd = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*zendesk_hourly_worker*' -and $_.ProcessId -ne {pid_actual} }} | Select-Object -ExpandProperty ProcessId"],
+            ["powershell", "-NoProfile", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.Name -like 'python*' -and $_.CommandLine -like '*zendesk_hourly_worker*' -and $_.ProcessId -ne {pid_actual} }} | Select-Object -ExpandProperty ProcessId"],
             capture_output=True, text=True, timeout=5
         )
         if chk_zd.stdout.strip():
