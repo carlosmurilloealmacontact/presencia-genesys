@@ -214,3 +214,19 @@ flowchart TD
       * Invalidación total de cache en el botón `🔄 Actualizar Ahora` (`cargar_sociodemografico_db.clear()`, `obtener_turnos_programados_dia.clear()`, `cargar_mapa_sedes.clear()`, `st.cache_data.clear()`), evitando que sesiones previas de Streamlit retengan en memoria diccionarios obsoletos.
       * **Resultado Verificado:** 0 agentes con "Sin Supervisor" y 0 agentes con "Sin Coordinador" de forma consistente a lo largo de todos los días evaluados (100% de cobertura jerárquica garantizada).
    5. **Resultado Operativo:** El indicador de ausentismo pasó de un 88.8% artificial (1,215 ausentes) a un **11.3% real (57 ausentes no justificados)**, con métricas de capacidad y pendientes por justificar 100% fidedignas.
+
+---
+
+## 12. Blindaje de Sincronización y Zona Horaria en Agencias B2B (`scripts/agencias_b2b_engine.py`)
+* **Diagnóstico de las dos anomalías en Streamlit Cloud:**
+  1. **"Sincronización en Pausa (Última captura hace 591 min)":**
+     - En Streamlit Cloud (Linux en UTC), `datetime.now()` retorna la hora universal (+5h respecto a Colombia).
+     - La comparación `diff_sec = (datetime.now() - dt_obj)` restaba la hora UTC contra la hora COT almacenada en `salesforce_live.db`. Esto sumaba artificialmente **300 minutos (5 horas)** al cálculo de retraso, provocando que siempre mostrara `Sincronización en Pausa` aún cuando los datos fuesen recientes.
+     - Adicionalmente, `sincronizar_git()` en el worker continuo no incluía `data/salesforce_live.db` en sus rutas de staging, impidiendo que los nuevos escaneos se reflejaran en la nube.
+  2. **"Modo En Vivo: Sincronizado a las 02:04:27":**
+     - En el selector de Niveles de Servicio en Vivo, la cabecera imprimía `datetime.now().strftime('%H:%M:%S')` (hora UTC del servidor, 02:04 AM) en lugar de la hora local de Colombia (09:04 PM COT).
+* **Soluciones Implementadas:**
+  1. **Normalización Formal a Zona Horaria Colombia (COT / UTC-5):** En `agencias_b2b_engine.py` se implementó `now_col = datetime.now(timezone.utc) - timedelta(hours=5)` para todos los cálculos de delta de tiempo y visualizaciones de hora en vivo.
+  2. **Inclusión de `salesforce_live.db` en Git Auto-Sync:** Se configuró el worker `scripts/zendesk_hourly_worker.py` para subir automáticamente `data/salesforce_live.db` en cada ciclo hacia `origin/main`.
+  3. **Ampliación de Ventana 2FA en `salesforce_auth_manager.py`:** Se extendió el rango de aceptación de códigos de verificación de Outlook a 15 minutos (vigencia estándar de Salesforce) y se integró auto-verificación del proceso `OUTLOOK.EXE` en segundo plano.
+
