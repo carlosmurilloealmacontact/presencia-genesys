@@ -1,6 +1,6 @@
-# CONTEXT.md - Sistema Integral de Presencia, Adherencia y Operación (Genesys Cloud CX & Salesforce B2B)
+# CONTEXT.md - Sistema Integral de Presencia, Adherencia y Operación (Genesys Cloud CX, Salesforce B2B & Zendesk CASOUNICO)
 
-> **Última Actualización:** 18 de septiembre de 2026 - 07:58 COT  
+> **Última Actualización:** 18 de septiembre de 2026 - 19:40 COT  
 > **Autor / Arquitectura:** Carlos Murillo & Equipo de Inteligencia Operativa 4DX  
 > **Repositorio:** `carlosmurilloealmacontact/presencia-genesys` (`origin/main`)  
 > **Entorno:** Local (Windows / PowerShell / Python 3.14) & Nube (Streamlit Cloud)
@@ -9,12 +9,15 @@
 
 ## 1. Visión y Alcance del Proyecto
 
-El sistema es una plataforma analítica y de monitoreo operativo de alto nivel diseñada para **AlmaContact y LATAM Airlines**, que unifica dos ecosistemas de atención hasta ahora desconectados:
-1. **Canal Telefónico y Voz:** Monitoreo segundo a segundo de agentes en **Genesys Cloud CX** (presencia, estados en cola, pausas reglamentarias, adherencia a turnos WFM, ausentismo y GTR).
+El sistema es una plataforma analítica y de monitoreo operativo de alto nivel diseñada para **AlmaContact y LATAM Airlines**, que unifica tres ecosistemas de atención y gestión:
+1. **Canal Telefónico y Voz:** Monitoreo segundo a segundo de agentes en **Genesys Cloud CX** (presencia, estados en cola, pausas reglamentarias, adherencia a turnos WFM, ausentismo, GTR y dimensionamiento SORE).
 2. **Canal Digital y Backoffice (Agencias B2B):** Monitoreo de ejecutivos y analistas que gestionan **Salesforce** (Casos, SLA 24h, envejecimiento de backlog y chats de **Omni-Channel**).
+3. **Mesa Back Office Pasajeros (Zendesk CASOUNICO):** Integración en vivo de productividad y backlog para tipologías operativas (*LATAM Pass*, *Equipajes*, *Devoluciones*, *Check-in*, *Ancillaries*, etc.).
 
-### Problema Operativo Resuelto
-Históricamente, los asesores de Agencias B2B que no toman llamadas en Genesys pero sí gestionan decenas de casos o atienden chats en Salesforce aparecían injustamente como *"❌ Ausentes"* en las mallas de adherencia. El sistema rescata automáticamente esta presencia y unifica la medición de productividad.
+### Problemas Operativos Resueltos
+1. **Injusticia en Adherencia B2B:** Históricamente, los asesores de Agencias B2B que no toman llamadas en Genesys pero sí gestionan decenas de casos o atienden chats en Salesforce aparecían como *"❌ Ausentes"*. El sistema los rescata automáticamente.
+2. **Punto Ciego de Timeouts en Tipificaciones:** Las llamadas que cerraban por vencimiento del temporizador de ACW en Genesys quedaban como `ININ-WRAP-UP-TIMEOUT` sin motivo de negocio. El motor reclasifica inteligentemente el 100% del tráfico por cola y contexto de servicio.
+3. **Distorsión del Balance de Personal (FTEs):** La comparación de FTEs Conectados Brutos frente al Requerido creaba una falsa impresión de sobrecontratación (+165 personas). Se desdobló la métrica para transparentar los **FTEs Efectivos Disponibles** y contrastar los **Auxiliares Programados en Malla vs Reales**.
 
 ---
 
@@ -25,7 +28,8 @@ flowchart TD
     subgraph Fuentes Genesys
         G1["Genesys Cloud CX API\n(/analytics/users/details)"] --> G2["scripts/extract_presencia.py"]
         G2 --> G3[("data/presencia.db\nSQLite Local / Cloud")]
-        G4["Malla de Turnos WFM\n(Turnos_Master.xlsx / API)"] --> G5["scripts/extract_turnos.py"]
+        G4["Malla de Turnos WFM\n(Turnos_Master.xlsx / API)"] --> G5["scripts/extract_turnos_api.py"]
+        G5 --> G3
     end
 
     subgraph Fuentes Salesforce
@@ -34,17 +38,23 @@ flowchart TD
         S2 --> S4["data/salesforce/omni_presencia_historico.csv\n(Omni-Channel 67K registros)"]
     end
 
+    subgraph Fuentes Zendesk
+        Z1["Zendesk CASOUNICO\n(Productividad & Backlog)"] --> Z2["scripts/zendesk_hourly_worker.py"]
+        Z2 --> Z3["data/zendesk/productividad_hoy_en_vivo.csv"]
+    end
+
     subgraph Motores Analíticos Unificados
         G3 & G5 --> M1["scripts/adherencia_pausas_engine.py\n(Motor Clásico Adherencia)"]
         G3 & G5 --> M2["scripts/adherencia_v2_engine.py\n(Adherencia 2.0: Timeline + Matriz)"]
+        G3 & G5 --> M5["scripts/capacidad_engine.py\n(Capacidad, SORE, Malla Auxiliares)"]
+        G1 & S3 & Z3 --> M6["scripts/tipologias_engine.py\n(Consolidado Tri-Plataforma)"]
         S3 --> M3["scripts/salesforce_engine.py\n(Backlog, SLA 24h, Aging)"]
         S4 --> M4["scripts/salesforce_omni_engine.py\n(Turnos, Pausas y Conexión Omni -2h)"]
         M3 & M4 --> M1 & M2
     end
 
     subgraph Presentación Ejecutiva
-        M1 & M2 & M3 --> V1["viewer.py\n(Streamlit Dashboard Principal)"]
-        M3 --> V2["scripts/preview_salesforce.py\n(Command Center B2B Local)"]
+        M1 & M2 & M3 & M5 & M6 --> V1["viewer.py\n(Dashboard Streamlit de Producción)"]
     end
 ```
 
@@ -53,118 +63,105 @@ flowchart TD
 ## 3. Estado Actual: ¿Qué está FULL (100% Operativo)?
 
 ### A. Canal Genesys Cloud CX
-* **Extracción de Presencia:** Script `extract_presencia.py` sincroniza segundo a segundo todos los cambios de estado (`AVAILABLE`, `MEAL`, `BREAK`, `AWAY`, `TRAINING`, etc.) para las sedes AMC Bogotá y Medellín.
-* **Malla de Turnos:** Integración y lectura de turnos programados con tolerancia, descansos asignados y jornadas laborales.
-* **Adherencia Clásica:** Cálculo de adherencia global, tramos de conexión y cumplimiento de pausas reglamentarias.
+* **Extracción de Presencia:** Script `extract_presencia.py` sincroniza segundo a segundo los cambios de estado (`AVAILABLE`, `MEAL`, `BREAK`, `AWAY`, `TRAINING`, etc.) para AMC Bogotá y Medellín.
+* **Malla de Turnos:** Integración vía API de Almaverso (`extract_turnos_api.py`) con auditoría de cambios y persistencia en `turnos_detallados`.
 * **Adherencia 2.0:** Vista matricial y línea de tiempo interactiva con desglose de estados, diferencias minuto a minuto y semáforo visual de cumplimiento.
 * **GTR (Gestión en Tiempo Real):** Monitoreo de colas, AHT, llamadas entrantes, abandonos y simultaneidad.
-* **Ausentismo y Jerarquía:** Catalogación de ausentismo justificado vs injustificado, supervisores y coordinadores.
+* **Ausentismo y Jerarquía:** Catalogación de ausentismo justificado vs injustificado por supervisores y coordinadores.
 
 ### B. Módulo de Casos Salesforce B2B (Backoffice)
-* **Ingesta Automatizada:** Playwright con persistencia de cookies (`storage_state.json`) y resolución de desafíos de identidad (2FA) leyendo el código de verificación directamente de Microsoft Outlook vía MAPI local (`salesforce_auth_manager.py`).
+* **Ingesta Automatizada:** Playwright con persistencia de cookies (`storage_state.json`) y resolución de desafíos de identidad (2FA) leyendo el código directamente de Microsoft Outlook vía MAPI local (`salesforce_auth_manager.py`).
 * **KPIs de Backlog:** Cálculo de casos en proceso, casos sin asignar, infracción de SLA 24h y distribución por antigüedad (*Aging* <24h, 1-3d, 4-7d, 8-15d, >30d).
 * **Demanda Horaria:** Matriz de creación vs cierre de casos por franja horaria.
 
-### C. Rescate B2B en Adherencia por Casos
-* **Reclasificación Automática:** Si un asesor de Agencias B2B no tiene registros de login en Genesys pero gestionó casos en Salesforce durante su fecha de turno, el motor lo rescata automáticamente cambiándolo de *"❌ Ausente"* a **`🔵 Conectado en Salesforce (X Casos)`**, calculando sus horas efectivas de gestión.
-* **Paridad Total:** Implementado y verificado tanto en la vista clásica (`adherencia_pausas_engine.py`) como en Adherencia 2.0 (`adherencia_v2_engine.py`), desplegado y sincronizado con `origin/main`.
+### C. Rescate B2B en Adherencia por Casos y Omni
+* **Reclasificación Automática:** Si un asesor de Agencias B2B no tiene login en Genesys pero gestionó casos o chats en Salesforce durante su turno, el motor lo rescata automáticamente cambiándolo de *"❌ Ausente"* a **`🔵 Conectado en Salesforce (X Casos)`**, calculando sus horas efectivas de gestión.
+* **Paridad Total:** Activo en la vista clásica (`adherencia_pausas_engine.py`) y en Adherencia 2.0 (`adherencia_v2_engine.py`).
 
-### D. Descarga y Configuración del Reporte Omni-Channel
-* **Enlace Oficial Configurado:** Guardado en `data/salesforce_config.json`:
-  * URL: `https://latamneworg.lightning.force.com/lightning/r/Report/00OVK00000APrzR2AT/view`
-  * Filtro: **Últimos 7 días** (semana rodante para descargas ultrarrápidas).
-* **Rutina de Descarga:** `descargar_reporte_omni()` integrada en `scripts/salesforce_download_cases.py` (ejecutable con `python scripts/salesforce_download_cases.py --omni`).
-* **Base Histórica Asegurada:** 67.604 registros de 212 asesores (desde julio de 2026) almacenados en `data/salesforce/omni_presencia_historico.csv`.
+### D. Tipologías de Contacto & Detección de Contingencias (Tri-Plataforma)
+* **Consolidación Genesys + Salesforce + Zendesk:** Extracción y homologación unificada de motivos de llamada (Genesys Wrap-Up Codes), interacciones Salesforce B2B y tickets gestionados en Zendesk CASOUNICO.
+* **Resolución Geográfica de País / Mercado:** Detección automática por prefijos telefónicos (+56 Chile, +57 Colombia, +51 Perú, +1 USA, +34 España, etc.) y nomenclatura de colas.
+* **Selector de 3 Lentes Analíticas de Demanda:**
+  1. `🔍 Auditoría Operativa (Timeouts por Servicio)`: Visibiliza las llamadas cerradas por timeout catalogadas por campaña para supervisión.
+  2. `🔮 Demanda Total Estimada (Reclasificación Inteligente por Cola)`: Reatribuye los timeouts a la especialidad de la cola de entrada, permitiendo analizar el **100% del tráfico** sin puntos ciegos.
+  3. `🚫 Demanda Real Pura (Ocultar Timeouts)`: Aísla exclusivamente las interacciones donde el asesor tipificó manualmente.
+* **Semáforo de Cumplimiento de Tipificación:** Auditoría para supervisores y monitores de calidad (🟢 $\ge 80\%$, 🟡 $60-79\%$, 🔴 $<60\%$).
+* **Exportador Corporativo Multihélices:** Generación de reporte en Excel con 4 pestañas profesionales (Resumen Ejecutivo, Genesys Cloud, Salesforce B2B y Zendesk BO).
+
+### E. Capacidad, Dimensionamiento SORE y Malla de Auxiliares
+* **Scorecard Desdoblado (Opción B):**
+  * **`Capacidad Neta`**: Minutos disponibles ÷ Minutos requeridos SORE.
+  * **`FTEs Efectivos / Req`**: Dotación disponible neta productiva frente a la necesidad SORE (**378.0 / 404.5**, delta **-26.5 FTEs** en rojo).
+  * **`Presencia Bruta`**: Total de asesores equivalentes conectados en cualquier estado (**569.7 FTEs**, delta **+165.2 logueados** en tono neutro).
+  * **`% Auxiliares` & `Fuga Auxiliares`**: Medición de fuga por encima de la meta del 14% (930.9 horas = 116.4 asesores perdidos en pausas).
+* **Comparativa de Auxiliares Programados vs Reales en la Matriz:**
+  * **`Meta Aux`**: 14.0% oficial.
+  * **`% Aux Prog`**: Porcentaje real programado en la malla de turnos (`turnos_detallados`), promediando **12.6%** para LATAM.
+  * **`% Aux Real`**: Consumo medido en Genesys (**33.4%**).
+  * **`Fuga Aux`**: Desvío directo entre realidad y programación (**+20.9%** en rojo).
+  * **`FTE Disp`**: Columna con asesores netos disponibles por servicio.
 
 ---
 
 ## 4. Hallazgos Técnicos y Parámetros Validados
 
 ### 1. Zona Horaria de Salesforce Omni-Channel
-* **Confirmación Empírica:** El reporte de Salesforce se exporta en **UTC-3 (Hora de Chile / Santiago)**, el huso predeterminado de la organización de LATAM Airlines.
 * **Fórmula de Conversión a Colombia (UTC-5):**
   $$\text{Hora Colombia} = \text{Hora CSV} - 2\text{ horas}$$
-* **Comprobación:** Cruce exacto con la malla de turnos:
-  * Claribeth Pérez (Turno 07:00 $\rightarrow$ CSV 09:01 $\rightarrow$ **07:01 COT**).
-  * Angelo Barrera (Turno 07:00 $\rightarrow$ CSV 09:03 $\rightarrow$ **07:03 COT**).
+* El reporte de Salesforce se exporta en UTC-3 (Hora de Chile / Santiago).
 
 ### 2. Meta de Simultaneidad en WhatsApp
-* **Definición Operativa:** Fijada en **3.0 casos simultáneos** para todos los servicios y colas que operan canal WhatsApp en Genesys Cloud CX.
-* **Medición:** Algoritmo *sweep-line* sobre eventos de interacción para calcular concurrencia ponderada real y % de tiempo al 1x, 2x y 3x+.
+* Fijada en **3.0 casos simultáneos** para todas las colas de WhatsApp en Genesys Cloud CX, calculada con algoritmo *sweep-line*.
 
-### 4. Regla de Oro de Marely Cardona: Aislamiento Agencias B2B vs LATAM Pasajeros
-* **Definición Operativa Canónica:** A menos de indicación contraria de Carlos Murillo, **toda persona cuyo jefe directo (supervisor) o coordinador sea Marely Cardona (`CARDONA RAMIREZ MARELYN`) pertenece exclusivamente al servicio de Agencias B2B**.
-* **Blindaje:** No debe aparecer en ningún reporte, selector o métrica de LATAM Pasajeros.
-* **Viceversa Estricto:** Dentro de Agencias B2B no debe aparecer nadie que no sea del equipo de Marely Cardona.
-* **Exclusiones Críticas Blindadas:**
-  * `CARDONA BARRAGAN CATALINA` (Catalina Cardona): Supervisora de **LATAM Pasajeros** (`LUA AMC` / `LUA AMC ING`) bajo Andrés Rojas Leguizamo. Blindada y excluida 100% de B2B.
-  * `BO_CUS_COL` (Andrés Rojas) y `BO_WAIVERS` (Oscar Roldán): Servicios de **LATAM Pasajeros**, retirados de palabras clave B2B.
-* **Supervisores Directos Canónicos de Marely Cardona:**
-  1. `AGUIRRE GUISAO DIEGO ALEJANDRO`
-  2. `GUISAO BARRERA JESUS ALONSO`
-  3. `HERNANDEZ ISAZA CRISTIAN EDUARDO`
-  4. `MENDEZ TELLECHEA ORDALIS VERONICA`
-  5. `MORENO HURTADO DEINER ANDRES`
-  6. `PEREZ METAUTE MARIA ISABEL`
-  7. `RESTREPO URIBE EMANUEL`
-  8. `OCHOA GARCIA SANDRA JANNETH`
-  9. `CARDONA RAMIREZ MARELYN` (gestión directa)
+### 3. Regla de Oro de Marely Cardona: Aislamiento Agencias B2B vs Pasajeros
+* Toda persona bajo la supervisión o coordinación de Marely Cardona (`CARDONA RAMIREZ MARELYN`) pertenece exclusivamente a Agencias B2B.
+* `CARDONA BARRAGAN CATALINA` (Catalina Cardona) es supervisora de **LATAM Pasajeros** (`LUA AMC`) y está excluida de B2B.
+
+### 4. Hallazgo de Dimensionamiento en Redes Sociales (RRSS)
+* **Auditoría de Archivos Fuente:** En los tres libros oficiales de septiembre (`09. Daily Forecast Sept - Latam.xlsx`, `09. Intraday Forecast IN Septiembre - Latam.xlsx` y `09. Intraday Forecast BO Septiembre - Latam.xlsx`), las hojas y columnas de Redes Sociales (`RRSS AMC`, `RRSS AMC ING`, `RRSS PORT AMC`, `RRSS ES`, `RRSS EN`) tienen la estructura creada pero sus valores de tráfico y asesores requeridos están en **0 o vacíos**.
+* **Impacto:** Aunque en la operación hay más de 40 asesores conectados diariamente en RRSS, el modelo SORE los lee como `0 Req`, aportando +56.2 FTEs a la brecha bruta.
+* **Acción Pendiente:** Preguntar al comité de WFM la próxima semana bajo qué plantilla o contrato se dimensionan estas horas.
+
+### 5. Origen Real de la Fuga en Auxiliares (Malla 12.6% vs Real 33.4%)
+* La programación de turnos de WFM está perfectamente calibrada y cumple el contrato: programa en promedio **12.6%** de descansos y diálogos 4DX (por debajo del 14% de meta).
+* El desborde proviene íntegramente de la **disciplina en piso**, donde los asesores consumen en promedio **33.4%** de su jornada en estados auxiliares.
 
 ---
 
-## 5. Estado Actual de Tareas
+## 5. Catálogo de Scripts y Estatus en Automatización
 
-| Tarea | Descripción | Estado |
-| :--- | :--- | :---: |
-| **1. Motor Omni-Channel (`salesforce_omni_engine.py`)** | Procesador que toma `omni_presencia_historico.csv`, aplica $-2\text{h}$, normaliza nombres contra BPs y calcula primer login, pausas `On_Break` y salida por día. | 🟢 **FULL (100% Operativo)** |
-| **2. Fusión Omni en Adherencia Pausas** | Conexión de tramos `On_Break` y presencia de Salesforce Omni a `adherencia_pausas_engine.py` y `adherencia_v2_engine.py` (rescate de jornada y validación de descansos). | 🟢 **FULL (100% Operativo)** |
-| **3. Automatización en Pipeline (`pipeline_pasos.bat`)** | Integración de `extract_turnos.py` en paso `[8/10]` y `sync_salesforce_daily.py` en paso `[10/10]`. | 🟢 **FULL (100% Operativo)** |
-| **4. Meta de Simultaneidad WhatsApp (3.0x)** | Configuración e integración de la meta de 3 casos simultáneos en el motor de análisis y métricas ejecutivas. | 🟢 **FULL (100% Operativo)** |
-| **5. Regla de Oro Marely Cardona (`b2b_scope_engine.py`)** | Motor autoritativo de aislamiento B2B vs Pasajeros, corrección de fugas (Catalina Cardona, BO_CUS, BO_WAIVERS, casos ajenos en Salesforce). | 🟢 **FULL (100% Operativo)** |
-| **6. Auditoría de Dispositivo (PC vs Móvil)** | Detección de hardware a nivel de usuario en masa. | ❌ **Descartado / Fuera de Alcance** |
-
----
-
-## 6. Catálogo de Scripts y Estatus en Automatización
-
-| Script | Ubicación | Estatus Automatización | Ejecución / Paso en Pipeline |
+| Script | Ubicación | Estatus | Propósito / Ejecución |
 | :--- | :--- | :---: | :--- |
-| `extract_presencia.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario) |
-| `extract_turnos_api.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario - API Almaverso) |
-| `export_cloud.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario) |
-| `zendesk_hourly_worker.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[9/10]` (Cada hora) |
-| `sync_salesforce_daily.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[10/10]` (Diario - Casos, Omni, Chats y Cierre Autónomo) |
-| `cierre_b2b_autonomo_engine.py` | `scripts/` | 🟢 Automatizado | Invocado por `sync_salesforce_daily.py` (Cierre oficial B2B) |
-| `salesforce_omni_engine.py` | `scripts/` | 🟢 Indirecto | Invocado por `sync_salesforce_daily.py` |
-| `salesforce_b2b_engine.py` | `scripts/` | 🟢 Indirecto | Invocado por `sync_salesforce_daily.py` |
-| `b2b_scope_engine.py` | `scripts/` | 🟢 En Tiempo Real | Invocado por dashboards y motores |
-| `adherencia_pausas_engine.py` | `scripts/` | 🟢 En Tiempo Real | Motor analítico de Streamlit |
-| `adherencia_v2_engine.py` | `scripts/` | 🟢 En Tiempo Real | Motor analítico de Streamlit |
-| `agencias_b2b_engine.py` | `scripts/` | 🟢 En Tiempo Real | Motor analítico de Streamlit |
-| `live_engine.py` | `scripts/` | 🟢 En Tiempo Real | Motor analítico de Streamlit |
-| `mapeo_socios_engine.py` | `scripts/` | 🟡 Bajo Demanda | Actualiza `maestro_asesores_b2b.json` con Google Sheets |
+| `extract_presencia.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario - Presencia Genesys) |
+| `extract_turnos_api.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario - API Turnos Almaverso) |
+| `export_cloud.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[8/10]` (Diario - Exportación Nube) |
+| `zendesk_hourly_worker.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[9/10]` (Cada hora - Zendesk CASOUNICO) |
+| `sync_salesforce_daily.py` | `scripts/` | 🟢 Automatizado | `pipeline_pasos.bat` paso `[10/10]` (Diario - Casos, Omni, Chats y Cierre) |
+| `cierre_b2b_autonomo_engine.py` | `scripts/` | 🟢 Automatizado | Consolidación diaria de cierre B2B independiente |
+| `tipologias_engine.py` | `scripts/` | 🟢 En Tiempo Real | Consolidado Tri-Plataforma, 3 lentes de demanda y semáforo |
+| `capacidad_engine.py` | `scripts/` | 🟢 En Tiempo Real | Capacidad SORE, Scorecard Opción B y Auxiliares Malla vs Real |
+| `adherencia_v2_engine.py` | `scripts/` | 🟢 En Tiempo Real | Adherencia 2.0 (Timeline interactivo y matriz de turnos) |
+| `adherencia_pausas_engine.py` | `scripts/` | 🟢 En Tiempo Real | Motor clásico de adherencia y rescate unificado |
+| `b2b_scope_engine.py` | `scripts/` | 🟢 En Tiempo Real | Motor autoritativo de asignación B2B (Regla Marely Cardona) |
+| `salesforce_engine.py` | `scripts/` | 🟢 En Tiempo Real | Dashboard analítico de Backlog, SLA 24h y Aging B2B |
+| `salesforce_omni_engine.py` | `scripts/` | 🟢 En Tiempo Real | Motor analítico de presencia Omni-Channel (-2h) |
+| `whatsapp_simultaneidad_engine.py` | `scripts/` | 🟢 En Tiempo Real | Monitoreo de concurrencia y simultaneidad WhatsApp (meta 3.0x) |
+| `live_engine.py` | `scripts/` | 🟢 En Tiempo Real | Conexión WebSocket / API en vivo con Genesys Cloud |
 
 ---
 
-## 7. Inventario de Archivos Clave
+## 6. Inventario de Archivos Clave
 
-* **Visor Principal:** [`viewer.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/viewer.py) (Dashboard Streamlit de Producción).
-* **Motor de Cierre Diario Autónomo:** [`scripts/cierre_b2b_autonomo_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/cierre_b2b_autonomo_engine.py) (Consolidación 100% independiente de Voz Genesys API + Chats Salesforce + Casos).
-* **Definición Autoritativa de Ámbito:** [`scripts/b2b_scope_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/b2b_scope_engine.py) (Regla de Oro de Marely Cardona).
-* **Motores de Adherencia:**
-  * [`scripts/adherencia_pausas_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/adherencia_pausas_engine.py) (Adherencia clásica + rescate unificado Omni y Casos).
-  * [`scripts/adherencia_v2_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/adherencia_v2_engine.py) (Adherencia 2.0 Timeline y Matriz).
-  * [`scripts/salesforce_omni_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/salesforce_omni_engine.py) (Motor analítico de presencia Omni -2h).
-  * [`scripts/whatsapp_simultaneidad_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/whatsapp_simultaneidad_engine.py) (Simultaneidad WhatsApp con meta 3.0x).
-* **Automatización y Descargas:**
-  * [`pipeline_pasos.bat`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/pipeline_pasos.bat) (Pipeline centralizado de 10 pasos con notificaciones Telegram).
-  * [`scripts/sync_salesforce_daily.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/sync_salesforce_daily.py) (Orquestador de sincronización diaria de Casos, Omni, Chats y Cierre Autónomo).
-  * [`scripts/salesforce_download_cases.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/salesforce_download_cases.py) (Descarga headless de Casos, Omni y Chats `00OVK00000APwkb2AD`).
-  * [`scripts/salesforce_auth_manager.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/salesforce_auth_manager.py) (Sesión Playwright + 2FA Outlook MAPI).
-  * [`data/salesforce_config.json`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/data/salesforce_config.json) (URLs oficiales de reportes).
-* **Datos y Almacenamiento Salesforce:**
-  * `data/salesforce/cases_amc_cleaned.pkl` (Casos B2B procesados y clasificados).
-  * `data/salesforce/omni_presencia_historico.csv` (Base histórica Omni-Channel 67K registros).
-  * `data/salesforce/omni_presencia_resumen.pkl` (Cache analítico diario por BP de Omni).
-  * `data/salesforce/sync_history.log` (Bitácora de auditoría de descargas).
-
+* **Visor Principal:** [`viewer.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/viewer.py) (Dashboard Streamlit Multi-Pestaña de Producción).
+* **Módulo de Capacidad y Dimensionamiento:** [`scripts/capacidad_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/capacidad_engine.py)
+* **Módulo de Tipologías Tri-Plataforma:** [`scripts/tipologias_engine.py`](file:///c:/Proyecto%203.0/Paneles%20y%20Dashboard%204dx/Seguimiento%20Presencia%20Genesys/scripts/tipologias_engine.py)
+* **Bases de Datos Locales:**
+  * `data/presencia.db` (SQLite con tablas `segments`, `turnos_detallados`, `resumen_adherencia`).
+  * `data/salesforce_live.db` (SQLite con interacciones y chats B2B).
+* **Archivos Fuente de Dimensionamiento (SORE):**
+  * `09. Daily Forecast Sept - Latam.xlsx`
+  * `09. Intraday Forecast IN Septiembre - Latam.xlsx`
+  * `09. Intraday Forecast BO Septiembre - Latam.xlsx`
+* **Fuentes de Zendesk Back Office:**
+  * `data/zendesk/productividad_hoy_en_vivo.csv`
+  * `data/zendesk/demanda_diaria_colas.csv`
