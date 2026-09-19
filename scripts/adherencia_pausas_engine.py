@@ -319,6 +319,7 @@ def calcular_cumplimiento_horas_turno(fecha: str, coordinador: str = None, super
     Incluye rescate y validación de presencia en Salesforce para Agencias B2B.
     """
     bp_to_coord, bp_to_superv = obtener_mapa_bp_jerarquia()
+    bps_b2b, bps_cargo = obtener_bps_b2b_y_cargo()
     coords_pasajeros = set(obtener_coordinadores_disponibles("PASAJEROS"))
     coords_b2b = set(obtener_coordinadores_disponibles("B2B"))
     dt_fec = pd.to_datetime(fecha)

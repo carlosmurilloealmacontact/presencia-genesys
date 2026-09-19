@@ -127,6 +127,17 @@ def sincronizar_zendesk_historico() -> bool:
         return False
 
 
+def sincronizar_cierre_b2b(fecha: str) -> bool:
+    """Consolida el cierre multicanal de Agencias B2B (Voz Genesys, Chats y Casos Salesforce)."""
+    try:
+        from cierre_b2b_autonomo_engine import consolidar_cierre_diario_autonomo
+        res = consolidar_cierre_diario_autonomo(fecha)
+        return bool(res)
+    except Exception as e:
+        log(f"Aviso en sincronización de cierre B2B: {e}")
+        return False
+
+
 def auditar_completitud(fecha: str) -> dict:
     """Evalúa el estado de completitud de todos los módulos para la fecha objetivo."""
     checklist = {}
@@ -239,9 +250,23 @@ def auditar_completitud(fecha: str) -> dict:
                 live_detail = f"Último snapshot en vivo: {last_snap}"
         except Exception as e:
             live_detail = str(e)
-    checklist["Salesforce Live Omni"] = {
-        "ok": live_ok,
-        "detalle": live_detail
+    # 7. Cierre Multicanal Agencias B2B
+    cierre_json = os.path.join(DATA_DIR, "cierres_b2b_consolidado.json")
+    b2b_ok = False
+    b2b_detail = "Sin consolidar"
+    if os.path.exists(cierre_json):
+        try:
+            import json
+            with open(cierre_json, "r", encoding="utf-8") as f_c:
+                c_data = json.load(f_c)
+            if fecha in c_data and len(c_data[fecha]) >= 6:
+                b2b_ok = True
+                b2b_detail = f"{len(c_data[fecha])} servicios consolidados (Voz, Chat, Casos)"
+        except Exception as e:
+            b2b_detail = str(e)
+    checklist["Cierre Agencias B2B"] = {
+        "ok": b2b_ok,
+        "detalle": b2b_detail
     }
 
     return checklist
@@ -250,7 +275,15 @@ def auditar_completitud(fecha: str) -> dict:
 def sincronizar_a_git(mensaje: str) -> bool:
     """Sincroniza y sube cambios de datos a GitHub origin/main."""
     try:
-        subprocess.run(["git", "add", "data/presencia.db", "data/salesforce/", "data/zendesk/"], cwd=PROJECT_DIR, check=True)
+        subprocess.run([
+            "git", "add",
+            "data/presencia.db",
+            "data/salesforce/",
+            "data/zendesk/",
+            "data/cierres_b2b_consolidado.json",
+            "data/cache_jerarquia_base.json",
+            "scripts/"
+        ], cwd=PROJECT_DIR, check=True)
         # Check if there are staged changes
         res = subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=PROJECT_DIR)
         if res.returncode != 0:
@@ -290,10 +323,13 @@ def run_daily_sync(fecha: str = None, solo_check: bool = False):
         # 4. Zendesk
         ejecutar_paso("Cálculo y Demanda Diaria Zendesk", sincronizar_zendesk_historico)
 
-        # 5. Git Sync
+        # 5. Cierre Multicanal Agencias B2B
+        ejecutar_paso(f"Consolidación Cierre Diario Agencias B2B ({fecha})", sincronizar_cierre_b2b, fecha)
+
+        # 6. Git Sync
         sincronizar_a_git(f"actualización automática diaria datos {fecha}")
 
-    # 6. Auditoría final de completitud
+    # 7. Auditoría final de completitud
     log("\n" + "=" * 75)
     log(f"RESUMEN DE AUDITORÍA Y CHECKLIST DE COMPLETITUD ({fecha})")
     log("=" * 75)

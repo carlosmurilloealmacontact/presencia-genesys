@@ -327,13 +327,24 @@ def cargar_todos_los_cierres_b2b(forzar_recarga: bool = False) -> dict:
 def obtener_cierre_b2b_por_fecha(fecha_str: str = None) -> dict:
     data_all = cargar_todos_los_cierres_b2b()
     if not data_all:
-        return {}
+        data_all = {}
 
     if fecha_str:
-        return data_all.get(str(fecha_str).strip(), {})
+        f_s = str(fecha_str).strip()
+        if f_s in data_all:
+            return data_all[f_s]
+        # Intento autónomo: calcular en caliente y guardar en consolidado
+        try:
+            import cierre_b2b_autonomo_engine as cba
+            res_aut = cba.consolidar_cierre_diario_autonomo(f_s)
+            if res_aut:
+                return res_aut
+        except Exception:
+            pass
+        return {}
 
-    ultima_fecha = sorted(data_all.keys())[-1]
-    return data_all[ultima_fecha]
+    ultima_fecha = sorted(data_all.keys())[-1] if data_all else None
+    return data_all.get(ultima_fecha, {}) if ultima_fecha else {}
 
 
 def obtener_cierre_b2b_por_rango(fecha_desde: str, fecha_hasta: str) -> dict:

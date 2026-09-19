@@ -387,6 +387,20 @@ def cargar_sociodemografico_db() -> dict:
     except Exception:
         res = {}
 
+    # Si jerarquía vino vacía (ej. Streamlit Cloud sin credenciales interactivas), cargar directamente el JSON cache
+    if not res:
+        json_cache = Path(BASE_DIR).parent / "data" / "cache_jerarquia_base.json"
+        if json_cache.exists():
+            try:
+                with open(json_cache, "r", encoding="utf-8") as f_cj:
+                    res = json.load(f_cj)
+                    for k, v in res.items():
+                        nom = normalizar_nombre_clave(v.get("nombre", ""))
+                        if nom and nom not in name_to_info:
+                            name_to_info[nom] = v
+            except Exception:
+                pass
+
     # 2. Local CSV: socio_demo.csv
     try:
         csv_socio = Path(BASE_DIR).parent / "data" / "zendesk" / "socio_demo.csv"
@@ -442,24 +456,31 @@ def cargar_sociodemografico_db() -> dict:
 
     # 4. Complementar con SQLite local (sociodemografico o dim_agentes)
     db_path = Path(BASE_DIR) / DB_PATH
+    if not db_path.exists():
+        db_path = Path(BASE_DIR).parent / "data" / "presencia.db"
     if db_path.exists():
         with sqlite3.connect(db_path) as conn:
             try:
                 df_socio = pd.read_sql_query(
-                    "SELECT bp, nombre, servicio, jefe_inmediato, coordinador, cargo, estado_laboral FROM sociodemografico",
+                    "SELECT bp, documento, nombre, servicio, jefe_inmediato, coordinador, cargo, estado_laboral FROM sociodemografico",
                     conn
                 )
                 from exclusion_list import filtrar_df_exclusiones
                 df_socio = filtrar_df_exclusiones(df_socio)
-                for bp_k, d in df_socio.set_index("bp").to_dict(orient="index").items():
-                    bp_str = str(bp_k).strip()
-                    if bp_str not in res:
-                        res[bp_str] = d
-                    else:
-                        for k, v in d.items():
-                            if v and not res[bp_str].get(k):
-                                res[bp_str][k] = v
-                    nom_norm = normalizar_nombre_clave(d.get("nombre", ""))
+                for _, row in df_socio.iterrows():
+                    d = row.to_dict()
+                    bp_str = str(row.get("bp", "")).strip()
+                    doc_str = str(row.get("documento", "")).strip()
+                    if bp_str:
+                        if bp_str not in res:
+                            res[bp_str] = d
+                        else:
+                            for k, v in d.items():
+                                if v and not res[bp_str].get(k):
+                                    res[bp_str][k] = v
+                    if doc_str and doc_str not in res:
+                        res[doc_str] = d
+                    nom_norm = normalizar_nombre_clave(str(row.get("nombre", "")))
                     if nom_norm and nom_norm not in name_to_info:
                         name_to_info[nom_norm] = d
             except Exception:

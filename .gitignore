@@ -65,6 +65,7 @@ scripts/track_*.py
 *.xlsb
 data/salesforce_browser_profile/
 data/salesforce_config.json
-data/cache_jerarquia_base.json
+!data/cierres_b2b_consolidado.json
+!data/cache_jerarquia_base.json
 __pycache__/
 *.pyc
