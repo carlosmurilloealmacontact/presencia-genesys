@@ -18,24 +18,50 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv, find_dotenv
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 load_dotenv(find_dotenv())
 env_parent = Path(__file__).resolve().parent.parent.parent / ".env"
 if env_parent.exists():
     load_dotenv(env_parent)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPTS_DIR.parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 DB_PRESENCIA = PROJECT_ROOT / "data" / "presencia.db"
 DB_MASTER = PROJECT_ROOT / "data" / "presencia_master.db"
 CSV_AUDITORIA_HISTORICA = PROJECT_ROOT / "data" / "auditoria_cambios_turnos.csv"
 
-# Importar funciones de extracción y guardado
-from db import get_connection, guardar_turnos, guardar_turnos_detallados, SCHEMA
-from jerarquia import load_cedula_a_bp
-from config import CLOUD_EXPORT_PATH
-from extract_turnos_api import get_token, fetch_shifts_range, parse_api_shifts, _clean_time
+# Importar funciones de extracción y guardado con fallback
+try:
+    from db import get_connection, guardar_turnos, guardar_turnos_detallados, SCHEMA
+    from jerarquia import load_cedula_a_bp
+    from config import CLOUD_EXPORT_PATH
+except ImportError:
+    from scripts.db import get_connection, guardar_turnos, guardar_turnos_detallados, SCHEMA
+    from scripts.jerarquia import load_cedula_a_bp
+    from scripts.config import CLOUD_EXPORT_PATH
+
+try:
+    from extract_turnos_api import get_token, fetch_shifts_range, parse_api_shifts, _clean_time
+except Exception:
+    try:
+        from scripts.extract_turnos_api import get_token, fetch_shifts_range, parse_api_shifts, _clean_time
+    except Exception:
+        pass
 
 
 SCHEMA_AUDITORIA_TURNOS = """

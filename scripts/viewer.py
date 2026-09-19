@@ -34,20 +34,23 @@ from exclusion_list import es_usuario_bloqueado, es_persona_excluida, filtrar_df
 try:
     from salesforce_b2b_engine import render_tab_salesforce_b2b
 except Exception as _sf_err:
+    _sf_err_msg = str(_sf_err)
     def render_tab_salesforce_b2b(email_usuario=""):
-        st.error(f"Error cargando módulo Salesforce B2B: {_sf_err}")
+        st.error(f"Error cargando módulo Salesforce B2B: {_sf_err_msg}")
 
 try:
     from agencias_b2b_engine import render_tab_agencias_b2b
 except Exception as _ag_err:
+    _ag_err_msg = str(_ag_err)
     def render_tab_agencias_b2b(*args, **kwargs):
-        st.error(f"Error cargando módulo Agencias B2B: {_ag_err}")
+        st.error(f"Error cargando módulo Agencias B2B: {_ag_err_msg}")
 
 try:
     from zendesk_engine import render_tab_zendesk
 except Exception as _zd_err:
+    _zd_err_msg = str(_zd_err)
     def render_tab_zendesk(email_usuario=""):
-        st.error(f"Error cargando módulo Zendesk: {_zd_err}")
+        st.error(f"Error cargando módulo Zendesk: {_zd_err_msg}")
 
 try:
     from adherencia_pausas_engine import render_subtab_pausas_pasajeros
@@ -59,8 +62,9 @@ except Exception as _adh_err:
 try:
     from adherencia_v2_engine import render_tab_adherencia_v2
 except Exception as _adh_v2_err:
+    _adh_v2_err_msg = str(_adh_v2_err)
     def render_tab_adherencia_v2(*args, **kwargs):
-        st.error(f"Error cargando módulo Adherencia 2.0 (Lab): {_adh_v2_err}")
+        st.error(f"Error cargando módulo Adherencia 2.0 (Lab): {_adh_v2_err_msg}")
 
 try:
     from copiloto_engine import render_tab_copiloto
@@ -99,10 +103,11 @@ from audit_engine import registrar_evento, render_panel_auditoria, DOMINIO_CORPO
 try:
     from feedback_engine import render_dialog_feedback, render_panel_gestion_feedback
 except Exception as _fb_err:
+    _fb_err_msg = str(_fb_err)
     def render_dialog_feedback(*args, **kwargs):
-        st.error(f"Error cargando feedback engine: {_fb_err}")
+        st.error(f"Error cargando feedback engine: {_fb_err_msg}")
     def render_panel_gestion_feedback(*args, **kwargs):
-        st.error(f"Error cargando panel de feedback: {_fb_err}")
+        st.error(f"Error cargando panel de feedback: {_fb_err_msg}")
 
 try:
     from outlier_engine import render_panel_outliers
@@ -115,9 +120,17 @@ except ImportError:
 
 try:
     from audit_turnos_engine import render_panel_auditoria_turnos
+except ImportError:
+    try:
+        from scripts.audit_turnos_engine import render_panel_auditoria_turnos
+    except Exception as _at_err:
+        _at_err_msg = str(_at_err)
+        def render_panel_auditoria_turnos(*args, **kwargs):
+            st.error(f"Error cargando módulo de Auditoría de Turnos: {_at_err_msg}")
 except Exception as _at_err:
+    _at_err_msg = str(_at_err)
     def render_panel_auditoria_turnos(*args, **kwargs):
-        st.error(f"Error cargando módulo de Auditoría de Turnos: {_at_err}")
+        st.error(f"Error cargando módulo de Auditoría de Turnos: {_at_err_msg}")
 
 # ── CONTROL DE ACCESO Y AUTENTICACIÓN CORPORATIVA (GOOGLE SSO) ────────────────
 try:

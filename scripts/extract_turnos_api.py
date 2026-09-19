@@ -18,8 +18,16 @@ import sqlite3
 import pandas as pd
 from dotenv import load_dotenv, find_dotenv
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 load_dotenv(find_dotenv())
 # También intentar cargar .env de Paneles y Dashboard 4dx si existe
@@ -27,9 +35,21 @@ env_parent = Path(__file__).resolve().parent.parent.parent / ".env"
 if env_parent.exists():
     load_dotenv(env_parent)
 
-from db import get_connection, guardar_turnos, guardar_turnos_detallados, SCHEMA
-from jerarquia import load_cedula_a_bp
-from config import CLOUD_EXPORT_PATH
+SCRIPTS_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPTS_DIR.parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from db import get_connection, guardar_turnos, guardar_turnos_detallados, SCHEMA
+    from jerarquia import load_cedula_a_bp
+    from config import CLOUD_EXPORT_PATH
+except ImportError:
+    from scripts.db import get_connection, guardar_turnos, guardar_turnos_detallados, SCHEMA
+    from scripts.jerarquia import load_cedula_a_bp
+    from scripts.config import CLOUD_EXPORT_PATH
 
 BASE_URL = os.getenv("ALMAVERSO_API_URL", "http://10.96.16.37:8888")
 USERNAME = os.getenv("AD_USER", "cescobar")
