@@ -152,11 +152,12 @@ def render_subtab_control_estados_unificado(agentes_map: dict, key_prefix: str =
     try:
         dt_obj = datetime.strptime(latest_ts, "%Y-%m-%d %H:%M:%S")
         hora_display = dt_obj.strftime("%I:%M:%S %p")
-        diff_sec = abs((datetime.now() - dt_obj).total_seconds())
+        now_col = datetime.now(timezone.utc) - timedelta(hours=5)
+        diff_sec = abs((now_col.replace(tzinfo=None) - dt_obj).total_seconds())
     except Exception:
         pass
 
-    if diff_sec <= 90:
+    if diff_sec <= 180:
         st.caption(f"🟢 **Sincronización en Vivo:** Actualizado hace **{int(diff_sec)}s** a las **{hora_display}** (Hora Colombia - COT / UTC-5) • Auto-recarga cada **20 segundos**.")
     else:
         minutos_pausa = int(diff_sec // 60)
@@ -1178,7 +1179,8 @@ def render_subtab_niveles_servicio_unificado():
 
     if modo_vista == "🔴 En Vivo (Tiempo Real)":
         fecha_param = "live"
-        st.caption(f"🟢 **Modo En Vivo:** Sincronizado a las **{datetime.now().strftime('%H:%M:%S')}** con Genesys Cloud y Omni-Channel.")
+        now_col = datetime.now(timezone.utc) - timedelta(hours=5)
+        st.caption(f"🟢 **Modo En Vivo:** Sincronizado a las **{now_col.strftime('%I:%M:%S %p')} COT** con Genesys Cloud y Omni-Channel.")
     elif modo_vista == "📅 Día Específico":
         with c_f1:
             sel_dia = st.date_input(

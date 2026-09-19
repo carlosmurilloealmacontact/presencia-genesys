@@ -51,13 +51,26 @@ def obtener_codigo_verificacion_outlook(min_received_time: datetime = None, max_
     """
     Monitorea la bandeja de entrada de Outlook vía Windows MAPI
     buscando el correo reciente de 'Verificar su identidad en Salesforce'.
-    Garantiza que el código pertenezca a la solicitud actual (min_received_time).
+    Garantiza que el código pertenezca a los últimos 15 minutos (vigencia oficial de Salesforce).
     """
+    now_ref = datetime.now()
     if min_received_time is None:
-        min_received_time = datetime.now() - timedelta(minutes=3)
+        min_received_time = now_ref - timedelta(minutes=15)
 
-    print(f"[*] Buscando código 2FA en Outlook posterior a las {min_received_time.strftime('%H:%M:%S')}...")
+    print(f"[*] Buscando código 2FA en Outlook válido posterior a las {min_received_time.strftime('%H:%M:%S')}...")
     start_time = time.time()
+
+    # Asegurar que OUTLOOK.EXE esté corriendo en el sistema
+    try:
+        import subprocess
+        ps_chk = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Process -Name OUTLOOK -ErrorAction SilentlyContinue"], capture_output=True, text=True)
+        if not ps_chk.stdout.strip():
+            outlook_bin = r"C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE"
+            if os.path.exists(outlook_bin):
+                subprocess.Popen([outlook_bin])
+                time.sleep(3)
+    except Exception:
+        pass
 
     try:
         import win32com.client
@@ -85,14 +98,16 @@ def obtener_codigo_verificacion_outlook(min_received_time: datetime = None, max_
                             except Exception:
                                 t_naive = datetime.now()
 
-                            if t_naive >= min_received_time:
+                            # Los códigos de Salesforce son válidos por 15 minutos
+                            diff_min = abs((now_ref - t_naive).total_seconds()) / 60.0
+                            if t_naive >= min_received_time or diff_min <= 15.0:
                                 body = str(getattr(msg, "Body", "") or "")
                                 codes = re.findall(r"\b\d{6}\b", body)
                                 if codes:
-                                    print(f"[+] ¡Nuevo código 2FA recibido a las {t_naive.strftime('%H:%M:%S')}!: {codes[0]}")
+                                    print(f"[+] ¡Código 2FA detectado (recibido hace {diff_min:.1f} min)!: {codes[0]}")
                                     return codes[0]
                             else:
-                                print(f"[*] Último correo en Outlook es de las {t_naive.strftime('%H:%M:%S')}. Esperando llegada del nuevo código...")
+                                print(f"[*] Último correo en Outlook es de las {t_naive.strftime('%H:%M:%S')} (hace {diff_min:.1f} min). Esperando llegada de código...")
                                 break
             except Exception as e_mapi:
                 print(f"[!] Aviso leyendo Outlook MAPI: {e_mapi}")
@@ -184,7 +199,7 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
             if page.locator("#password").is_visible(timeout=5000):
                 print("[*] Rellenando contraseña...")
                 page.fill("#password", pwd)
-                attempt_start = datetime.now() - timedelta(seconds=10)
+                attempt_start = datetime.now() - timedelta(minutes=15)
                 print("[*] Enviando credenciales de acceso...")
                 page.click("#Login")
                 time.sleep(6)

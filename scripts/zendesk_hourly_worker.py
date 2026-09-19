@@ -117,6 +117,9 @@ def sincronizar_git():
         sf_state = PROJECT_ROOT / "data" / "salesforce_state.json"
         if sf_state.exists():
             rutas.append("data/salesforce_state.json")
+        sf_live = PROJECT_ROOT / "data" / "salesforce_live.db"
+        if sf_live.exists():
+            rutas.append("data/salesforce_live.db")
 
         for r in rutas:
             subprocess.run(["git", "add", r], cwd=str(PROJECT_ROOT), capture_output=True, timeout=15)
