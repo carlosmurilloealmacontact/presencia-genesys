@@ -1,20 +1,20 @@
 {
   "status": "ok",
   "tipo_corte": "fast",
-  "timestamp": "2026-09-18 20:39:50",
-  "timestamp_label": "18/09/2026 08:39:50 PM",
-  "duracion_seg": 60.9,
-  "backlog_count": 4835,
+  "timestamp": "2026-09-18 20:45:55",
+  "timestamp_label": "18/09/2026 08:45:55 PM",
+  "duracion_seg": 53.7,
+  "backlog_count": 4831,
   "backlog_por_grupo": {
-    "LUA AMC": 1606,
+    "LUA AMC": 1603,
     "DT FFP AMC": 2141,
     "Equipajes AMC SSC": 937,
-    "Autorización Supervisor AMC": 13,
+    "Autorización Supervisor AMC": 12,
     "Autorización Supervisor HVC AMC ES": 65,
     "Célula PI AMC ES": 73,
     "Autorización SOP LUA AMC": 0
   },
-  "solved_today_count": 957,
-  "next_sync_est": "08:44 PM",
+  "solved_today_count": 962,
+  "next_sync_est": "08:50 PM",
   "ultimo_corte_full": "18/09/2026 07:50:11 PM"
 }
