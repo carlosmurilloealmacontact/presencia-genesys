@@ -267,29 +267,58 @@ def ejecutar_corte_zendesk(tipo: str = "fast", ultimo_full_label: str = "") -> d
         return {"status": "error", "error": str(e)}
 
 
-def iniciar_hilo_salesforce_live():
-    """Inicia el monitor continuo de Salesforce Omni-Supervisor en un hilo de fondo independiente si no está activo."""
+def obtener_procesos_wmi(filtro_cmd: str, ignorar_pid: int = None) -> list:
+    """Consulta procesos de Windows usando WMI COM nativo en 20ms sin llamar a PowerShell."""
+    pids = []
     try:
-        import threading
-        chk = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*salesforce_continuous_worker*' -and $_.ProcessId -ne $PID } | Select-Object -ExpandProperty ProcessId"],
-            capture_output=True, text=True, timeout=5
-        )
-        if chk.stdout.strip():
-            print("  [SF LIVE] ℹ️ Proceso de Salesforce Live ya se encuentra activo en el sistema.")
+        import win32com.client
+        import pythoncom
+        pythoncom.CoInitialize()
+        wmi = win32com.client.GetObject("winmgmts:")
+        procs = wmi.ExecQuery("Select ProcessId, CommandLine from Win32_Process")
+        for p in procs:
+            cmd = str(getattr(p, "CommandLine", "") or "")
+            pid = getattr(p, "ProcessId", 0)
+            if filtro_cmd.lower() in cmd.lower() and "python.exe" in cmd.lower():
+                if ignorar_pid is not None and pid == ignorar_pid:
+                    continue
+                pids.append(pid)
+    except Exception:
+        pass
+    return pids
+
+
+_sf_process = None
+
+
+def asegurar_salesforce_worker_activo():
+    """
+    Verifica si salesforce_continuous_worker.py está corriendo en el sistema.
+    Si no está activo, lo inicia automáticamente como subproceso desatendido e independiente.
+    Garantiza auto-recuperación y monitoreo continuo 24/7 sin intervención humana.
+    """
+    global _sf_process
+    try:
+        if _sf_process is not None and _sf_process.poll() is None:
+            return _sf_process
+
+        pids_activos = obtener_procesos_wmi("salesforce_continuous_worker", ignorar_pid=os.getpid())
+        if pids_activos:
             return None
 
-        scripts_dir = str(PROJECT_ROOT / "scripts")
-        if scripts_dir not in sys.path:
-            sys.path.insert(0, scripts_dir)
-        import salesforce_continuous_worker as scw
-        sf_thread = threading.Thread(target=scw.run_continuous_worker, name="SalesforceLiveThread", daemon=True)
-        sf_thread.start()
-        print("  [SF LIVE] ✅ Hilo de monitoreo en vivo continuo de Salesforce iniciado (cada 30s).")
-        return sf_thread
+        sf_script = str(PROJECT_ROOT / "scripts" / "salesforce_continuous_worker.py")
+        if os.path.exists(sf_script):
+            creation_flag = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            _sf_process = subprocess.Popen(
+                [sys.executable, "-u", sf_script],
+                cwd=str(PROJECT_ROOT),
+                creationflags=creation_flag
+            )
+            print(f"  [SF LIVE] ✅ Proceso autónomo de Salesforce Omni-Supervisor iniciado (PID {_sf_process.pid}, cada 30s).")
+            return _sf_process
     except Exception as ex:
-        print(f"  [WARN] No se pudo iniciar hilo de Salesforce Live: {ex}")
-        return None
+        print(f"  [SF LIVE] [WARN] Error supervisando proceso de Salesforce: {ex}")
+    return None
 
 
 def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full: int = 12):
@@ -302,16 +331,10 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
     """
     # Evitar múltiples instancias concurrentes del demonio
     pid_actual = os.getpid()
-    try:
-        chk_zd = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.Name -like 'python*' -and $_.CommandLine -like '*zendesk_hourly_worker*' -and $_.ProcessId -ne {pid_actual} }} | Select-Object -ExpandProperty ProcessId"],
-            capture_output=True, text=True, timeout=5
-        )
-        if chk_zd.stdout.strip():
-            print(f"  [AVISO] Ya existe otra instancia activa de zendesk_hourly_worker (PID {chk_zd.stdout.strip().splitlines()[0]}). Saliendo para evitar colisiones.")
-            return
-    except Exception:
-        pass
+    zd_pids = obtener_procesos_wmi("zendesk_hourly_worker", ignorar_pid=pid_actual)
+    if zd_pids:
+        print(f"  [AVISO] Ya existe otra instancia activa de zendesk_hourly_worker (PID {zd_pids[0]}). Saliendo para evitar colisiones.")
+        return
 
     print(f"🚀 Iniciando Demonio Híbrido Autónomo:")
     print(f"   • Zendesk Fast Sync: cada {intervalo_fast_segundos // 60} min (Backlog en tiempo real + Productividad hoy)")
@@ -319,7 +342,7 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
     print(f"   • Salesforce Omni-Supervisor: Monitoreo continuo 30s")
     print(f"   • Blindaje: Reintento automático, limpieza de bloqueos y persistencia en Windows Task Scheduler.")
 
-    iniciar_hilo_salesforce_live()
+    asegurar_salesforce_worker_activo()
 
     ciclo = 0
     ultimo_full_label = ""
@@ -339,6 +362,9 @@ def iniciar_demonio_hibrido(intervalo_fast_segundos: int = 300, ciclos_para_full
 
     while True:
         try:
+            # Supervisar que el scraper de Salesforce esté vivo y saludable
+            asegurar_salesforce_worker_activo()
+
             es_full = (ciclo % ciclos_para_full == 0)
             tipo = "full" if es_full else "fast"
 

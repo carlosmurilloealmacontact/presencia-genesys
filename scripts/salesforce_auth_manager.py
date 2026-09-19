@@ -127,10 +127,12 @@ def obtener_codigo_verificacion_outlook(min_received_time: datetime = None, max_
             pass
 
 
+from urllib.parse import urlparse
+
 def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
     """
-    Verifica y asegura que la página tenga la sesión abierta en Salesforce.
-    Si está en formulario de login o verificación, lo resuelve 100% en automático.
+    Verifica y asegura que la página tenga la sesión abierta en Salesforce Lightning.
+    Si está en formulario de login o verificación 2FA, lo resuelve 100% de manera autónoma.
     """
     if not target_url:
         target_url = load_omni_url()
@@ -139,156 +141,139 @@ def asegurar_sesion_salesforce(page, context, target_url: str = None) -> bool:
     user = creds.get("username", "")
     pwd = creds.get("password", "")
 
-    curr_url = page.url.lower()
-    page_title = page.title().lower()
+    parsed_initial = urlparse(page.url)
+    if parsed_initial.netloc.endswith("lightning.force.com") and not any(k in page.url.lower() for k in ["ec=302", "login", "identity", "verification"]):
+        print(f"[+] Sesión ya se encuentra activa en Salesforce Lightning ({page.url[:60]}...).")
+        return True
 
-    attempt_start = datetime.now() - timedelta(minutes=5)
+    print("[*] Verificando estado de sesión / necesidad de autenticación...")
 
-    # 1. Detectar si requiere login de usuario / contraseña
-    is_login = False
-    try:
-        if (
-            "login" in curr_url
-            or "ec=302" in curr_url
-            or "iniciar sesión" in page_title
-            or "login" in page_title
-            or page.locator("#username").is_visible(timeout=3000)
-            or page.locator("#password").is_visible(timeout=2000)
-        ):
-            is_login = True
-    except Exception:
-        pass
+    # 1. Manejo de formulario de Login (Usuario / Tarjeta de Identidad y Contraseña)
+    needs_login = (
+        "login" in page.url.lower()
+        or "ec=302" in page.url.lower()
+        or page.locator("#Login").is_visible(timeout=2000)
+        or page.locator("#username").is_visible(timeout=1500)
+        or page.locator("#password").is_visible(timeout=1500)
+    )
 
-    if is_login:
+    if needs_login:
         print("[*] Formulario de inicio de sesión detectado en Salesforce...")
         try:
-            page.wait_for_selector("#username, #password", timeout=15000)
-        except Exception:
-            pass
-
-        try:
-            # Paso 1: Usuario (Modo campo visible o Modo tarjeta recordada)
-            if page.locator("#username").is_visible(timeout=3000):
-                curr_val = page.locator("#username").input_value()
-                if not curr_val or curr_val != user:
+            # Paso 1: Si no está visible la contraseña, interactuar con usuario/idcard para revelarla
+            if not page.locator("#password").is_visible():
+                print("[*] Paso 1: Usuario/ID Card. Enviando para mostrar campo de contraseña...")
+                if page.locator("#username").is_visible() and not page.locator("#username").input_value():
                     print(f"[*] Rellenando usuario: {user}...")
                     page.fill("#username", user)
                 
                 try:
-                    if page.locator("#rememberUn").is_visible(timeout=2000):
+                    if page.locator("#rememberUn").is_visible(timeout=1500):
                         if not page.locator("#rememberUn").is_checked():
                             page.locator("#rememberUn").check()
                 except Exception:
                     pass
 
-                print("[*] Enviando usuario...")
-                page.click("#Login")
-                time.sleep(3)
-            elif page.locator("#Login").is_visible(timeout=2000) and not page.locator("#password").is_visible(timeout=1000):
-                print("[*] Tarjeta de usuario recordada en perfil detectada. Haciendo clic en Iniciar sesión...")
                 page.click("#Login")
                 time.sleep(3)
 
-            # Esperar a que aparezca la contraseña si era flujo en 2 pasos
+            # Paso 2: Rellenar contraseña
             try:
-                page.wait_for_selector("#password", timeout=10000)
+                page.wait_for_selector("#password", timeout=8000)
             except Exception:
                 pass
 
-            # Paso 2: Contraseña
-            if page.locator("#password").is_visible(timeout=5000):
-                print("[*] Rellenando contraseña...")
+            if page.locator("#password").is_visible(timeout=4000):
+                print("[*] Paso 2: Rellenando contraseña...")
                 page.fill("#password", pwd)
-                attempt_start = datetime.now() - timedelta(minutes=15)
+                time.sleep(1)
                 print("[*] Enviando credenciales de acceso...")
                 page.click("#Login")
-                time.sleep(6)
+                time.sleep(5)
         except Exception as e_login:
             print(f"[!] Nota durante ingreso de credenciales: {e_login}")
 
-    # 2. Esperar y detectar si requiere verificación de identidad (MFA / 2FA por correo)
-    is_verification = False
-    print("[*] Verificando si Salesforce requiere verificación 2FA por correo...")
-    for _ in range(8):
+    # 2. Manejo de Verificación de Identidad (MFA / 2FA vía Outlook MAPI)
+    for _ in range(6):
         curr_url = page.url.lower()
         if (
-            "verification" in curr_url
-            or "identity" in curr_url
+            "identity" in curr_url
+            or "verification" in curr_url
             or page.locator("#emc").is_visible(timeout=1000)
-            or page.locator("input[name='emc']").is_visible(timeout=1000)
-            or "verificar su identidad" in page.title().lower()
+            or "verificar" in page.title().lower()
         ):
-            is_verification = True
-            break
-        if "lightning" in curr_url or "frontdoor.jsp" in curr_url:
-            break
-        time.sleep(1.5)
-
-    if is_verification:
-        print("[*] Pantalla de verificación de identidad (2FA) detectada. Buscando código nuevo en Outlook...")
-        code = obtener_codigo_verificacion_outlook(min_received_time=attempt_start, max_wait_sec=120)
-        if code:
-            try:
-                # Escribir el código en el campo correspondiente
-                input_code = page.locator("#emc, input[name='emc'], input[type='text']").first
-                if input_code.is_visible(timeout=4000):
-                    input_code.fill(code)
-                    print(f"[+] Código {code} ingresado en el formulario de Salesforce.")
-
-                # Marcar casilla "No volver a preguntar" para registrar este equipo
+            print("[*] Paso 3: Pantalla de verificación 2FA detectada. Buscando código en Outlook...")
+            code = obtener_codigo_verificacion_outlook(max_wait_sec=90)
+            if code:
                 try:
-                    chk = page.locator("#rememberUnaccDevice, input[type='checkbox']").first
+                    input_code = page.locator("#emc, input[name='emc'], input[type='text']").first
+                    if input_code.is_visible(timeout=3000):
+                        input_code.fill(code)
+                        print(f"[+] Código {code} ingresado en el formulario de Salesforce.")
+
+                    chk = page.locator("#RememberDeviceCheckbox, #rememberUnaccDevice, input[type='checkbox']").first
                     if chk.is_visible(timeout=2000):
                         if not chk.is_checked():
                             chk.check()
-                        print("[+] Casilla 'No volver a preguntar' marcada.")
-                except Exception:
-                    pass
+                        print("[+] Casilla 'No volver a preguntar' marcada para registrar equipo de confianza.")
 
-                # Enviar formulario de verificación
-                btn_verify = page.locator("#save, input[type='submit'], input[value='Verificar'], button:has-text('Verificar')").first
-                if btn_verify.is_visible(timeout=3000):
-                    btn_verify.click()
-                    print("[*] Formulario de verificación enviado...")
-                    time.sleep(8)
-            except Exception as e_ver:
-                print(f"[!] Error al ingresar código de verificación: {e_ver}")
-        else:
-            print("[!] No se pudo obtener el código nuevo de Outlook.")
+                    btn_verify = page.locator("#save, input[type='submit'], input[value='Verificar']").first
+                    if btn_verify.is_visible(timeout=3000):
+                        btn_verify.click()
+                        print("[*] Formulario de verificación enviado...")
+                        time.sleep(8)
 
-    # 3. Confirmar que la sesión está en Lightning / Omni-Supervisor / Command Center
-    print("[*] Verificando redirección a Salesforce Lightning / Command Center...")
-    for i in range(15):
-        curr_url = page.url.lower()
-        page_title = page.title().lower()
+                    # Si el código fue inválido o expiró, reintentar con botón 'Volver a enviar'
+                    if page.locator(".errorMsg, #error").is_visible():
+                        print("[!] Código expirado o rechazado. Reenviando código nuevo...")
+                        btn_resend = page.locator("a:has-text('Volver a enviar el código')").first
+                        if btn_resend.is_visible():
+                            btn_resend.click()
+                            time.sleep(12)
+                            new_code = obtener_codigo_verificacion_outlook(max_wait_sec=90)
+                            if new_code and new_code != code:
+                                print(f"[+] Nuevo código recibido: {new_code}. Ingresando...")
+                                page.fill("#emc", new_code)
+                                page.click("#save")
+                                time.sleep(8)
+                except Exception as e_ver:
+                    print(f"[!] Error resolviendo 2FA: {e_ver}")
+            break
+        
+        parsed = urlparse(page.url)
+        if parsed.netloc.endswith("lightning.force.com") and not any(k in page.url.lower() for k in ["ec=302", "login", "identity", "verification"]):
+            break
+        time.sleep(2)
 
-        # Si ya pasó de login y verificación
+    # 3. Confirmar llegada y redirección a Lightning / Omni-Supervisor
+    print("[*] Verificando redirección a Salesforce Lightning...")
+    for i in range(12):
+        parsed = urlparse(page.url)
         is_authenticated = (
-            ("lightning" in curr_url or "one.app" in curr_url or "frontdoor.jsp" in curr_url or "command center" in page_title)
-            and "login" not in curr_url
-            and "identity" not in curr_url
-            and "iniciar sesión" not in page_title
-            and "verificar su identidad" not in page_title
+            parsed.netloc.endswith("lightning.force.com")
+            and not any(k in page.url.lower() for k in ["ec=302", "login", "identity", "verification"])
+            and "iniciar sesión" not in page.title().lower()
+            and "verificar su identidad" not in page.title().lower()
         )
 
         if is_authenticated:
-            print(f"[+] ¡Sesión autenticada y activa en Salesforce! (URL: {page.url[:60]}..., Título: {page.title()})")
-            time.sleep(4)
+            print(f"[+] ¡Sesión autenticada y activa en Salesforce Lightning! (URL: {page.url[:60]}..., Título: {page.title()})")
+            time.sleep(3)
             try:
                 context.storage_state(path=STATE_PATH)
-                print(f"[+] Estado de sesión guardado en: {STATE_PATH}")
+                print(f"[+] Estado de sesión guardado exitosamente en: {STATE_PATH}")
             except Exception as e_st:
                 print(f"[*] Nota storage_state: {e_st}")
 
-            # Si no estamos en la URL de Omni-Supervisor, navegar hacia ella
-            if "supervisorpanel" not in curr_url:
+            if "supervisorpanel" not in page.url.lower():
                 print(f"[*] Navegando directamente a Omni-Supervisor: {target_url}...")
                 try:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
-                    time.sleep(6)
+                    time.sleep(5)
                 except Exception as e_nav:
                     print(f"[*] Nota navegación: {e_nav}")
             return True
+        time.sleep(2.5)
 
     return False
 
