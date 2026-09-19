@@ -1,9 +1,13 @@
+from pathlib import Path
+_BASE_DIR = Path(__file__).parent.resolve()
+_TOKEN_FILE = (_BASE_DIR / "../../Seguimiento Pausas 4DX/scripts/genesys_token.txt").resolve()
+
 GENESYS_CONFIG = {
     "base_url": "https://api.mypurecloud.com",
     # Comparte el token con Seguimiento Pausas 4DX en vez de mantener una copia
     # propia: ese pipeline ya lo refresca (login SSO+GridSure) antes de que
     # corra esta extraccion, asi evitamos duplicar ese login.
-    "token_file": "../../Seguimiento Pausas 4DX/scripts/genesys_token.txt",
+    "token_file": str(_TOKEN_FILE),
 }
 
 # Ubicaciones a filtrar (mismas que Seguimiento Pausas 4DX)
