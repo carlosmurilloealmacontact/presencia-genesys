@@ -190,3 +190,21 @@ flowchart TD
 * **Diagnóstico del Problema:** Después de las 7:00 PM hora de Colombia (00:00 UTC del día siguiente), la Analytics API de Genesys Cloud arrojaba error `400 Bad Request: The interval value is invalid`. La causa era que `inicio_utc` se calculaba como `ahora_utc.replace(hour=5)` (que tras las 00:00 UTC pasaba a ser las 05:00 UTC de mañana), mientras que `fin_utc` era la hora actual (01:00 UTC), quedando `inicio_utc > fin_utc`.
 * **Impacto en el Dashboard:** Al fallar la llamada a Genesys Cloud, retornaba `0` llamadas, dejando únicamente los datos de Salesforce CRM Casos / Omni-Chat (que son casi en su totalidad Agencias B2B y Canales Indirectos). Esto provocaba que el gráfico de dona y treemap mostraran erróneamente un 80%+ de demanda de Agencias.
 * **Solución:** Se implementó el cálculo del intervalo basado formalmente en la zona horaria de Colombia (`America/Bogota`, UTC-5). Con la corrección, Genesys Cloud aporta más de **14,500 interacciones (68% del volumen total)**, restaurando el balance operativo real de la tri-plataforma (Genesys 68%, Salesforce 28%, Zendesk 4%).
+
+---
+
+## 11. Corrección y Blindaje del Radar de Ausentismo y Conexión (`scripts/ausentismo_engine.py`)
+* **Diagnóstico del Problema (1,215 Ausentes Artificiales a las 8:23 PM):**
+  * El módulo evaluaba la presencia instantánea en Genesys en vivo sin diferenciar si un turno ya había terminado.
+  * A las 8:23 PM, de 1,368 turnos iniciados en el día, los asesores de mañana y tarde (6 AM a 2 PM, etc.) ya habían completado sus 8 horas de jornada y cerrado sesión para irse a casa (`Offline`).
+  * Como el código solo evaluaba `si hora_actual >= hora_inicio` y `si está conectado en este segundo exacto`, los 1,215 asesores que ya habían cumplido su turno fueron clasificados erróneamente como `🚨 Ausencia / No Login` con 800+ min de retraso y 8h perdidas.
+  * Adicionalmente, la malla de turnos incluía ~630 personas de campañas ajenas (Claro, Chec, Colmédica) que no operan en el Genesys de LATAM AMC.
+* **Solución Implementada:**
+  1. **Filtrado Estricto de Cuenta LATAM:** Se integró `es_servicio_latam` y `es_campana_ajena`, excluyendo turnos de campañas ajenas y acotando el universo al ámbito real de LATAM (~721 programados).
+  2. **Ciclo de Vida de Turnos en Vivo (`es_hoy`):**
+     * `⏰ Turno Futuro` (`now < t_ini`): Sin penalización de ausencia ni retraso.
+     * `🟢 Turno En Curso` (`t_ini <= now <= t_fin`): Monitoreo de conexión en vivo con umbrales de retraso (Margen $\le$ 5m, Leve 5-15m, Crítico $>$ 15m, Ausencia $>$ 60m).
+     * `🟢 Turno Finalizado` (`now > t_fin`): Valida si el asesor tuvo actividad y cierre de sesión en Genesys hoy (`modifiedDate` de hoy). Si cumplió su jornada se clasifica como `🟢 Cumplió Turno (Salió HH:MM)` y no computa como ausente. Solo si no tuvo conexiones en todo el día computa como ausencia real.
+  3. **Novedades en Malla:** Colaboradores con `VAC`, `LMA`, `ICCP`, `LNR`, `PAB`, `DES`, `FOR` se clasifican como `📑 Novedad (Justificada)`.
+  4. **Corrección de Maestro Sociodemográfico:** Carga BPs y jerarquía desde `dim_agentes` como fallback ante ausencia de la tabla `sociodemografico`.
+  5. **Resultado Operativo:** El indicador de ausentismo pasó de un 88.8% artificial (1,215 ausentes) a un **11.3% real (57 ausentes no justificados)**, con métricas de capacidad y pendientes por justificar 100% fidedignas.

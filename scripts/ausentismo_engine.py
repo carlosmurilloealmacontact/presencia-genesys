@@ -196,20 +196,38 @@ def guardar_justificacion_db(
 
 @st.cache_data(ttl=120)
 def obtener_turnos_programados_dia(fecha_str: str) -> pd.DataFrame:
-    """Carga los turnos programados en SQLite para una fecha."""
+    """Carga los turnos programados en SQLite para una fecha con cruce de detalle de novedad y servicio."""
     db_path = Path(BASE_DIR) / DB_PATH
     if not db_path.exists():
         return pd.DataFrame()
     with sqlite3.connect(db_path) as conn:
         try:
-            df = pd.read_sql_query(
-                "SELECT bp, fecha, hora_inicio, hora_fin FROM turnos WHERE fecha = ?",
-                conn,
-                params=(fecha_str,)
-            )
+            query = """
+                SELECT 
+                    t.bp, 
+                    t.fecha, 
+                    t.hora_inicio, 
+                    t.hora_fin,
+                    COALESCE(td.servicio, '') as servicio_turno,
+                    COALESCE(td.novedad, '') as novedad
+                FROM turnos t
+                LEFT JOIN turnos_detallados td ON t.bp = td.bp AND t.fecha = td.fecha
+                WHERE t.fecha = ?
+            """
+            df = pd.read_sql_query(query, conn, params=(fecha_str,))
             return df
         except Exception:
-            return pd.DataFrame()
+            try:
+                df = pd.read_sql_query(
+                    "SELECT bp, fecha, hora_inicio, hora_fin FROM turnos WHERE fecha = ?",
+                    conn,
+                    params=(fecha_str,)
+                )
+                df["servicio_turno"] = ""
+                df["novedad"] = ""
+                return df
+            except Exception:
+                return pd.DataFrame()
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -266,12 +284,14 @@ def obtener_presencia_usuarios_ausentismo(token: str, catalog: dict) -> dict:
                 mod_date_str = pres.get("modifiedDate")
                 dur_seg = 0
                 hora_inicio_str = ""
+                fecha_cambio_str = ""
                 if mod_date_str:
                     try:
                         dt_mod = datetime.fromisoformat(mod_date_str.replace("Z", "+00:00"))
                         dur_seg = max(0, int((now_utc - dt_mod).total_seconds()))
                         dt_col = dt_mod.astimezone(col_tz)
                         hora_inicio_str = dt_col.strftime("%H:%M:%S")
+                        fecha_cambio_str = dt_col.strftime("%Y-%m-%d")
                     except Exception:
                         pass
 
@@ -284,6 +304,7 @@ def obtener_presencia_usuarios_ausentismo(token: str, catalog: dict) -> dict:
                         "routing_status": routing,
                         "duracion_min": round(dur_seg / 60.0, 1),
                         "hora_ultimo_cambio": hora_inicio_str,
+                        "fecha_ultimo_cambio": fecha_cambio_str,
                         "full_name_genesys": u_name
                     }
         return presencia_map
@@ -327,7 +348,7 @@ def obtener_presencia_historica_dia(fecha_str: str) -> dict:
 
 @st.cache_data(ttl=1800)
 def cargar_sociodemografico_db() -> dict:
-    """Carga el maestro sociodemográfico completo (14k+ asesores) para identificar BPs y jerarquía."""
+    """Carga el maestro sociodemográfico completo (14k+ asesores o dim_agentes) para identificar BPs y jerarquía."""
     db_path = Path(BASE_DIR) / DB_PATH
     if not db_path.exists():
         return {}
@@ -338,7 +359,15 @@ def cargar_sociodemografico_db() -> dict:
             df = filtrar_df_exclusiones(df)
             return df.set_index("bp").to_dict(orient="index")
         except Exception:
-            return {}
+            try:
+                df = pd.read_sql_query("SELECT agente, cargo, estado_laboral, servicio, jefe_inmediato, coordinador FROM dim_agentes", conn)
+                df["bp"] = df["agente"].apply(lambda x: str(x).split(" - ")[0].strip() if " - " in str(x) else str(x).strip())
+                df["nombre"] = df["agente"].apply(lambda x: str(x).split(" - ")[1].strip() if " - " in str(x) else str(x).strip())
+                from exclusion_list import filtrar_df_exclusiones
+                df = filtrar_df_exclusiones(df)
+                return df.set_index("bp").to_dict(orient="index")
+            except Exception:
+                return {}
 
 
 def construir_radar_ausentismo(
@@ -394,6 +423,15 @@ def construir_radar_ausentismo(
                         "hora_ultimo_cambio": row.get("hora_inicio", "")
                     }
 
+    from exclusion_list import es_servicio_latam, es_campana_ajena
+
+    # Indexar agentes_map por BP para búsqueda O(1)
+    agentes_bp_map = {}
+    for k, v in agentes_map.items():
+        bp_k = numero_agente(v.get("agente", "")) or str(k)
+        if bp_k:
+            agentes_bp_map[bp_k] = v
+
     filas = []
     for _, r in df_turnos.iterrows():
         bp = str(r["bp"]).strip()
@@ -401,12 +439,7 @@ def construir_radar_ausentismo(
         h_fin = str(r["hora_fin"]).strip()
 
         # 1. Buscar en segmentos de Genesys
-        info_ag = agentes_map.get(bp, {})
-        if not info_ag:
-            for k, v in agentes_map.items():
-                if numero_agente(v.get("agente", "")) == bp or str(k) == bp:
-                    info_ag = v
-                    break
+        info_ag = agentes_bp_map.get(bp) or agentes_map.get(bp, {})
 
         # 2. Cruzar con el maestro sociodemográfico
         socio_ag = socio_map.get(bp, {})
@@ -420,7 +453,12 @@ def construir_radar_ausentismo(
 
         sup = info_ag.get("jefe_inmediato") or socio_ag.get("jefe_inmediato") or "Sin Supervisor"
         coord = info_ag.get("coordinador") or socio_ag.get("coordinador") or "Sin Coordinador"
-        srv = info_ag.get("servicio") or socio_ag.get("servicio") or "General"
+        srv_turno = str(r.get("servicio_turno", "")).strip()
+        srv = srv_turno or info_ag.get("servicio") or socio_ag.get("servicio") or "General"
+
+        # Excluir categóricamente campañas ajenas a LATAM (Claro, Chec, Colmédica, etc.)
+        if srv and srv != "General" and (not es_servicio_latam(srv) or es_campana_ajena(srv)):
+            continue
 
         # Calcular duración programada en horas
         try:
@@ -432,11 +470,24 @@ def construir_radar_ausentismo(
         except Exception:
             duracion_turno_horas = 8.0
 
+        # Novedad programada en malla
+        nov_malla = str(r.get("novedad", "")).strip().upper()
+        es_novedad_aprobada = nov_malla in ("VAC", "LMA", "ICCP", "LNR", "PAB", "DES", "FOR", "SST", "SC")
+
         # Verificar si pertenece a Cargo (no operan con Genesys)
         es_cargo = ("CARGO" in str(srv).upper()) or ("CARGO" in str(socio_ag.get("cargo", "")).upper())
 
         # Evaluación según temporalidad (Pasado, Futuro o En Vivo)
-        if es_cargo:
+        if es_novedad_aprobada:
+            aplica_genesys = False
+            es_ausente = False
+            estado_asistencia = f"📑 Novedad ({nov_malla})"
+            semaforo = "⚪"
+            esta_conectado = False
+            ya_debio_iniciar = es_pasado or (hora_act_str >= h_ini)
+            pres_label = f"Novedad ({nov_malla})"
+            minutos_desde_inicio = 0
+        elif es_cargo:
             aplica_genesys = False
             es_ausente = False
             estado_asistencia = "📦 Cargo (Sin Genesys)"
@@ -538,15 +589,13 @@ def construir_radar_ausentismo(
                 minutos_desde_inicio = int(round(duracion_turno_horas * 60))
                 pres_label = "Sin Conexión"
         else:
-            # es_hoy: Evaluar estado de puntualidad y conexión en tiempo real
+            # es_hoy: Evaluar estado de puntualidad y conexión con discriminación de turnos finalizados vs en curso
             aplica_genesys = True
             live_info = presencia_act_map.get(bp, {})
             pres_label = live_info.get("presence_label", "Offline")
             sys_pres = live_info.get("system_presence", "Offline")
             esta_conectado = (pres_label != "Offline" and sys_pres != "Offline")
 
-            ya_debio_iniciar = (hora_act_str >= h_ini)
-            minutos_desde_inicio = 0
             try:
                 t_ini_dt_today = now_col.replace(
                     hour=int(h_ini.split(":")[0]),
@@ -554,32 +603,82 @@ def construir_radar_ausentismo(
                     second=int(h_ini.split(":")[2]),
                     microsecond=0
                 )
-                minutos_desde_inicio = (now_col - t_ini_dt_today).total_seconds() / 60.0
+                t_fin_dt_today = now_col.replace(
+                    hour=int(h_fin.split(":")[0]),
+                    minute=int(h_fin.split(":")[1]),
+                    second=int(h_fin.split(":")[2]),
+                    microsecond=0
+                )
+                if t_fin_dt_today <= t_ini_dt_today:
+                    if now_col.time() < t_fin_dt_today.time():
+                        t_ini_dt_today -= timedelta(days=1)
+                    else:
+                        t_fin_dt_today += timedelta(days=1)
             except Exception:
-                pass
+                t_ini_dt_today = now_col
+                t_fin_dt_today = now_col
 
-            if not ya_debio_iniciar:
+            minutos_desde_inicio = (now_col - t_ini_dt_today).total_seconds() / 60.0
+            turno_futuro = (now_col < t_ini_dt_today)
+            turno_en_curso = (t_ini_dt_today <= now_col <= t_fin_dt_today)
+
+            if turno_futuro:
+                ya_debio_iniciar = False
                 estado_asistencia = "⏰ Turno Futuro"
                 semaforo = "⚪"
                 es_ausente = False
-            elif esta_conectado:
-                estado_asistencia = "🟢 Conectado"
-                semaforo = "🟢"
-                es_ausente = False
+                minutos_desde_inicio = 0
+            elif turno_en_curso:
+                ya_debio_iniciar = True
+                if esta_conectado:
+                    estado_asistencia = "🟢 Conectado"
+                    semaforo = "🟢"
+                    es_ausente = False
+                    minutos_desde_inicio = 0
+                else:
+                    if minutos_desde_inicio <= 5:
+                        estado_asistencia = "🟡 En Margen (<=5m)"
+                        semaforo = "🟡"
+                        es_ausente = False
+                    elif minutos_desde_inicio <= 15:
+                        estado_asistencia = "🟠 Retraso Leve (5-15m)"
+                        semaforo = "🟠"
+                        es_ausente = True
+                    elif minutos_desde_inicio <= 60:
+                        estado_asistencia = "🔴 Retraso Crítico (>15m)"
+                        semaforo = "🔴"
+                        es_ausente = True
+                    else:
+                        estado_asistencia = "🚨 Ausencia / No Login"
+                        semaforo = "🚨"
+                        es_ausente = True
             else:
-                es_ausente = True
-                if minutos_desde_inicio <= 5:
-                    estado_asistencia = "🟡 En Margen (<=5m)"
-                    semaforo = "🟡"
-                elif minutos_desde_inicio <= 15:
-                    estado_asistencia = "🟠 Retraso Leve (5-15m)"
-                    semaforo = "🟠"
-                elif minutos_desde_inicio <= 60:
-                    estado_asistencia = "🔴 Retraso Crítico (>15m)"
-                    semaforo = "🔴"
+                # Turno ya finalizado hoy (la hora de fin ya pasó)
+                ya_debio_iniciar = True
+                dur_min = live_info.get("duracion_min", 999999)
+                fecha_cambio = live_info.get("fecha_ultimo_cambio", "")
+                minutos_desde_medianoche = (now_col - now_col.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 60.0
+                h_ult = live_info.get("hora_ultimo_cambio", "")
+                actividad_hoy = (fecha_cambio == hoy_str) or (dur_min <= minutos_desde_medianoche + 60)
+
+                if esta_conectado:
+                    estado_asistencia = "🟢 Conectado (Horas Extra)"
+                    semaforo = "🟢"
+                    es_ausente = False
+                    minutos_desde_inicio = 0
+                elif actividad_hoy:
+                    h_disp = f" • Salió {h_ult[:5]}" if h_ult else ""
+                    estado_asistencia = f"🟢 Cumplió Turno{h_disp}"
+                    semaforo = "🟢"
+                    es_ausente = False
+                    minutos_desde_inicio = 0
+                    pres_label = f"Finalizado{h_disp}"
                 else:
                     estado_asistencia = "🚨 Ausencia / No Login"
                     semaforo = "🚨"
+                    es_ausente = True
+                    minutos_desde_inicio = int(round(duracion_turno_horas * 60))
+                    pres_label = "Sin Conexión Hoy"
 
         # Cruzar con justificación si existe
         just_info = just_map.get(bp, {})
@@ -590,8 +689,15 @@ def construir_radar_ausentismo(
         if es_cargo:
             justificacion_val = "No Aplica (Cargo)"
             es_justificado_str = "No Aplica"
+        elif es_novedad_aprobada:
+            justificacion_val = f"Malla: {nov_malla}"
+            es_justificado_str = "Sí"
+        elif not es_ausente:
+            justificacion_val = tipo_just or "No Aplica (Asistió)"
+            es_justificado_str = "No Aplica"
         else:
             justificacion_val = tipo_just or "Sin Justificar"
+            es_justificado = (tipo_just not in AUSENCIAS_INJUSTIFICADAS_SET) if tipo_just else False
             es_justificado_str = "Sí" if (tipo_just and es_justificado) else ("No" if (tipo_just and not es_justificado) else "Pendiente")
 
         sede_val = sede_map.get(bp, "Medellín")
@@ -782,7 +888,7 @@ def render_tab_ausentismo(agentes_map: dict):
                 help="Horas de turno restadas directamente a la Base del Requerido"
             )
         with m5:
-            pendientes_just = len(ausentes_df[ausentes_df["Justificación"] == "Sin Justificar"])
+            pendientes_just = len(ausentes_df[ausentes_df["Es Justificado"] == "Pendiente"])
             st.metric("Pendientes Justificar", f"{pendientes_just:,}", delta="Acción requerida líder" if pendientes_just > 0 else "Al día", delta_color="inverse" if pendientes_just > 0 else "normal")
 
         st.markdown("---")
@@ -804,13 +910,24 @@ def render_tab_ausentismo(agentes_map: dict):
 
             col_filtro_est, col_espacio = st.columns([2, 3])
             with col_filtro_est:
-                opc_estados = ["Todos los que debieron iniciar", "Solo Ausentes / No Login (Crítico)", "Solo Retrasos (5-15 min)", "Ver Todos (Incluye Futuros)"]
-                filtro_est = st.selectbox("Vista de Radar:", opc_estados, index=1, key="aus_filtro_radar")
+                opc_estados = [
+                    "Solo Ausentes / No Login (Crítico)",
+                    "Solo Retrasos (5-15 min)",
+                    "Turnos En Curso (Activos Ahora)",
+                    "Turnos Finalizados (Cumplieron)",
+                    "Todos los que debieron iniciar",
+                    "Ver Todos (Malla Completa)"
+                ]
+                filtro_est = st.selectbox("Vista de Radar:", opc_estados, index=0, key="aus_filtro_radar")
 
             if filtro_est == "Solo Ausentes / No Login (Crítico)":
                 df_radar_show = df_view[df_view["Ya Inició"] & df_view["Es Ausente"]]
             elif filtro_est == "Solo Retrasos (5-15 min)":
-                df_radar_show = df_view[df_view["Estado"].str.contains("Retraso Leve", na=False)]
+                df_radar_show = df_view[df_view["Estado"].str.contains("Retraso", na=False)]
+            elif filtro_est == "Turnos En Curso (Activos Ahora)":
+                df_radar_show = df_view[df_view["Estado"].isin(["🟢 Conectado", "🟡 En Margen (<=5m)", "🟠 Retraso Leve (5-15m)", "🔴 Retraso Crítico (>15m)"])]
+            elif filtro_est == "Turnos Finalizados (Cumplieron)":
+                df_radar_show = df_view[df_view["Estado"].str.contains("Cumplió Turno", na=False)]
             elif filtro_est == "Todos los que debieron iniciar":
                 df_radar_show = df_view[df_view["Ya Inició"]]
             else:
